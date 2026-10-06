@@ -1,5 +1,10 @@
 # Dataverse Inventory Kit
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/github/v/tag/AlexVarrese/dataverse-inventory-kit?label=vers%C3%A3o)](https://github.com/AlexVarrese/dataverse-inventory-kit/tags)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compat%C3%ADvel-7c3aed)](https://agentskills.io/specification)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)](skills/dataverse-inventory/scripts/requirements.txt)
+
 Skill + pacote Python (`dvinv`) para fazer o **inventário read-only de ambientes Microsoft Dataverse /
 Dynamics 365 / Power Platform** e publicar o resultado como um **vault Obsidian**. O vault traz uma
 nota por componente, Bases, um Canvas do ambiente, achados automáticos e comparação entre ambientes.
