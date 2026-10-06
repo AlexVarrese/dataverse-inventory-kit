@@ -1,0 +1,216 @@
+import base64
+import io
+import re
+import zipfile
+
+from .. import secrets
+from ..util import day, field_refs, fv
+
+WR_TYPES = {1: "HTML", 2: "CSS", 3: "JScript", 4: "XML", 5: "PNG", 6: "JPG", 7: "GIF", 8: "XAP",
+            9: "XSL", 10: "ICO", 11: "SVG", 12: "RESX", 13: "TS"}
+TEXT_TYPES = {1, 2, 3, 4, 9, 11, 12}
+# Análise estática de JS — padrões de risco/legado (portado e generalizado).
+JS_CHECKS = {
+    "xrm_page": re.compile(r"\bXrm\.Page\b"),                          # API obsoleta desde a v9
+    "form_context": re.compile(r"\bformContext\b|\bexecutionContext\b"),
+    "eval": re.compile(r"\beval\s*\("),
+    "jquery": re.compile(r"\$\(|\bjQuery\s*\("),
+    "xrm_service_toolkit": re.compile(r"XrmServiceToolkit"),
+    "raw_http": re.compile(r"\$\.ajax|XMLHttpRequest|\bfetch\s*\("),
+    "odata_2011": re.compile(r"XRMServices/2011|OrganizationData\.svc", re.I),  # endpoint SOAP/OData 2011 removido
+    "sync_xhr": re.compile(r"\.open\(\s*[\"'][A-Z]+[\"']\s*,[^,)]+,\s*false\s*\)"),
+}
+WEBAPI_RE = re.compile(r"Xrm\.WebApi(?:\.online|\.offline)?\.(\w+)")
+GETATTR_RE = re.compile(r"getAttribute\(\s*[\"']([\w]+)[\"']")
+CONSOLE_RE = re.compile(r"console\.(?:log|warn|error|debug)")
+TODO_RE = re.compile(r"(?://|/\*)\s*(?:TODO|FIXME|HACK)", re.I)
+URL_RE = re.compile(r"https?://[^\s\"'\)<>]+")
+THIRD_PARTY_RE = re.compile(r"jquery|json2|moment|lodash|underscore|toolkit|polyfill|\.min\.js$|bootstrap|chart\.?js|select2", re.I)
+
+
+def analyze_js(name, text):
+    from urllib.parse import urlparse
+    hosts = sorted({urlparse(u).netloc for u in URL_RE.findall(text) if urlparse(u).netloc})
+    out = {k: bool(rx.search(text)) for k, rx in JS_CHECKS.items()}
+    out.update({
+        "lines": text.count("\n") + 1,
+        "third_party": bool(THIRD_PARTY_RE.search(name)),
+        "webapi_methods": sorted(set(WEBAPI_RE.findall(text))),
+        "attributes_read": sorted({a.lower() for a in GETATTR_RE.findall(text)}),
+        "console_calls": len(CONSOLE_RE.findall(text)),
+        "todo_count": len(TODO_RE.findall(text)),
+        "external_hosts": [h for h in hosts if not h.endswith((".dynamics.com", ".microsoft.com", ".w3.org"))],
+    })
+    return out
+
+
+FUNC_RE = re.compile(
+    r"(?:function\s+([A-Za-z_$][\w$]*)\s*\(|([A-Za-z_$][\w$]*)\s*[:=]\s*(?:async\s+)?function\b|"
+    r"([A-Za-z_$][\w$]*)\s*[:=]\s*(?:async\s*)?\([^)]*\)\s*=>)")
+
+
+def collect_webresources(ctx):
+    c, scope, cfg = ctx.client, ctx.scope, ctx.cfg
+    allwr = c.get_all("webresourceset?$select=webresourceid,name,displayname,webresourcetype,ismanaged,modifiedon")
+    # Nomes de TODOS os web resources da org: usado para achar referências quebradas em forms/ribbons.
+    ctx.data["_webresource_names"] = sorted({w["name"].lower() for w in allwr})
+    out = []
+    for w in allwr:
+        reason = scope.reason(w["name"], w.get("ismanaged"), w["webresourceid"], keyword_match=False)
+        if not reason:
+            continue
+        t = w.get("webresourcetype")
+        rec = {
+            "id": w["webresourceid"], "name": w["name"], "display": w.get("displayname"),
+            "type": WR_TYPES.get(t, str(t)), "managed": w.get("ismanaged"), "modified": day(w.get("modifiedon")),
+            "scope_reason": reason, "solutions": scope.solutions_of(w["webresourceid"]),
+            "size": None, "functions": [], "secret_hits": [], "content": None, "js": None,
+        }
+        if cfg.deep.get("webresource_content") and t in TEXT_TYPES:
+            try:
+                d = c.get(f"webresourceset({w['webresourceid']})?$select=content")
+                raw = base64.b64decode(d.get("content") or "")
+                text = raw.decode("utf-8-sig", "replace")
+                rec["size"] = len(raw)
+                rec["secret_hits"] = secrets.scan(text)
+                if t == 3:
+                    names = {next(g for g in m.groups() if g) for m in FUNC_RE.finditer(text)}
+                    rec["functions"] = sorted(names)
+                    rec["js"] = analyze_js(w["name"], text)
+                rec["content"] = secrets.redact(text)
+            except Exception as e:  # noqa: BLE001
+                ctx.gap("webresources", f"conteúdo de {w['name']}", e)
+        out.append(rec)
+    ctx.stats["webresources"] = {"org_total": len(allwr), "scope": len(out)}
+    ctx.data["webresources"] = sorted(out, key=lambda x: x["name"])
+
+
+LIB_RE = re.compile(r'<Library\b[^>]*\bname="([^"]+)"', re.I)
+EVENT_RE = re.compile(r"<event\b([^>]*)>(.*?)</event>", re.I | re.S)
+HANDLER_RE = re.compile(r"<Handler\b([^>]*)/?>", re.I)
+ATTR = lambda name: re.compile(rf'\b{name}="([^"]*)"', re.I)  # noqa: E731
+A_NAME, A_ATTR, A_FUNC, A_LIB, A_ENABLED = ATTR("name"), ATTR("attribute"), ATTR("functionName"), ATTR("libraryName"), ATTR("enabled")
+CONTROL_RE = re.compile(r'<control\b[^>]*\bdatafieldname="([^"]+)"', re.I)
+
+
+def parse_formxml(xml):
+    libs = sorted(set(LIB_RE.findall(xml)))
+    handlers = []
+    for m in EVENT_RE.finditer(xml):
+        head, body = m.group(1), m.group(2)
+        ev = (A_NAME.search(head) or [None, None])[1]
+        field = (A_ATTR.search(head) or [None, None])[1]
+        for h in HANDLER_RE.finditer(body):
+            ha = h.group(1)
+            fn = A_FUNC.search(ha)
+            lib = A_LIB.search(ha)
+            en = A_ENABLED.search(ha)
+            if fn or lib:
+                handlers.append({
+                    "event": ev, "field": field.lower() if field else None,
+                    "library": lib.group(1) if lib else None, "function": fn.group(1) if fn else None,
+                    "enabled": (en.group(1).lower() != "false") if en else True,
+                })
+    fields = sorted({f.lower() for f in CONTROL_RE.findall(xml)})
+    return libs, handlers, fields
+
+
+def collect_forms(ctx):
+    c, scope, cfg = ctx.client, ctx.scope, ctx.cfg
+    forms = c.get_all(
+        "systemforms?$select=formid,name,type,objecttypecode,formactivationstate,ismanaged,isdefault,modifiedon")
+    out = []
+    for f in forms:
+        ent = f.get("objecttypecode")
+        if ent not in scope.tables and not scope.reason(f.get("name"), f.get("ismanaged"), f["formid"], keyword_match=False):
+            continue
+        rec = {
+            "id": f["formid"], "name": f.get("name"), "entity": ent,
+            "type": fv(f, "type") or str(f.get("type")), "active": f.get("formactivationstate") == 1,
+            "managed": f.get("ismanaged"), "default": f.get("isdefault"), "modified": day(f.get("modifiedon")),
+            "solutions": scope.solutions_of(f["formid"]), "libraries": [], "handlers": [], "fields": [],
+        }
+        # Dashboards (type 0) não têm entidade de escopo útil para eventos; formxml só para forms ativos.
+        if cfg.deep.get("form_events") and rec["active"] and ent and ent != "none":
+            try:
+                xml = c.get(f"systemforms({f['formid']})?$select=formxml").get("formxml") or ""
+                rec["libraries"], rec["handlers"], rec["fields"] = parse_formxml(xml)
+            except Exception as e:  # noqa: BLE001
+                ctx.gap("forms", f"formxml de {ent}/{f.get('name')}", e)
+        out.append(rec)
+    ctx.stats["forms"] = {"org_total": len(forms), "scope": len(out)}
+    ctx.data["forms"] = sorted(out, key=lambda x: (x["entity"] or "", x["name"] or ""))
+
+
+def collect_views(ctx):
+    c, scope = ctx.client, ctx.scope
+    views = c.get_all(
+        "savedqueries?$select=savedqueryid,name,returnedtypecode,querytype,isdefault,statecode,ismanaged,modifiedon")
+    out = []
+    for v in views:
+        ent = v.get("returnedtypecode")
+        if ent not in scope.tables:
+            continue
+        out.append({
+            "id": v["savedqueryid"], "name": v.get("name"), "entity": ent,
+            "querytype": fv(v, "querytype") or str(v.get("querytype")), "default": v.get("isdefault"),
+            "active": v.get("statecode") == 0, "managed": v.get("ismanaged"), "modified": day(v.get("modifiedon")),
+        })
+    if ctx.cfg.deep.get("field_usage"):
+        for x in out:
+            try:
+                d = c.get(f"savedqueries({x['id']})?$select=fetchxml,layoutxml")
+                xml = (d.get("fetchxml") or "") + (d.get("layoutxml") or "")
+                x["columns"] = sorted({m.lower() for m in re.findall(r'\bname="([A-Za-z0-9_]+)"', xml)})
+            except Exception as e:  # noqa: BLE001
+                ctx.gap("views", f"fetchxml da view {x['name']}", e)
+    ctx.stats["views"] = {"org_total": len(views), "scope": len(out)}
+    ctx.data["views"] = sorted(out, key=lambda x: (x["entity"], x["name"] or ""))
+
+
+BUTTON_RE = re.compile(r"<Button\b([^>]*)/?>", re.I)
+CMD_RE = re.compile(r'<CommandDefinition\b[^>]*\bId="([^"]+)"[^>]*>(.*?)</CommandDefinition>', re.I | re.S)
+JSF_RE = re.compile(r"<JavaScriptFunction\b([^>]*)>", re.I)
+A_ID, A_COMMAND, A_LABEL, A_LIBRARY, A_FNAME = ATTR("Id"), ATTR("Command"), ATTR("LabelText"), ATTR("Library"), ATTR("FunctionName")
+
+
+def collect_ribbons(ctx):
+    """Botões clássicos (RibbonDiffXml) cujo comando chama um web resource. Só com deep.ribbons."""
+    c, scope, cfg = ctx.client, ctx.scope, ctx.cfg
+    if not cfg.deep.get("ribbons"):
+        return
+    out = []
+    for ent in sorted(scope.tables):
+        try:
+            d = c.get(f"RetrieveEntityRibbon(EntityName=@p1,RibbonLocationFilter=@p2)?@p1='{ent}'"
+                      f"&@p2=Microsoft.Dynamics.CRM.RibbonLocationFilters'All'")
+            raw = base64.b64decode(d["CompressedEntityXml"])
+            xml = zipfile.ZipFile(io.BytesIO(raw)).read("RibbonXml.xml").decode("utf-8")
+        except Exception as e:  # noqa: BLE001
+            ctx.gap("ribbons", f"ribbon de {ent}", e)
+            continue
+        commands = {}
+        for m in CMD_RE.finditer(xml):
+            fns = []
+            for j in JSF_RE.finditer(m.group(2)):
+                lib = (A_LIBRARY.search(j.group(1)) or [None, None])[1] or ""
+                fn = (A_FNAME.search(j.group(1)) or [None, None])[1]
+                if lib.startswith("$webresource:"):
+                    fns.append({"library": lib.split(":", 1)[1], "function": fn})
+            if fns:
+                commands[m.group(1)] = fns
+        for b in BUTTON_RE.finditer(xml):
+            attrs = b.group(1)
+            cmd = (A_COMMAND.search(attrs) or [None, None])[1]
+            if cmd not in commands:
+                continue
+            calls = commands[cmd]
+            libs = [x["library"].lower() for x in calls]
+            # Só botões que chamam bibliotecas do cliente (nativos Microsoft ficam de fora).
+            if not any(scope.reason(lib, None, None) for lib in libs):
+                continue
+            out.append({
+                "entity": ent, "button": (A_ID.search(attrs) or [None, None])[1],
+                "label": (A_LABEL.search(attrs) or [None, None])[1], "command": cmd, "calls": calls,
+            })
+    ctx.data["ribbons"] = out

@@ -1,0 +1,54 @@
+# Copie para a pasta do cliente como inventory.yaml e ajuste.
+# Caminhos relativos são resolvidos a partir da pasta deste arquivo.
+
+environment:
+  name: CLIENTE-PRD                       # aparece nas notas, tags e Bases (use um por ambiente)
+  url: https://contoso.crm.dynamics.com   # ou DATAVERSE_URL no .env
+
+auth:
+  # auto = spn (se CLIENT_ID/CLIENT_SECRET no .env) → mcp (cache do `dataverse auth create`) → azcli → devicecode
+  # spn  = Service Principal (Application User)       — ver INSTALL.md §3A
+  # mcp  = mesmo login do servidor MCP do Dataverse    — ver INSTALL.md §3B
+  method: auto
+  env_file: .env                          # TENANT_ID, CLIENT_ID, CLIENT_SECRET (nunca versionar)
+
+scope:
+  # O que é "componente do cliente". Qualquer critério que bater inclui o componente.
+  prefixes: [contoso_]                    # prefixo(s) do publisher; padrão de nome lógico
+  # keywords: [contoso]                   # default = prefixos sem "_" (casa nomes de processos/assemblies)
+  solutions: []                           # uniquenames de soluções a inventariar integralmente
+  include_unmanaged: true                 # tudo que é não gerenciado (customização direta no ambiente)
+  all: false                              # true = tudo da org (gera MUITO volume; use com cuidado)
+
+deep:                                     # coletas pesadas — `--deep` liga todas
+  record_counts: true
+  webresource_content: true
+  flow_definitions: true
+  form_events: true
+  role_privileges: false
+  ribbons: false
+  plugin_trace: false
+  team_members: false
+  plugin_binaries: false          # baixa as DLLs; com `ilspycmd` no PATH, decompila e compara com o repo
+  process_definitions: false      # XAML/clientdata de workflows, business rules, actions e BPFs
+  field_usage: false              # preenchimento real + matriz de uso + candidatos a remoção (liga process_definitions)
+  storage: false                  # maiores tabelas, anexos (notas/e-mail), auditoria
+
+plugin_trace_days: 7
+
+field_usage:
+  tables: []                      # vazio = todas as tabelas do escopo; ex.: [account, contact, contoso_project]
+  max_records: 500000             # acima disso a contagem por paginação vira "parcial"
+
+# Clones locais dos repositórios de código do cliente (opcional). Nada é clonado nem alterado:
+# só leitura de arquivos + `git rev-parse`/`git log -1`.
+repos: []
+#  - path: ../repos/WebResources
+#    kind: webresources            # webresources | plugins | any
+#  - path: ../repos/Plugins
+#    kind: plugins
+
+output:
+  raw_dir: out/CLIENTE-PRD/_raw           # evidência JSON (redigida) + manifest.json
+  vault_root: ./vault                     # raiz do vault Obsidian (pode ser um vault já existente)
+  vault_folder: Dataverse/CLIENTE-PRD     # pasta dentro do vault

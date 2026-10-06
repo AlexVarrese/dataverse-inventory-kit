@@ -1,0 +1,19 @@
+{
+  "name": "dataverse-inventory",
+  "version": "0.2.0",
+  "description": "Read-only inventory of Microsoft Dataverse / Dynamics 365 environments published as an Obsidian vault (notes, Bases, Canvas, findings). Use for environment assessments, customization inventories and TEST x PRD gap analysis.",
+  "author": {
+    "name": "alexvarrese",
+    "url": "https://github.com/alexvarrese"
+  },
+  "repository": "https://github.com/alexvarrese/dataverse-inventory-kit",
+  "license": "MIT",
+  "keywords": [
+    "dataverse",
+    "dynamics-365",
+    "power-platform",
+    "inventory",
+    "obsidian",
+    "governance"
+  ]
+}

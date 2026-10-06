@@ -1,0 +1,15 @@
+{
+  "name": "dataverse-inventory-kit",
+  "owner": {
+    "name": "alexvarrese",
+    "url": "https://github.com/alexvarrese"
+  },
+  "plugins": [
+    {
+      "name": "dataverse-inventory",
+      "source": "./",
+      "description": "Inventário read-only de ambientes Dataverse/D365 em vault Obsidian",
+      "version": "0.2.0"
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+# dataverse-inventory (`dvinv`)
+
+Pacote + skill para **inventariar ambientes Microsoft Dataverse / Dynamics 365 / Power Platform** e
+publicar o resultado como um **vault Obsidian** navegável, seguindo as convenções de
+[kepano/obsidian-skills](https://github.com/kepano/obsidian-skills): Obsidian Flavored Markdown,
+Bases e JSON Canvas.
+
+É genérico: tudo que é específico de um cliente fica num `inventory.yaml` e num `.env`, na pasta do cliente.
+
+```
+Dataverse Web API (GET)  ──►  _raw/*.json + manifest.json  ──►  vault Obsidian
+  SPN ou login do MCP          evidência redigida, auditável      notas · Bases · Canvas · achados
+```
+
+## O que é coletado
+
+| Família | Componentes |
+|---|---|
+| Ambiente e ALM | versão, organização, auditoria, plugin trace, soluções e componentes por solução, publishers, variáveis de ambiente, referências de conexão, conectores customizados |
+| Dados | tabelas custom e nativas customizadas, colunas (tipo, obrigatoriedade, auditoria), chaves alternativas, relacionamentos 1:N/N:N, option sets globais, contagem de registros |
+| Interface | formulários (bibliotecas JS, handlers por evento/campo), views, web resources (com código-fonte redigido e funções), botões de ribbon\*, apps model-driven, canvas apps, agentes Copilot Studio |
+| Código e integração | plugin assemblies, classes, steps, imagens, binários\*, Custom APIs (parâmetros/respostas), service endpoints (webhook/Service Bus) |
+| Automação | workflows clássicos, business rules, actions, BPFs, cloud flows (gatilho, conectores, hosts HTTP, tabelas tocadas), desktop flows, proprietário e status |
+| Segurança | árvore de BUs, papéis (deduplicados pela BU raiz), privilégios por tabela\*, equipes e membros\*, perfis de segurança de campo, usuários |
+| Saúde | plugin trace log: execuções, erros e tempo por classe\* |
+| Uso de campos\* | preenchimento real por coluna, matriz de uso (forms, eventos, views, processos, flows, plugins, JS, repo), candidatos seguros a remoção |
+| Qualidade de código | JS: APIs obsoletas (Xrm.Page, SOAP 2011), eval, XHR síncrono, libs legadas, hosts fixos · flows: estrutura, condições, tratamento de erro |
+| Armazenamento e auditoria\* | maiores tabelas, notas e anexos de e-mail (qtd, bytes, tipos), auditoria por tabela/ação e retenção efetiva |
+| Repositórios Git (`repos:`) | web resources e classes de plugin × código versionado, métodos só em produção (DLL decompilada), segredos no repo |
+
+\* com `--deep` ou a chave correspondente em `deep:` no YAML.
+
+## O que é gerado no vault
+
+```
+<vault>/Dataverse/<AMBIENTE>/
+  00 Índice.md          números (escopo × org), achados, Bases embutidas
+  01 Ambiente.md        versão, critério de escopo, LACUNAS declaradas, soluções, tempos
+  03 Integrações.md     conectores, hosts HTTP, endpoints, Custom APIs, variáveis, conexões
+  04 Segurança.md       árvore de BUs, papéis, equipes, perfis de campo
+  05 Uso de Campos.md   preenchimento × uso, candidatos a remoção          (deep.field_usage)
+  06 Armazenamento e Auditoria.md                                          (deep.storage)
+  07 Repositórios.md    ambiente × Git: divergências, sem fonte, segredos  (repos:)
+  Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/
+  Custom APIs/  Apps/  Soluções/  Papéis/  Achados/  Comparações/
+  Bases/                Tabelas · Automações · Plugin Steps · Web Resources · Achados · Componentes
+  Mapa do Ambiente.canvas
+```
+
+Cada nota tem properties tipadas (`tipo`, `ambiente`, `tabela`, `ativo`, `modo`…) que alimentam as
+Bases. Os links usam o caminho completo, então vários ambientes convivem no mesmo vault. Abaixo do
+marcador `%% dvinv:manual … %%` fica o espaço do analista, preservado entre extrações.
+
+## Achados automáticos
+
+São regras derivadas de levantamentos reais, cada uma com contagem e evidência apontando para `_raw/`.
+Exemplos: segredo em texto claro (SEC-01); biblioteca JS inexistente referenciada em formulário ou
+botão (UI-01); handler sem função (UI-02); step de Update sem filtering attributes (PLG-01); plugin com
+taxa de erro ≥ 5% (PLG-04); BPFs concorrentes (PRC-01); automação de dono desativado (PRC-02); tabela
+custom sem privilégio de leitura (SEG-01); equipe gigante (SEG-02); variável de ambiente sem valor
+(ALM-01). Lista completa em [`references/findings.md`](references/findings.md).
+
+## Uso rápido
+
+```bash
+SKILL=<pasta onde a skill foi instalada>     # ver INSTALL.md §2
+mkdir -p inventario/CLIENTE && cd inventario/CLIENTE
+cp $SKILL/scripts/inventory.example.yaml inventory.yaml     # ajustar url, prefixos, saída
+python3 $SKILL/scripts/dvinv.py check   -c inventory.yaml   # testa a conexão
+python3 $SKILL/scripts/dvinv.py all     -c inventory.yaml   # extrai + gera o vault
+python3 $SKILL/scripts/dvinv.py extract -c inventory.yaml --deep
+python3 $SKILL/scripts/dvinv.py diff    -c inventory.yaml --a out/PRD/_raw --b out/TEST/_raw
+```
+
+Instalação, Service Principal e MCP: **[INSTALL.md](INSTALL.md)**.
+Com agente (Hermes/Claude Code): basta pedir "faça o inventário do ambiente X". A skill
+[`SKILL.md`](SKILL.md) conduz o processo. Para outros agentes, use [`PROMPT.md`](PROMPT.md).
+
+## Garantias
+
+- **Somente leitura**: o cliente HTTP só implementa GET.
+- **Segredos redigidos** antes de qualquer gravação (raw, fontes, notas). O achado informa onde está o segredo, nunca o valor.
+- **Lacunas declaradas**: o que falhou ou não é visível pela API vai para o manifest e para `01 Ambiente.md`.
+- **Rastreável**: `manifest.json` lista cada chamada feita (caminho, status, linhas, ms).
+- **Testado offline**: `python3 tests/test_pipeline.py` (org fictícia, sem rede).
+
+## Estrutura do pacote
+
+```
+dataverse-inventory/
+  SKILL.md  README.md  INSTALL.md  PROMPT.md
+  references/  collectors.md  vault-schema.md  findings.md
+  scripts/
+    dvinv.py                   launcher da CLI
+    inventory.example.yaml     configuração modelo
+    requirements.txt
+    dvinv/
+      auth.py                  SPN · MCP (cache do Dataverse CLI) · Azure CLI · device code
+      client.py                GET-only, paginação, retry 429/5xx, log de chamadas
+      config.py  scope.py  secrets.py  findings.py  diff.py  cli.py
+      collectors/              environment, tables, ui, apps, code, processes, alm, security,
+                               repos, usage, storage, health
+      render/                  obsidian (notas), bases (.base), canvas (.canvas)
+  tests/test_pipeline.py
+```

@@ -1,0 +1,4 @@
+azure-identity>=1.15
+msal>=1.24
+msal-extensions>=1.1
+PyYAML>=6.0
