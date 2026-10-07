@@ -83,6 +83,9 @@ def parse_flow(clientdata):
         info["trigger_detail"] = f"{name} ({op})" if op else name
     refs = props.get("connectionReferences") or {}
     apis = set()
+    info["connrefs"] = sorted({(r.get("connection") or {}).get("connectionReferenceLogicalName")
+                               for r in refs.values() if (r.get("connection") or {}).get("connectionReferenceLogicalName")})
+    info["child_flow_ids"] = []
     for r in refs.values():
         api = r.get("api", {}).get("name") or r.get("apiName") or ""
         if not api and isinstance(r.get("id"), str):
@@ -115,6 +118,9 @@ def parse_flow(clientdata):
                     hosts.add("(URI dinâmica)")
             if a.get("type") == "Workflow":
                 info["child_flows"] += 1
+                wid = (((a.get("inputs") or {}).get("host") or {}).get("workflowReferenceName"))
+                if wid:
+                    info["child_flow_ids"].append(wid.lower())
             walk(a.get("actions"), depth + 1)
             if (a.get("else") or {}).get("actions"):
                 if len(info["outline"]) < 400:
@@ -139,6 +145,15 @@ def collect_processes(ctx):
         "&$filter=type eq 1 or category eq 5")
     set_to_logical = {t.get("entityset"): t["logical"] for t in ctx.data.get("tables", []) if t.get("entityset")}
     known_fields = {c["logical"] for t in ctx.data.get("tables", []) for c in t.get("columns", []) if c.get("custom")}
+    # nomes citáveis em definições: variáveis de ambiente e Custom APIs (para a matriz de dependências)
+    alm = ctx.data.get("alm") or {}
+    envvar_names = {e["name"].lower(): e["name"] for e in alm.get("envvars") or []}
+    api_names = {a["unique"].lower(): a["unique"] for a in ctx.data.get("customapis") or []}
+
+    def named_refs(text):
+        toks = set(field_refs(text, set(envvar_names) | set(api_names)))
+        return (sorted(envvar_names[t] for t in toks if t in envvar_names),
+                sorted(api_names[t] for t in toks if t in api_names))
     out = []
     for w in rows:
         ent = w.get("primaryentity")
@@ -174,6 +189,7 @@ def collect_processes(ctx):
                 rec.update(parse_flow(cdata))
                 rec["tables"] = sorted({set_to_logical.get(t, t) for t in rec["tables"]})
                 rec["field_refs"] = field_refs(cdata, known_fields)
+                rec["envvar_refs"], rec["customapi_refs"] = named_refs(cdata)
                 rec["secret_hits"] = secrets.scan(cdata)
             except Exception as e:  # noqa: BLE001
                 ctx.gap("processes", f"definição do flow {w.get('name')}", e)
@@ -184,6 +200,7 @@ def collect_processes(ctx):
                 text = (d.get("xaml") or "") + (d.get("clientdata") or "")
                 rec["field_refs"] = field_refs(text, known_fields)
                 rec["secret_hits"] = secrets.scan(text)
+                rec["envvar_refs"], rec["customapi_refs"] = named_refs(text)
             except Exception as e:  # noqa: BLE001
                 ctx.gap("processes", f"definição de {w.get('name')}", e)
         if w.get("triggeronupdateattributelist"):

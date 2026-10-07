@@ -1,7 +1,7 @@
 ---
 name: dataverse-inventory
 description: Inventaria ambientes Dataverse/D365 num vault Obsidian.
-version: 0.2.0
+version: 0.3.0
 author: alexvarrese
 license: MIT
 platforms: [linux, macos, windows]
@@ -88,11 +88,16 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    da DLL de produção com o repo. Coletores
    que falham (403, coluna inexistente) viram **lacunas declaradas** no manifest — não aborte;
    reporte-as.
+   A **matriz de dependências** (componente × componente) é gerada sempre a partir do que foi
+   coletado; `deep.platform_dependencies` acrescenta o que o próprio Dataverse registra
+   (RetrieveDependentComponents) e as dependências ausentes de cada solução (RetrieveMissingDependencies).
 6. **Renderizar:** `python3 <skill>/scripts/dvinv.py render -c inventory.yaml`. Re-renderizar é
    seguro: o conteúdo abaixo do marcador `%% dvinv:manual … %%` e as properties `status`,
    `responsavel`, `decisao`, `prazo` e `revisado` são preservados.
 7. **Camada de análise (o seu trabalho, não do script).**
    - Leia `00 Índice.md`, `01 Ambiente.md` (lacunas!) e cada nota em `Achados/`.
+   - Para análise de impacto ("o que quebra se eu mudar X?"), use `08 Matriz de Dependências.md`, a seção
+     **Dependências** (depende de / usado por) de cada nota e `Matriz de Dependências.xlsx` para o cliente.
    - Valide cada achado antes de afirmá-lo: abra o JS, consulte via MCP, `dv-metadata` (schema) ou
      `dv-query` (dados), use `dv-solution` para exportar a solução quando precisar do XML, e cruze com o
      repositório de código quando houver. Vários achados são **candidatos** (ver `references/findings.md`).

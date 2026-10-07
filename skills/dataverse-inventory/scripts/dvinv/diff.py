@@ -28,6 +28,8 @@ def keys(d):
     k["Variáveis de ambiente"] = {e["name"] for e in alm.get("envvars") or []}
     k["Referências de conexão"] = {r["name"] for r in alm.get("connrefs") or []}
     k["Papéis"] = {r["name"] for r in (d.get("security") or {}).get("roles") or [] if r.get("scope_reason")}
+    dep = d.get("dependencies") or {}
+    k["Dependências"] = {f"{e['from_label']} → {e['to_label']} ({e['relation']})" for e in dep.get("edges") or []}
     k["Soluções"] = {f"{s['uniquename']} v{s.get('version')}" for s in d.get("solutions") or []
                      if s.get("managed") is False or s.get("in_scope")}
     return k

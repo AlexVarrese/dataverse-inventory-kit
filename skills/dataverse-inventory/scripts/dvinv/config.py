@@ -21,6 +21,8 @@ DEEP_DEFAULTS = {
     "process_definitions": False,  # xaml/clientdata de workflows, business rules e actions (campos referenciados)
     "field_usage": False,          # preenchimento real por campo + matriz de uso + candidatos a remoção
     "storage": False,              # anexos (annotation/activitymimeattachment), auditoria, maiores tabelas
+    "platform_dependencies": False,          # RetrieveDependentComponents + RetrieveMissingDependencies
+    "platform_dependencies_columns": False,  # idem para cada coluna custom (1 chamada por coluna — pesado)
 }
 
 # Soluções que contêm "tudo" e não servem para dizer a que solução um componente pertence.

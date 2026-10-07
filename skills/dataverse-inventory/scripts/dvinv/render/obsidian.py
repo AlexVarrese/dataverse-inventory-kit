@@ -14,7 +14,9 @@ from pathlib import Path
 
 import yaml
 
+from .. import dependencies as deps_mod
 from .. import findings as findings_mod
+from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
 from ..util import load_json, save_json
 from . import bases, canvas
@@ -70,6 +72,7 @@ class Vault:
         self.paths = {}        # (kind, key) -> caminho relativo à raiz do vault, sem .md
         self.taken = set()
         self.written = []
+        self.dep_counts = {}   # caminho da nota -> {"dependencias": n, "dependentes": n}
         self.today = date.today()
 
     # ---------- caminhos e links ----------
@@ -109,7 +112,7 @@ class Vault:
                     props[k] = old_props[k]
             if MANUAL in old_body:
                 manual = old_body[old_body.index(MANUAL):]
-        props = {"ambiente": self.env, **props, "extraido_em": self.today}
+        props = {"ambiente": self.env, **props, **self.dep_counts.get(rel, {}), "extraido_em": self.today}
         fm = yaml.safe_dump(props, allow_unicode=True, sort_keys=False, width=1000).strip()
         path.write_text(f"---\n{fm}\n---\n{body.rstrip()}\n\n{manual.rstrip()}\n", encoding="utf-8")
         self.written.append(path)
@@ -189,7 +192,51 @@ def render(cfg):
         for kind, key in f["refs"]:
             finding_refs[(kind, key)].append(f)
 
+    # ---- grafo de dependências (antes das notas: cada nota mostra 'depende de' / 'usado por') ----
+    graph = deps_mod.build(d)
+    dsum = deps_mod.summarize(graph, d)
+    save_json(cfg.raw_dir / "dependencies.json", deps_mod.to_json(graph, dsum))
+    for n in graph.nodes:
+        if n in v.paths:
+            v.dep_counts[v.paths[n]] = {"dependencias": dsum["fan_out"][n], "dependentes": dsum["fan_in"][n]}
+
+    def node_link(n, in_table=False):
+        node = graph.nodes[n]
+        kind, key = n
+        if n in v.paths:
+            return v.link(kind, key, node["label"])
+        if kind in ("form", "view", "column") and ("table", node.get("sub")) in v.paths:
+            return f"{node['label']} ({v.link('table', node['sub'], node['sub'])})"
+        return f"{node['label']}" + ("" if kind in ("process",) else f" _{deps_mod.KIND_LABEL.get(kind, kind).lower()}_")
+
+    def deps_block(kind, key):
+        n = (kind, key)
+        if n not in graph.nodes:
+            return ""
+        out, inn = graph.out_of(n), graph.into(n)
+        if not (out or inn):
+            return "## Dependências\n\n_Nenhuma dependência encontrada (nem dependentes)._\n"
+        lines = ["## Dependências", ""]
+        for title, items in ((f"Depende de ({len(out)})", out), (f"Usado por ({len(inn)})", inn)):
+            if not items:
+                continue
+            lines += [f"### {title}", ""]
+            by_rel = defaultdict(list)
+            for other, rel, e in items:
+                by_rel[rel].append((other, e))
+            for rel, lst in sorted(by_rel.items()):
+                shown = ", ".join(node_link(o) + (" ⚙︎" if "plataforma" in e["source"] else "") for o, e in lst[:150])
+                more = f" … +{len(lst) - 150}" if len(lst) > 150 else ""
+                lines.append(f"- **{rel}:** {shown}{more}")
+            lines.append("")
+        if any("plataforma" in e["source"] for _, _, e in out + inn):
+            lines.append("⚙︎ = registrada pela plataforma (RetrieveDependentComponents)\n")
+        return "\n".join(lines) + "\n"
+
     def findings_block(kind, key):
+        return deps_block(kind, key) + _findings_only(kind, key)
+
+    def _findings_only(kind, key):
         fs = list({f["id"]: f for f in finding_refs.get((kind, key), [])}.values())
         if not fs:
             return ""
@@ -496,6 +543,7 @@ def render(cfg):
                      "gerenciado": a.get("managed"), "modificado": a.get("modified") or a.get("published"),
                      "solucoes": sol_links(a.get("solutions")), "tags": v.tags("app")}
             body = [f"# {a['name']}", "", f"{label_} · `{a.get('unique')}`", "", a.get("description") or ""]
+            body.append(findings_block("app", a["id"]))
             v.write(v.paths[("app", a["id"])], props, "\n".join(body))
 
     for s in sols:
@@ -525,6 +573,7 @@ def render(cfg):
                   mdtable(["Tabela"] + acts, [[v.link("table", t, t, in_table=True)] + [p.get(a) for a in acts] for t, p in sorted(mine.items())])]
         else:
             b += ["> [!info] Privilégios não coletados — rode com `deep.role_privileges: true`.", ""]
+        b.append(findings_block("role", r["name"]))
         v.write(v.paths[("role", r["name"])], props, "\n".join(b))
 
     # ---- 7) achados ----
@@ -548,6 +597,7 @@ def render(cfg):
     write_field_usage(v, d)
     write_storage(v, d)
     write_repos(v, d)
+    write_dependencies(v, d, graph, dsum, node_link)
     write_security(v, sec)
     write_environment(v, d, manifest)
     bases.write_all(v, fnd)
@@ -661,6 +711,82 @@ def write_repos(v, d):
     v.write(f"{v.folder}/07 Repositórios", {"tipo": "secao", "tags": v.tags("secao")}, "\n".join(b))
 
 
+def write_dependencies(v, d, g, dsum, node_link):
+    kinds = deps_mod.KIND_LABEL
+    n_inf = sum(1 for e in g.edges.values() if "inferida" in e["source"])
+    n_plat = sum(1 for e in g.edges.values() if "plataforma" in e["source"])
+    plat_on = bool(d.get("platform_dependencies"))
+    b = ["# Matriz de dependências", "",
+         "**A → B** significa *A depende de B*: se B mudar ou for removido, A é afetado. Use a matriz por tabela "
+         "para dimensionar impacto de mudança e as listas de órfãos para limpeza.", "",
+         f"**{len(g.nodes)}** componentes · **{len(g.edges)}** dependências ({n_inf} inferidas pelo kit, "
+         f"{n_plat} registradas pela plataforma) · exportação: [[{v.folder}/Matriz de Dependências.xlsx|Excel]] · "
+         f"[[{v.folder}/Dependências.csv|CSV]]", ""]
+    if not plat_on:
+        b += ["> [!info] Dependências da plataforma não coletadas",
+              "> Ligue `deep.platform_dependencies` para incluir o que o Dataverse registra (ex. view → coluna, "
+              "sitemap → tabela) e as dependências ausentes de cada solução.", ""]
+    cols = deps_mod.IMPACT_COLS
+    b += ["## Impacto por tabela (quem depende de cada tabela)", "",
+          mdtable(["Tabela"] + [c for _, c in cols] + ["Total", "Depende de"],
+                  [[v.link("table", r["table"], r["table"])] + [r[k] or "" for k, _ in cols] + [r["total"], r["depends_on"]]
+                   for r in dsum["per_table"]])]
+    tt = dsum["type_x_type"]
+    src_k = sorted({a for a, _ in tt}, key=lambda k: list(kinds).index(k) if k in kinds else 99)
+    dst_k = sorted({b_ for _, b_ in tt}, key=lambda k: list(kinds).index(k) if k in kinds else 99)
+    b += ["## Tipo × tipo", "", "Linhas dependem das colunas.", "",
+          mdtable(["Depende ↓ / de →"] + [kinds.get(k, k) for k in dst_k],
+                  [[kinds.get(a, a)] + [tt.get((a, c), "") for c in dst_k] for a in src_k])]
+    top_in = [n for n, c in dsum["fan_in"].most_common(25) if c]
+    top_out = [n for n, c in dsum["fan_out"].most_common(25) if c]
+    b += ["## Mais dependidos (maior impacto de mudança)", "",
+          mdtable(["Componente", "Tipo", "Dependentes"], [[node_link(n), kinds.get(n[0], n[0]), dsum["fan_in"][n]] for n in top_in]),
+          "## Que mais dependem de outros (mais frágeis)", "",
+          mdtable(["Componente", "Tipo", "Dependências"], [[node_link(n), kinds.get(n[0], n[0]), dsum["fan_out"][n]] for n in top_out])]
+    if dsum["external"]:
+        b += ["## Dependências externas", "",
+              mdtable(["Destino", "Tipo", "Usado por"],
+                      [[g.nodes[n]["label"], kinds.get(n[0], n[0]), ", ".join(node_link(s) for s, _, _ in g.into(n)[:20])]
+                       for n, _ in dsum["external"]])]
+    if dsum["unused"]:
+        b += ["## Sem nenhum dependente encontrado", "",
+              "Candidatos a limpeza — confirme chamadas de fora do Dataverse (integrações, apps externos, Power BI).", "",
+              mdtable(["Componente", "Tipo"], [[node_link(n), kinds.get(n[0], n[0])] for n in sorted(dsum["unused"])])]
+    if dsum["missing"]:
+        b += ["## Dependências ausentes nas soluções", "",
+              "Componentes exigidos que **não estão na solução** — a importação falha em ambiente que não os tenha.", "",
+              mdtable(["Solução", "Componente que exige", "Tipo", "Componente exigido", "Tipo"],
+                      [[m["solution"], m["dependent_id"], m.get("dependent_type_label") or m.get("dependent_type"),
+                        m["required_id"], m.get("required_type_label") or m.get("required_type")] for m in dsum["missing"]])]
+    v.write(f"{v.folder}/08 Matriz de Dependências", {"tipo": "secao", "tags": v.tags("secao")}, "\n".join(b))
+
+    # ---- exportações: Excel e CSV ----
+    rows_edges = [["Componente", "Tipo", "Depende de", "Tipo (destino)", "Relação", "Origem"]] + sorted(
+        [[g.nodes[s]["label"], kinds.get(g.nodes[s]["kind"]), g.nodes[t]["label"], kinds.get(g.nodes[t]["kind"]), r, e["source"]]
+         for (s, t, r), e in g.edges.items()], key=lambda x: (x[1] or "", x[0], x[2]))
+    rows_tables = [["Tabela"] + [c for _, c in cols] + ["Total dependentes", "Depende de"]] + [
+        [r["table"]] + [r[k] for k, _ in cols] + [r["total"], r["depends_on"]] for r in dsum["per_table"]]
+    rows_tt = [["Depende ↓ / de →"] + [kinds.get(k, k) for k in dst_k]] + [
+        [kinds.get(a, a)] + [tt.get((a, c), 0) for c in dst_k] for a in src_k]
+    rows_nodes = [["Componente", "Tipo", "Dependentes (fan-in)", "Dependências (fan-out)"]] + sorted(
+        [[nd["label"], kinds.get(nd["kind"]), dsum["fan_in"][k], dsum["fan_out"][k]] for k, nd in g.nodes.items()],
+        key=lambda x: (-x[2], x[0]))
+    sheets = [("Matriz por tabela", rows_tables), ("Arestas", rows_edges), ("Tipo x tipo", rows_tt), ("Componentes", rows_nodes)]
+    if dsum["missing"]:
+        sheets.append(("Ausentes na solução", [["Solução", "Exige (id)", "Tipo", "Exigido (id)", "Tipo"]] + [
+            [m["solution"], m["dependent_id"], m.get("dependent_type_label"), m["required_id"], m.get("required_type_label")]
+            for m in dsum["missing"]]))
+    path = v.root / v.folder / "Matriz de Dependências.xlsx"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    xlsx.write(path, sheets)
+    v.written.append(path)
+    import csv
+    import io
+    buf = io.StringIO()
+    csv.writer(buf, delimiter=";").writerows(rows_edges)
+    v.write(f"{v.folder}/Dependências.csv", None, "\ufeff" + buf.getvalue(), raw=True)
+
+
 def write_security(v, sec):
     bus = sec.get("business_units") or []
     children = defaultdict(list)
@@ -758,6 +884,8 @@ def write_index(v, d, manifest, fnd):
          *([f"- {v.link_path('05 Uso de Campos', 'Uso de campos')}"] if d.get("field_usage") else []),
          *([f"- {v.link_path('06 Armazenamento e Auditoria', 'Armazenamento e auditoria')}"] if d.get("storage") else []),
          *([f"- {v.link_path('07 Repositórios', 'Repositórios × ambiente')}"] if d.get("repos") else []),
+         f"- {v.link_path('08 Matriz de Dependências', 'Matriz de dependências')} "
+         f"([[{v.folder}/Matriz de Dependências.xlsx|Excel]])",
          f"- {v.link_path('Mapa do Ambiente.canvas', 'Mapa do ambiente (canvas)')}", "",
          "## Achados", "", f"![[{v.folder}/Bases/Achados.base]]", "",
          "## Tabelas", "", f"![[{v.folder}/Bases/Tabelas.base]]", "",

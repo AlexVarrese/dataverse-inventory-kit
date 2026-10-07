@@ -78,6 +78,7 @@ def collect_tables(ctx):
                     custom = custom and any(a["LogicalName"].startswith(p) for p in cfg.prefixes) or (
                         custom and a.get("IsManaged") is False)
                 rec["columns"].append({
+                    "id": a.get("MetadataId"),
                     "logical": a["LogicalName"],
                     "schema": a.get("SchemaName"),
                     "display": label(a.get("DisplayName")),

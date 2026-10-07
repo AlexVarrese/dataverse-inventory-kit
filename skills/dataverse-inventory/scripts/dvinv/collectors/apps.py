@@ -16,6 +16,21 @@ def collect_apps(ctx):
                     "description": a.get("description"), "scope_reason": reason,
                     "solutions": scope.solutions_of(a["appmoduleid"]),
                 })
+        # Componentes de cada app (tabelas, forms, views, sitemap…): base da dependência app → tabela.
+        uniq = {a.get("appmoduleidunique"): a["appmoduleid"] for a in apps if a.get("appmoduleidunique")}
+        if out["modeldriven"]:
+            try:
+                comps = c.get_all("appmodulecomponents?$select=componenttype,objectid,_appmoduleidunique_value")
+                by_app = {}
+                for comp in comps:
+                    aid = uniq.get(comp.get("_appmoduleidunique_value"))
+                    if aid:
+                        by_app.setdefault(aid, []).append({"type": comp.get("componenttype"),
+                                                           "objectid": (comp.get("objectid") or "").lower()})
+                for a in out["modeldriven"]:
+                    a["components"] = by_app.get(a["id"], [])
+            except Exception as e:  # noqa: BLE001
+                ctx.gap("apps", "componentes dos apps model-driven", e)
     except Exception as e:  # noqa: BLE001
         ctx.gap("apps", "appmodules (model-driven)", e)
 

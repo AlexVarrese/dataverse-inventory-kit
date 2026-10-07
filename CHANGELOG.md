@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 — 2026-10-07
+
+- **Matriz de dependências entre componentes**: grafo "A depende de B" com relações inferidas (steps,
+  processos, flows → conexões/variáveis/Custom APIs/child flows/hosts, formulários e botões → JS,
+  JS → tabelas/Custom APIs, Custom APIs, apps → tabelas, papéis → tabelas, lookups entre tabelas).
+  Nota `08 Matriz de Dependências` (impacto por tabela, tipo × tipo, mais dependidos, externos, órfãos),
+  seção **Dependências** (depende de / usado por) em cada nota, properties `dependencias`/`dependentes`,
+  visão "Alto impacto" na Base de tabelas.
+- Exportação **`Matriz de Dependências.xlsx`** (sem dependência externa) e `Dependências.csv`.
+- `deep.platform_dependencies`: dependências registradas pelo Dataverse (RetrieveDependentComponents) e
+  dependências ausentes por solução (RetrieveMissingDependencies). Achados DEP-01..03.
+- Apps model-driven passam a registrar seus componentes (`appmodulecomponents`).
+- `diff` compara também as dependências entre snapshots/ambientes.
+
 ## 0.2.0 — 2026-10-06
 
 - **Uso de campos** (`deep.field_usage`): preenchimento real por coluna (agregação nativa, com

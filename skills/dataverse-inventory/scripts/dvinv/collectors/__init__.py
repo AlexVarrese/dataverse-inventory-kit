@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from .. import secrets
 from ..util import save_json
 from . import alm, apps, code, environment, health, processes, repos, security, storage, tables, ui, usage
+from . import dependencies as deps
 
 # Ordem importa: solutions define o escopo por solução; tables define ctx.scope.tables,
 # usado por forms/views/processos/plugins.
@@ -31,11 +32,12 @@ REGISTRY = [
     ("plugins", code.collect_plugins),
     ("customapis", code.collect_customapis),
     ("serviceendpoints", code.collect_serviceendpoints),
+    ("alm", alm.collect_alm),                    # antes de processes: flows citam variáveis/conexões
     ("processes", processes.collect_processes),
-    ("alm", alm.collect_alm),
     ("security", security.collect_security),
     ("repos", repos.collect_repos),              # depois de webresources/plugins/tables
     ("field_usage", usage.collect_field_usage),  # depois de tudo que cita campos (forms, views, processos, repos)
+    ("platform_dependencies", deps.collect_platform_dependencies),  # depois de tudo que tem id
     ("storage", storage.collect_storage),
     ("health", health.collect_health),
 ]
@@ -45,7 +47,10 @@ REGISTRY = [
 DEPENDS = {
     "forms": ["webresources"], "ribbons": ["webresources"], "relationships": [],
     "repos": ["webresources", "plugins"],
+    "processes": ["alm", "customapis"],
     "field_usage": ["webresources", "forms", "views", "plugins", "processes", "repos"],
+    "platform_dependencies": ["webresources", "forms", "views", "apps", "plugins", "customapis", "processes",
+                              "alm", "security", "optionsets", "relationships"],
 }
 
 

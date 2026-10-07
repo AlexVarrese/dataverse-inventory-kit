@@ -45,6 +45,10 @@ antes de afirmar.
 | REPO-03 | alto | web resource/classe publicada sem fonte no repo | pode estar noutro repositório não informado em `repos:` |
 | REPO-04 | alto | métodos só em PRD ou só no repo (DLL decompilada) | ler os dois arquivos; compiladores geram métodos auxiliares (`<>c`), ignorados pela heurística |
 
+| DEP-01 | alto | solução exige componentes que não estão nela (RetrieveMissingDependencies, `deep.platform_dependencies`) | o componente pode vir de outra solução instalada antes — documentar a ordem de instalação |
+| DEP-02 | info | tabela com 20+ componentes dependentes | indicador de impacto de mudança, não problema |
+| DEP-03 | baixo | variável de ambiente, referência de conexão ou Custom API sem uso encontrado no escopo | uso por integração externa, app fora do Dataverse ou flow fora de solução não é visível |
+
 ## Ciclo de vida na nota do achado
 
 `status: aberto` → `confirmado` | `falso-positivo` | `resolvido`, com `responsavel` e anotações

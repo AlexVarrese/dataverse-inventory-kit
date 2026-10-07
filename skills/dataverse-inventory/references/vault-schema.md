@@ -6,7 +6,7 @@ e `extraido_em` (Date). Links em properties são strings `"[[caminho|alias]]"`, 
 | `tipo` | Pasta | Properties principais |
 |---|---|---|
 | `indice` | `00 Índice.md` | — |
-| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios` | `url`, `versao` |
+| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências` | `url`, `versao` |
 | `tabela` | `Tabelas/` | `nome_logico`, `nome_exibicao`, `aliases`, `customizada`, `gerenciada`, `propriedade`, `registros`, `colunas_custom`, `colunas_total`, `relacionamentos`, `formularios`, `plugin_steps`, `processos`, `flows_que_tocam`, `achados`, `escopo`, `solucoes` |
 | `plugin-assembly` | `Plugins/` | `versao`, `isolamento`, `origem`, `gerenciado`, `tipos`, `steps`, `modificado` |
 | `plugin-step` | `Plugin Steps/` | `assembly` (link), `classe`, `handler`, `mensagem`, `tabela` (link), `estagio`, `modo`, `ordem`, `ativo`, `filtering`, `imagens`, `impersonando` |
@@ -18,6 +18,10 @@ e `extraido_em` (Date). Links em properties são strings `"[[caminho|alias]]"`, 
 | `papel` | `Papéis/` | `gerenciado`, `tabelas_com_privilegio` |
 | `achado` | `Achados/` | `id_achado`, `severidade`, `titulo`, `metrica`, **`status`**, **`responsavel`** |
 | `comparacao` | `Comparações/` | `ambiente_a`, `ambiente_b`, `data_a`, `data_b` |
+
+Notas de componente que participam do grafo também recebem `dependencias` (quantos componentes ela usa)
+e `dependentes` (quantos a usam), e uma seção **Dependências** com *Depende de* / *Usado por* agrupados
+pela relação. ⚙︎ marca dependência registrada pela plataforma.
 
 ## Preservação entre extrações
 

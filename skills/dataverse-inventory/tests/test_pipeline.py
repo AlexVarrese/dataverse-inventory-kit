@@ -36,7 +36,8 @@ G = lambda n: f"00000000-0000-0000-0000-{n:012d}"  # noqa: E731
 JS_ACCOUNT = f"""var Contoso = Contoso || {{}};
 Contoso.Account = {{
   onLoad: function (ctx) {{ fetch("https://prod-01.logic.azure.com/workflows/x?{SECRET}"); Xrm.Page.getAttribute("contoso_tier"); }},
-  helper: function () {{}}
+  helper: function () {{ Xrm.WebApi.retrieveMultipleRecords("contoso_project", "?$top=1");
+    Xrm.WebApi.online.execute({{ getMetadata: function () {{ return {{ operationName: "contoso_RecalcProject" }}; }} }}); }}
 }};
 function standalone() {{}}
 """
@@ -56,12 +57,15 @@ RIBBON = """<RibbonDefinitions><Button Id="contoso.account.Sync" Command="contos
 </RibbonDefinitions>"""
 FLOW = {"properties": {"connectionReferences": {
     "shared_commondataserviceforapps": {"api": {"name": "shared_commondataserviceforapps"}},
-    "shared_sql": {"api": {"name": "shared_sql"}}},
+    "shared_sql": {"api": {"name": "shared_sql"}, "connection": {"connectionReferenceLogicalName": "contoso_sql"}}},
     "definition": {"triggers": {"Quando_conta_alterada": {"type": "OpenApiConnectionWebhook",
                    "inputs": {"host": {"operationId": "SubscribeWebhookTrigger"}, "parameters": {"subscriptionRequest/entityname": "account"}}}},
                    "actions": {"Lista": {"type": "OpenApiConnection", "inputs": {"parameters": {"entityName": "contoso_projects"}}},
                                "Cond": {"type": "If", "actions": {"Chama_ERP": {"type": "Http", "inputs": {"uri": "https://erp.contoso.com/api/orders?code=ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"}}},
-                                        "else": {"actions": {"Filho": {"type": "Workflow"}}}}}}}}
+                                        "else": {"actions": {"Filho": {"type": "Workflow", "inputs": {"host": {"workflowReferenceName": "00000000-0000-0000-0000-000000000052"}}}}}},
+                               "Url": {"type": "Compose", "inputs": "@parameters('contoso_ErpUrl (contoso_ErpUrl)')"},
+                               "Recalc": {"type": "OpenApiConnection", "inputs": {"host": {"operationId": "PerformUnboundAction"},
+                                          "parameters": {"actionName": "contoso_RecalcProject"}}}}}}}
 
 
 def zipped_ribbon():
@@ -181,7 +185,22 @@ def route(path):
     if p.startswith("RetrieveEntityRibbon"):
         return {"CompressedEntityXml": zipped_ribbon()}
     if p.startswith("appmodules"):
-        return [{"appmoduleid": G(80), "name": "Contoso Vendas", "uniquename": "contoso_Vendas", "ismanaged": False}]
+        return [{"appmoduleid": G(80), "appmoduleidunique": G(85), "name": "Contoso Vendas", "uniquename": "contoso_Vendas", "ismanaged": False}]
+    if p.startswith("appmodulecomponents"):
+        return [{"componenttype": 1, "objectid": G(1), "_appmoduleidunique_value": G(85)},
+                {"componenttype": 62, "objectid": G(86), "_appmoduleidunique_value": G(85)}]
+    if p.startswith("RetrieveDependentComponents"):
+        if G(1) in p and "@p2=1" in p:   # quem depende da tabela account (registrado pela plataforma)
+            return {"value": [
+                {"dependentcomponentobjectid": G(70), "dependentcomponenttype": 26, "dependentcomponenttype" + FV: "Saved Query",
+                 "requiredcomponentobjectid": G(1), "requiredcomponenttype": 1, "dependencytype" + FV: "Published"},
+                {"dependentcomponentobjectid": G(86), "dependentcomponenttype": 62, "dependentcomponenttype" + FV: "Site Map",
+                 "requiredcomponentobjectid": G(1), "requiredcomponenttype": 1, "dependencytype" + FV: "Published"}]}
+        return {"value": []}
+    if p.startswith("RetrieveMissingDependencies"):
+        return {"value": [{"dependentcomponentobjectid": G(2), "dependentcomponenttype": 1, "dependentcomponenttype" + FV: "Entity",
+                           "requiredcomponentobjectid": G(998), "requiredcomponenttype": 2, "requiredcomponenttype" + FV: "Attribute",
+                           "dependencytype" + FV: "Published"}]}
     if p.startswith("canvasapps"):
         raise DataverseError(403, p, "sem privilégio prvReadCanvasApp")
     if p.startswith("bots"):
@@ -324,6 +343,45 @@ def check_vault(vault_dir, vault_root):
     return md
 
 
+def check_dependencies(cfg):
+    dep = json.loads((cfg.raw_dir / "dependencies.json").read_text())
+    edges = {(e["from_label"], e["relation"], e["to_label"]) for e in dep["edges"]}
+    flow = "Contoso - Sync conta → ERP"
+    must = {
+        ("AccountPre: Update of account", "registrado em Update", "account"),
+        ("AccountPre: Update of account", "executa código de", "Contoso.Plugins"),
+        (flow, "usa conexão", "contoso_sql"), (flow, "lê variável", "contoso_ErpUrl"),
+        (flow, "chama", "contoso_RecalcProject"), (flow, "chama child flow", "Atualiza projeto"),
+        (flow, "lê/grava", "contoso_project"), (flow, "chama HTTP", "erp.contoso.com"), (flow, "usa conector", "sql"),
+        ("account / Conta Principal", "carrega biblioteca", "contoso_/js/account.js"),
+        ("account / Conta Principal", "formulário de", "account"),
+        ("contoso_/js/account.js", "chama (JS)", "contoso_RecalcProject"),
+        ("contoso_/js/account.js", "consulta/grava (JS)", "contoso_project"),
+        ("contoso_RecalcProject", "vinculada a", "contoso_project"),
+        ("Contoso Vendas", "inclui tabela", "account"),
+        ("Contoso Vendedor", "concede acesso a", "account"),
+        ("contoso_project", "lookup contoso_accountid", "account"),
+        ("account", "botão Sincronizar ERP", "contoso_/js/erp.js"),
+        ("contoso_project / Projetos ativos", "plataforma (Published)", "account"),
+    }
+    assert must <= edges, f"arestas faltando: {must - edges}"
+    # 'Contoso.Account' (variável JS, sem aspas) não pode virar dependência da tabela account
+    assert ("contoso_/js/account.js", "consulta/grava (JS)", "account") not in edges
+    assert any(n["kind"] == "platform" and n["sub"] == "Site Map" for n in dep["nodes"])
+    acc = next(r for r in dep["per_table"] if r["table"] == "account")
+    assert acc["form"] == 1 and acc["step"] == 2 and acc["app"] == 1 and acc["role"] == 1 and acc["child_table"] == 1, acc
+    # Excel abre: XML válido e as planilhas esperadas
+    import xml.dom.minidom as minidom
+    z = zipfile.ZipFile(cfg.vault_dir / "Matriz de Dependências.xlsx")
+    for n in z.namelist():
+        minidom.parseString(z.read(n))
+    wb = z.read("xl/workbook.xml").decode()
+    for sheet in ("Matriz por tabela", "Arestas", "Tipo x tipo", "Componentes", "Ausentes na solução"):
+        assert f'name="{sheet}"' in wb, sheet
+    note = (cfg.vault_dir / "Tabelas" / "account.md").read_text()
+    assert "### Usado por" in note and "dependentes:" in note
+
+
 def check_method_drift():
     """REPO-04 sem ilspycmd: heurística de métodos por classe (decompilado × repo)."""
     from dvinv.collectors.repos import methods
@@ -346,7 +404,7 @@ def main():
         repo = tmp / "repo"
         (repo / "JavaScript").mkdir(parents=True)
         (repo / "Plugins").mkdir()
-        (repo / "JavaScript" / "account.js").write_text(JS_ACCOUNT.replace("helper: function () {}", "outra: function () {}"))
+        (repo / "JavaScript" / "account.js").write_text(JS_ACCOUNT.replace("helper: function () {", "outra: function () {"))
         (repo / "JavaScript" / "unused.js").write_text("function nobodyCallsMe(){}\r\n")
         (repo / "Plugins" / "AccountPre.cs").write_text(
             "namespace Contoso.Plugins { public class AccountPre : IPlugin { public void Execute(IServiceProvider s) {"
@@ -377,7 +435,7 @@ def main():
 
         v = render(cfg)
         fnd = {f["id"]: f for f in json.loads((cfg.raw_dir / "findings.json").read_text())}
-        expected = {"FLD-01", "FLD-03", "JS-03", "JS-06", "STO-01", "AUD-01", "REPO-01", "REPO-02", "REPO-03", "SEC-01", "UI-01", "UI-02", "UI-03", "PLG-01", "PLG-02", "PLG-03", "PLG-04", "OPS-01", "OPS-02",
+        expected = {"DEP-01", "DEP-03", "FLW-01", "FLD-01", "FLD-03", "JS-03", "JS-06", "STO-01", "AUD-01", "REPO-01", "REPO-02", "REPO-03", "SEC-01", "UI-01", "UI-02", "UI-03", "PLG-01", "PLG-02", "PLG-03", "PLG-04", "OPS-01", "OPS-02",
                     "PRC-01", "PRC-02", "PRC-03", "SEG-02", "ALM-01", "ALM-02", "ALM-03"}
         assert expected <= set(fnd), f"faltam achados: {expected - set(fnd)}"
         assert fnd["SEC-01"]["metric"] == 3, fnd["SEC-01"]  # JS (sig=) + flow (code=) + config do step
@@ -398,7 +456,8 @@ def main():
         acc = next(r for r in st["annotations"]["by_table"] if r["table"] == "account")
         assert acc["bytes"] == 1000 * (date.today().year - 2008 + 1), acc  # partição por ano após estouro
         assert st["audit"]["by_table"][0]["table"] == "account" and st["audit"]["oldest"] == "2022-07-19"
-        for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios"):
+        check_dependencies(cfg)
+        for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios", "08 Matriz de Dependências"):
             assert (cfg.vault_dir / f"{sec}.md").exists(), sec
         flow = json.loads((cfg.raw_dir / "processes.json").read_text())
         assert next(p for p in flow if p["category"] == "Cloud Flow")["tables"] == ["account", "contoso_project"]

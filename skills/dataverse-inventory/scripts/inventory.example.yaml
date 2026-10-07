@@ -33,6 +33,8 @@ deep:                                     # coletas pesadas — `--deep` liga to
   process_definitions: false      # XAML/clientdata de workflows, business rules, actions e BPFs
   field_usage: false              # preenchimento real + matriz de uso + candidatos a remoção (liga process_definitions)
   storage: false                  # maiores tabelas, anexos (notas/e-mail), auditoria
+  platform_dependencies: false    # dependências registradas pelo Dataverse + dependências ausentes por solução
+  platform_dependencies_columns: false  # idem por coluna custom (1 chamada por coluna — pesado)
 
 plugin_trace_days: 7
 

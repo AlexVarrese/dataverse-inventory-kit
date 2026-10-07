@@ -21,17 +21,21 @@ def write_all(v, findings):
         "Tabelas": _base(v, "tabela",
             properties={"nome_exibicao": "Nome", "customizada": "Custom", "registros": "Registros",
                         "colunas_custom": "Colunas custom", "plugin_steps": "Steps", "processos": "Processos",
-                        "flows_que_tocam": "Flows", "achados": "Achados"},
+                        "flows_que_tocam": "Flows", "achados": "Achados", "dependentes": "Dependentes",
+                        "dependencias": "Depende de"},
             formulas={"automacao": "plugin_steps + processos + flows_que_tocam"},
             views=[
                 {"type": "table", "name": "Todas", "order": ["file.name", "nome_exibicao", "customizada", "registros",
-                 "colunas_custom", "plugin_steps", "processos", "flows_que_tocam", "formula.automacao", "achados"],
+                 "colunas_custom", "plugin_steps", "processos", "flows_que_tocam", "formula.automacao", "dependentes",
+                 "achados"],
                  "summaries": {"registros": "Sum", "colunas_custom": "Sum"}},
                 {"type": "table", "name": "Customizadas", "filters": "customizada == true",
                  "order": ["file.name", "nome_exibicao", "registros", "colunas_custom", "formula.automacao"]},
                 {"type": "table", "name": "Mais automatizadas", "filters": "formula.automacao > 0",
                  "order": ["file.name", "plugin_steps", "processos", "flows_que_tocam", "formula.automacao"]},
                 {"type": "table", "name": "Com achados", "filters": "achados > 0", "order": ["file.name", "achados"]},
+                {"type": "table", "name": "Alto impacto (5+ dependentes)", "filters": "dependentes >= 5",
+                 "order": ["file.name", "nome_exibicao", "dependentes", "dependencias", "registros"]},
             ]),
         "Automações": _base(v, "processo",
             properties={"categoria": "Categoria", "tabela": "Tabela", "ativo": "Ativo", "proprietario": "Proprietário",
@@ -78,7 +82,8 @@ def write_all(v, findings):
             "filters": {"and": [f'file.inFolder("{v.folder}")', {"or": [
                 'tipo == "plugin-assembly"', 'tipo == "customapi"', 'tipo == "app"', 'tipo == "solucao"', 'tipo == "papel"']}]},
             "views": [{"type": "table", "name": "Por tipo", "groupBy": {"property": "tipo", "direction": "ASC"},
-                       "order": ["file.name", "subtipo", "versao", "gerenciado", "gerenciada", "modificado"]}],
+                       "order": ["file.name", "subtipo", "versao", "gerenciado", "gerenciada", "dependentes",
+                                 "dependencias", "modificado"]}],
         },
     }
     for name, data in files.items():

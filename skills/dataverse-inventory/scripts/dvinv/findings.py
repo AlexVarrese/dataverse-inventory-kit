@@ -335,5 +335,34 @@ def compute(d):
                           evidence=[f"{t['type']}: só PRD {t.get('methods_only_prd')}, só repo {t.get('methods_only_repo')}"
                                     for t in drift], metric=len(drift)))
 
+    # 15. Dependências ---------------------------------------------------------------------
+    from . import dependencies as deps_mod
+    g = deps_mod.build(d)
+    dsum = deps_mod.summarize(g, d)
+    by_sol = defaultdict(list)
+    for m in dsum["missing"]:
+        by_sol[m["solution"]].append(m)
+    for sol, ms in by_sol.items():
+        out.append(_f("DEP-01", "alto", f"Solução {sol} exige {len(ms)} componente(s) que não estão nela",
+                      "RetrieveMissingDependencies: a importação dessa solução falha em ambiente que não tenha os "
+                      "componentes exigidos. Adicione-os à solução ou garanta a ordem de instalação das dependências.",
+                      refs=[("solution", sol)],
+                      evidence=[f"{m.get('dependent_type_label') or m.get('dependent_type')} {m['dependent_id']} → "
+                                f"{m.get('required_type_label') or m.get('required_type')} {m['required_id']}" for m in ms],
+                      metric=len(ms)))
+    hot = [r for r in dsum["per_table"] if r["total"] >= 20]
+    if hot:
+        out.append(_f("DEP-02", "info", f"{len(hot)} tabela(s) com 20+ componentes dependentes",
+                      "Mudança de schema nessas tabelas exige regressão ampla (formulários, JS, plugins, processos, flows).",
+                      refs=[("table", r["table"]) for r in hot],
+                      evidence=[f"{r['table']}: {r['total']} dependentes" for r in hot], metric=len(hot)))
+    unused = [n for n in dsum["unused"] if n[0] in ("envvar", "connref", "customapi")]
+    if unused:
+        out.append(_f("DEP-03", "baixo", f"{len(unused)} variável(is)/conexão(ões)/Custom API(s) sem uso encontrado",
+                      "Nenhum flow, processo ou JS do escopo referencia esses componentes. Podem ser usados de fora "
+                      "(integração, app externo) — confirmar antes de remover.",
+                      refs=list(unused), evidence=[f"{deps_mod.KIND_LABEL[n[0]]}: {n[1]}" for n in unused],
+                      metric=len(unused)))
+
     out.sort(key=lambda f: (SEV_ORDER.get(f["severity"], 9), f["id"]))
     return out

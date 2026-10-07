@@ -26,6 +26,7 @@ escopo) e depois os demais.
 | health\* | `plugintracelogs` (todas e `exceptiondetails ne null`) | health.json | janela `plugin_trace_days` |
 | repos (`repos:`) | arquivos dos clones locais + `git rev-parse`/`log -1`; `ilspycmd` nas DLLs (se instalado) | repos.json, decompiled/ | web resources e classes do escopo |
 | field_usage\* | FetchXML `countcolumn` (≤ 50 mil registros) ou paginação `$select`; cruza forms, views (`savedqueries(id)` fetchxml/layoutxml), processos, steps, JS, repos | field_usage.json | colunas custom das tabelas do escopo ou `field_usage.tables` |
+| platform_dependencies\* | `RetrieveDependentComponents` por componente do escopo (tabelas, JS, processos, assemblies, classes, option sets, variáveis; colunas com `platform_dependencies_columns`) e `RetrieveMissingDependencies` por solução | platform_dependencies.json | componentes do escopo |
 | storage\* | `RetrieveTotalRecordCount` (todas), `annotations`/`activitymimeattachments`/`audits` com `$apply` groupby/aggregate | storage.json | org inteira |
 
 Além disso, com `deep.process_definitions` o coletor `processes` lê `workflows(id)?$select=xaml,clientdata`
@@ -34,6 +35,16 @@ de workflows/BRs/actions/BPFs (colunas citadas + segredos), e para cloud flows m
 coletor `webresources` faz análise estática de todo JS baixado (`js`).
 
 \* só com `deep`.
+
+## Matriz de dependências (render)
+
+Montada em `dvinv/dependencies.py` a partir de `_raw/` (não exige coleta extra). Relações inferidas:
+step → tabela/assembly/service endpoint · processo → tabela primária · flow → tabelas, referências de
+conexão, variáveis de ambiente, Custom APIs, child flows, conectores e hosts HTTP · formulário → tabela e
+bibliotecas JS · botão de ribbon → JS · JS → tabelas e Custom APIs citadas **entre aspas** e hosts externos
+· Custom API → tabela e assembly · app → tabelas (`appmodulecomponents`) · papel → tabelas (privilégios,
+deep) · tabela filha → tabela pai (lookup). Com `deep.platform_dependencies`, soma as arestas da
+plataforma, resolvendo os ids para componentes conhecidos quando possível.
 
 ## Armadilhas resolvidas no código
 

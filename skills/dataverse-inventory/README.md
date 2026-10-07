@@ -26,6 +26,7 @@ Dataverse Web API (GET)  ──►  _raw/*.json + manifest.json  ──►  vaul
 | Uso de campos\* | preenchimento real por coluna, matriz de uso (forms, eventos, views, processos, flows, plugins, JS, repo), candidatos seguros a remoção |
 | Qualidade de código | JS: APIs obsoletas (Xrm.Page, SOAP 2011), eval, XHR síncrono, libs legadas, hosts fixos · flows: estrutura, condições, tratamento de erro |
 | Armazenamento e auditoria\* | maiores tabelas, notas e anexos de e-mail (qtd, bytes, tipos), auditoria por tabela/ação e retenção efetiva |
+| Dependências | matriz componente × componente: quem depende de cada tabela (forms, JS, plugins, business rules, workflows, BPFs, flows, Custom APIs, apps, papéis, tabelas filhas), tipo × tipo, mais dependidos, externos, órfãos; dependências registradas pela plataforma e ausentes por solução\*; exportação em Excel e CSV |
 | Repositórios Git (`repos:`) | web resources e classes de plugin × código versionado, métodos só em produção (DLL decompilada), segredos no repo |
 
 \* com `--deep` ou a chave correspondente em `deep:` no YAML.
@@ -41,6 +42,9 @@ Dataverse Web API (GET)  ──►  _raw/*.json + manifest.json  ──►  vaul
   05 Uso de Campos.md   preenchimento × uso, candidatos a remoção          (deep.field_usage)
   06 Armazenamento e Auditoria.md                                          (deep.storage)
   07 Repositórios.md    ambiente × Git: divergências, sem fonte, segredos  (repos:)
+  08 Matriz de Dependências.md   impacto por tabela, tipo × tipo, órfãos, externos
+  Matriz de Dependências.xlsx    matriz por tabela, arestas, tipo × tipo, componentes (fan-in/out)
+  Dependências.csv               lista de arestas (A depende de B)
   Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/
   Custom APIs/  Apps/  Soluções/  Papéis/  Achados/  Comparações/
   Bases/                Tabelas · Automações · Plugin Steps · Web Resources · Achados · Componentes
