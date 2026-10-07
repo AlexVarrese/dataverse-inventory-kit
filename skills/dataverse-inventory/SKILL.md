@@ -2,7 +2,7 @@
 name: dataverse-inventory
 description: Inventaria ambientes Dataverse/D365 num vault Obsidian.
 version: 0.3.0
-author: alexvarrese
+author: Alex Giovani Varrese (alexvarrese)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
