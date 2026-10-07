@@ -13,6 +13,20 @@ Segue a [especificação Agent Skills](https://agentskills.io/specification) e f
 Claude Code, Codex, GitHub Copilot, Cursor e qualquer agente compatível. Para agentes sem suporte a
 skills, há um prompt equivalente.
 
+## O que você recebe
+
+- **Uma nota por componente**: tabelas, colunas, formulários, views, web resources, plugins, Custom APIs,
+  workflows, business rules, BPFs, cloud flows, apps, agentes Copilot Studio, papéis, soluções, variáveis
+  de ambiente e conexões, com properties para Obsidian Bases.
+- **Matriz de dependências entre componentes**: quem depende de cada tabela (formulários, JS, plugins,
+  processos, flows, Custom APIs, apps, papéis, tabelas filhas), seção *Depende de / Usado por* em cada
+  nota e **`Matriz de Dependências.xlsx`** para entregar ao cliente. Opcionalmente inclui as dependências
+  registradas pelo próprio Dataverse e as que faltam em cada solução.
+- **Uso de campos**: preenchimento real × onde cada coluna é usada, com candidatos seguros a remoção.
+- **Achados automáticos** (segredos expostos, JS quebrado ou obsoleto, plugins sem filtro, automações
+  de dono desativado, drift entre ambiente e repositório Git, soluções com dependências faltando…).
+- **Comparação** entre ambientes (TEST × PRD) ou entre datas.
+
 ## Instalação rápida
 
 ```bash

@@ -17,9 +17,12 @@ Se o servidor MCP do Dataverse estiver disponível, use-o só para consultas pon
 1. `dvinv.py check -c inventory.yaml`. Se falhar, diagnostique pela tabela de problemas do `INSTALL.md` e pare.
 2. Se o escopo não estiver definido, rode `extract --only solutions`, liste as soluções não
    gerenciadas com `publisher_prefix` e **pergunte** quais prefixos e soluções entram no escopo.
-3. `dvinv.py extract -c inventory.yaml` (`--deep` se eu pedir análise de segurança, ribbons, trace
-   ou binários) e depois `dvinv.py render -c inventory.yaml`.
-4. Leia `00 Índice.md`, `01 Ambiente.md` (lacunas) e todas as notas de `Achados/`.
+3. `dvinv.py extract -c inventory.yaml` (`--deep` se eu pedir análise de segurança, ribbons, trace,
+   binários, uso de campos, armazenamento ou dependências registradas pela plataforma) e depois
+   `dvinv.py render -c inventory.yaml`.
+4. Leia `00 Índice.md`, `01 Ambiente.md` (lacunas), `08 Matriz de Dependências.md` e todas as notas
+   de `Achados/`. Para perguntas de impacto ("o que quebra se eu mudar X?"), use a seção
+   *Dependências* (depende de / usado por) da nota do componente.
 5. Valide cada achado crítico e alto com evidência primária (código do web resource, consulta
    MCP/Web API, repositório). Para cada um, registre **abaixo do marcador `%% dvinv:manual … %%`**
    da nota: o que foi verificado, a conclusão e a recomendação. Ajuste a property `status`
@@ -39,5 +42,6 @@ Se o servidor MCP do Dataverse estiver disponível, use-o só para consultas pon
 - Obsidian: wikilinks com caminho completo (`[[Dataverse/<AMB>/Tabelas/account|account]]`), properties
   tipadas, Bases (`.base`) para visões tabulares e JSON Canvas (`.canvas`) para diagramas.
 
-**Entregue no final**: o caminho do vault, os números principais (escopo × org), os achados
+**Entregue no final**: o caminho do vault, os números principais (escopo × org), as tabelas de maior
+impacto segundo a matriz de dependências (com o caminho de `Matriz de Dependências.xlsx`), os achados
 validados por severidade, as lacunas e os próximos passos sugeridos.

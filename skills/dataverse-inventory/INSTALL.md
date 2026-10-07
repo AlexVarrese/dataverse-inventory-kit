@@ -225,11 +225,16 @@ Não sabe o prefixo? Rode `dvinv.py extract -c inventory.yaml --only solutions` 
 D=$SKILL/scripts/dvinv.py
 python3 $D check   -c inventory.yaml          # conexão
 python3 $D extract -c inventory.yaml          # coleta padrão
-python3 $D extract -c inventory.yaml --deep   # + privilégios, ribbons, trace, membros, DLLs
+python3 $D extract -c inventory.yaml --deep   # liga todas as coletas pesadas (lista abaixo)
 python3 $D render  -c inventory.yaml          # (re)gera o vault — edições do analista são preservadas
 python3 $D all     -c inventory.yaml          # extract + render
 python3 $D diff    -c inventory.prd.yaml --a out/CLIENTE-PRD/_raw --b out/CLIENTE-TEST/_raw
 ```
+
+O `--deep` liga: privilégios por papel, ribbons, plugin trace, membros de equipe, DLLs de plugin,
+definições de processos, **uso de campos**, **armazenamento/auditoria** e **dependências registradas
+pela plataforma** (inclusive por coluna, uma chamada por coluna customizada). Para ligar só parte
+delas, use as chaves de `deep:` no `inventory.yaml` em vez do `--deep`.
 
 Tempo típico: de minutos (org pequena) até 30–60 min com `--deep` em orgs com centenas de tabelas e
 milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service protection limits).
@@ -239,6 +244,11 @@ milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service 
 1. *Open folder as vault* → a pasta `output.vault_root` (ou use um vault existente e aponte `vault_root` para ele).
 2. Confirme que os core plugins **Bases** e **Canvas** estão ligados.
 3. Comece por `Dataverse/<AMBIENTE>/00 Índice.md`.
+4. **Matriz de dependências**: `08 Matriz de Dependências.md` (impacto por tabela, tipo × tipo, mais
+   dependidos, externos, órfãos) e a seção *Dependências* de cada nota. Para o cliente, entregue
+   `Matriz de Dependências.xlsx` (mesma pasta), que abre no Excel com filtros. A matriz sai sempre;
+   `deep.platform_dependencies: true` acrescenta as dependências registradas pelo Dataverse e as
+   dependências ausentes de cada solução.
 
 ## 7. Problemas comuns
 
