@@ -11,8 +11,9 @@ de *Dataverse storage* lido pela Web API; o consumo oficial de capacidade (GB co
 só existe no Power Platform Admin Center (API de capacidade exige papel de admin do tenant).
 """
 
-import json
 from datetime import date
+
+from .tables import record_counts
 
 FIRST_YEAR = 2008
 
@@ -70,16 +71,8 @@ def collect_storage(ctx):
     out = {"largest_tables": [], "annotations": {}, "email_attachments": {}, "audit": {}}
 
     # 1. maiores tabelas
-    names = [t["logical"] for t in idx if not t.get("intersect")]
-    counts = {}
-    for i in range(0, len(names), 50):
-        chunk = names[i:i + 50]
-        try:
-            d = c.get(f"RetrieveTotalRecordCount(EntityNames=@p1)?@p1={json.dumps(chunk)}")
-            coll = d.get("EntityRecordCountCollection") or {}
-            counts.update(dict(zip(coll.get("Keys", []), coll.get("Values", []))))
-        except Exception as e:  # noqa: BLE001
-            ctx.gap("storage", f"contagem de registros lote {i // 50}", e)
+    names = [t["logical"] for t in idx if not t.get("intersect") and t.get("table_type") != "Virtual"]
+    counts = record_counts(ctx, names, "storage")
     out["largest_tables"] = [{"table": k, "records": v} for k, v in sorted(counts.items(), key=lambda kv: -(kv[1] or 0))[:40]]
 
     # 2. anexos
@@ -90,8 +83,17 @@ def collect_storage(ctx):
             rows = c.get_all(f"{es}?$apply=groupby((objecttypecode),aggregate($count as cnt))")
             sec["by_table"] = sorted([{"table": _key(r, "objecttypecode", otc_map), "count": r.get("cnt")} for r in rows],
                                      key=lambda x: -(x["count"] or 0))
-        except Exception as e:  # noqa: BLE001
-            ctx.gap("storage", f"{label_} por tabela", e)
+        except Exception:  # noqa: BLE001 — groupby na org inteira estoura o tempo de SQL em tabelas grandes
+            # plano B: contagem filtrada por tabela do escopo, em paralelo
+            def count_for(tab):
+                return c.get_all(f"{es}?$apply=filter(objecttypecode eq '{tab}')/aggregate($count as cnt)")[0].get("cnt")
+            res = c.parallel(count_for, sorted(ctx.scope.tables), label=f"{label_} por tabela")
+            fails = [tab for tab, _, err in res if err]
+            sec["by_table"] = sorted([{"table": tab, "count": n} for tab, n, err in res if not err and n],
+                                     key=lambda x: -(x["count"] or 0))
+            sec["by_table_scope_only"] = True
+            if fails:
+                ctx.gap("storage", f"{label_}: contagem em {len(fails)} tabela(s)", ", ".join(fails[:10]))
         try:
             rows = c.get_all(f"{es}?$apply=groupby((mimetype),aggregate($count as cnt,filesize with sum as total))")
             sec["by_mimetype"] = sorted([{"mimetype": r.get("mimetype") or "(vazio)", "count": r.get("cnt"),

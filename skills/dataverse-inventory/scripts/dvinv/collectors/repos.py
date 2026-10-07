@@ -42,7 +42,9 @@ def jaccard(a, b):
 def git_info(path):
     def run(*args):
         try:
-            return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+            # safe.directory: clones de outro usuário (ex. volume montado) são recusados sem isso; só leitura
+            return subprocess.run(["git", "-c", f"safe.directory={path}", "-C", str(path), *args],
+                                  capture_output=True, text=True,
                                   timeout=20).stdout.strip() or None
         except Exception:  # noqa: BLE001
             return None

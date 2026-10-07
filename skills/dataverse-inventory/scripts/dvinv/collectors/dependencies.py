@@ -58,14 +58,19 @@ def collect_platform_dependencies(ctx):
     if not cfg.deep.get("platform_dependencies"):
         return
     rows, failed = [], 0
-    for ctype, oid, label_ in targets(ctx):
-        try:
-            res = c.get(f"RetrieveDependentComponents(ObjectId=@p1,ComponentType=@p2)?@p1={oid}&@p2={ctype}")
-            rows += [_row(r) for r in res.get("value") or []]
-        except Exception as e:  # noqa: BLE001
+    tg = targets(ctx)
+
+    def fetch(t):
+        ctype, oid, _ = t
+        return c.get(f"RetrieveDependentComponents(ObjectId=@p1,ComponentType=@p2)?@p1={oid}&@p2={ctype}")
+
+    for (ctype, oid, label_), res, err in c.parallel(fetch, tg, label="dependências da plataforma"):
+        if err:
             failed += 1
             if failed <= 20:
-                ctx.gap("platform_dependencies", f"dependentes de {label_}", e)
+                ctx.gap("platform_dependencies", f"dependentes de {label_}", err)
+            continue
+        rows += [_row(r) for r in res.get("value") or []]
 
     missing = []
     for s in ctx.data.get("solutions") or []:
@@ -85,6 +90,6 @@ def collect_platform_dependencies(ctx):
         if k not in seen:
             seen.add(k)
             uniq.append(r)
-    ctx.stats["platform_dependencies"] = {"queried": len(targets(ctx)), "edges": len(uniq), "failed": failed,
+    ctx.stats["platform_dependencies"] = {"queried": len(tg), "edges": len(uniq), "failed": failed,
                                           "missing": len(missing)}
     ctx.data["platform_dependencies"] = {"edges": uniq, "missing": missing}

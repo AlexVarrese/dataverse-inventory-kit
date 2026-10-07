@@ -9,7 +9,7 @@
       "name": "dataverse-inventory",
       "source": "./",
       "description": "Inventário read-only de ambientes Dataverse/D365 em vault Obsidian",
-      "version": "0.3.0"
+      "version": "0.4.0"
     }
   ]
 }

@@ -66,9 +66,17 @@ def collect_webresources(ctx):
             "scope_reason": reason, "solutions": scope.solutions_of(w["webresourceid"]),
             "size": None, "functions": [], "secret_hits": [], "content": None, "js": None,
         }
+        out.append((rec, t))
+    contents = {}
+    if cfg.deep.get("webresource_content"):
+        contents = c.get_many("webresourceset", "webresourceid",
+                              [rec["id"] for rec, t in out if t in TEXT_TYPES], "content")
+    for rec, t in out:
         if cfg.deep.get("webresource_content") and t in TEXT_TYPES:
             try:
-                d = c.get(f"webresourceset({w['webresourceid']})?$select=content")
+                d = contents.get(rec["id"].lower())
+                if d is None:
+                    raise RuntimeError("não retornado pela API")
                 raw = base64.b64decode(d.get("content") or "")
                 text = raw.decode("utf-8-sig", "replace")
                 rec["size"] = len(raw)
@@ -76,13 +84,12 @@ def collect_webresources(ctx):
                 if t == 3:
                     names = {next(g for g in m.groups() if g) for m in FUNC_RE.finditer(text)}
                     rec["functions"] = sorted(names)
-                    rec["js"] = analyze_js(w["name"], text)
+                    rec["js"] = analyze_js(rec["name"], text)
                 rec["content"] = secrets.redact(text)
             except Exception as e:  # noqa: BLE001
-                ctx.gap("webresources", f"conteúdo de {w['name']}", e)
-        out.append(rec)
+                ctx.gap("webresources", f"conteúdo de {rec['name']}", e)
     ctx.stats["webresources"] = {"org_total": len(allwr), "scope": len(out)}
-    ctx.data["webresources"] = sorted(out, key=lambda x: x["name"])
+    ctx.data["webresources"] = sorted((rec for rec, _ in out), key=lambda x: x["name"])
 
 
 LIB_RE = re.compile(r'<Library\b[^>]*\bname="([^"]+)"', re.I)
@@ -94,7 +101,8 @@ CONTROL_RE = re.compile(r'<control\b[^>]*\bdatafieldname="([^"]+)"', re.I)
 
 
 def parse_formxml(xml):
-    libs = sorted(set(LIB_RE.findall(xml)))
+    # o formxml às vezes grava a biblioteca como "$webresource:<nome>"
+    libs = sorted({lib.split(":", 1)[1] if lib.lower().startswith("$webresource:") else lib for lib in LIB_RE.findall(xml)})
     handlers = []
     for m in EVENT_RE.finditer(xml):
         head, body = m.group(1), m.group(2)
@@ -104,11 +112,14 @@ def parse_formxml(xml):
             ha = h.group(1)
             fn = A_FUNC.search(ha)
             lib = A_LIB.search(ha)
+            lib = lib.group(1) if lib else None
+            if lib and lib.lower().startswith("$webresource:"):
+                lib = lib.split(":", 1)[1]
             en = A_ENABLED.search(ha)
             if fn or lib:
                 handlers.append({
                     "event": ev, "field": field.lower() if field else None,
-                    "library": lib.group(1) if lib else None, "function": fn.group(1) if fn else None,
+                    "library": lib, "function": fn.group(1) if fn else None,
                     "enabled": (en.group(1).lower() != "false") if en else True,
                 })
     fields = sorted({f.lower() for f in CONTROL_RE.findall(xml)})
@@ -117,8 +128,10 @@ def parse_formxml(xml):
 
 def collect_forms(ctx):
     c, scope, cfg = ctx.client, ctx.scope, ctx.cfg
-    forms = c.get_all(
-        "systemforms?$select=formid,name,type,objecttypecode,formactivationstate,ismanaged,isdefault,modifiedon")
+    # systemform não tem modifiedon (a data é publishedon); fallback sem data para versões que diferirem.
+    forms = c.get_first_ok(
+        "systemforms?$select=formid,name,type,objecttypecode,formactivationstate,ismanaged,isdefault,publishedon",
+        "systemforms?$select=formid,name,type,objecttypecode,formactivationstate,ismanaged,isdefault")
     out = []
     for f in forms:
         ent = f.get("objecttypecode")
@@ -127,17 +140,20 @@ def collect_forms(ctx):
         rec = {
             "id": f["formid"], "name": f.get("name"), "entity": ent,
             "type": fv(f, "type") or str(f.get("type")), "active": f.get("formactivationstate") == 1,
-            "managed": f.get("ismanaged"), "default": f.get("isdefault"), "modified": day(f.get("modifiedon")),
+            "managed": f.get("ismanaged"), "default": f.get("isdefault"), "modified": day(f.get("publishedon")),
             "solutions": scope.solutions_of(f["formid"]), "libraries": [], "handlers": [], "fields": [],
         }
-        # Dashboards (type 0) não têm entidade de escopo útil para eventos; formxml só para forms ativos.
-        if cfg.deep.get("form_events") and rec["active"] and ent and ent != "none":
-            try:
-                xml = c.get(f"systemforms({f['formid']})?$select=formxml").get("formxml") or ""
-                rec["libraries"], rec["handlers"], rec["fields"] = parse_formxml(xml)
-            except Exception as e:  # noqa: BLE001
-                ctx.gap("forms", f"formxml de {ent}/{f.get('name')}", e)
         out.append(rec)
+    # formxml só de forms ativos com tabela (dashboards não têm eventos de campo), em lotes.
+    if cfg.deep.get("form_events"):
+        need = [r for r in out if r["active"] and r["entity"] and r["entity"] != "none"]
+        xmls = c.get_many("systemforms", "formid", [r["id"] for r in need], "formxml")
+        for rec in need:
+            d = xmls.get(rec["id"].lower())
+            if d is None:
+                ctx.gap("forms", f"formxml de {rec['entity']}/{rec['name']}", "não retornado pela API")
+                continue
+            rec["libraries"], rec["handlers"], rec["fields"] = parse_formxml(d.get("formxml") or "")
     ctx.stats["forms"] = {"org_total": len(forms), "scope": len(out)}
     ctx.data["forms"] = sorted(out, key=lambda x: (x["entity"] or "", x["name"] or ""))
 
@@ -157,13 +173,15 @@ def collect_views(ctx):
             "active": v.get("statecode") == 0, "managed": v.get("ismanaged"), "modified": day(v.get("modifiedon")),
         })
     if ctx.cfg.deep.get("field_usage"):
+        # em lotes: orgs grandes têm milhares de views (uma chamada por view levava 15+ min)
+        xmls = c.get_many("savedqueries", "savedqueryid", [x["id"] for x in out], "fetchxml,layoutxml", batch=20)
         for x in out:
-            try:
-                d = c.get(f"savedqueries({x['id']})?$select=fetchxml,layoutxml")
-                xml = (d.get("fetchxml") or "") + (d.get("layoutxml") or "")
-                x["columns"] = sorted({m.lower() for m in re.findall(r'\bname="([A-Za-z0-9_]+)"', xml)})
-            except Exception as e:  # noqa: BLE001
-                ctx.gap("views", f"fetchxml da view {x['name']}", e)
+            d = xmls.get(x["id"].lower())
+            if d is None:
+                ctx.gap("views", f"fetchxml da view {x['name']}", "não retornado pela API")
+                continue
+            xml = (d.get("fetchxml") or "") + (d.get("layoutxml") or "")
+            x["columns"] = sorted({m.lower() for m in re.findall(r'\bname="([A-Za-z0-9_]+)"', xml)})
     ctx.stats["views"] = {"org_total": len(views), "scope": len(out)}
     ctx.data["views"] = sorted(out, key=lambda x: (x["entity"], x["name"] or ""))
 
@@ -180,14 +198,16 @@ def collect_ribbons(ctx):
     if not cfg.deep.get("ribbons"):
         return
     out = []
-    for ent in sorted(scope.tables):
-        try:
-            d = c.get(f"RetrieveEntityRibbon(EntityName=@p1,RibbonLocationFilter=@p2)?@p1='{ent}'"
-                      f"&@p2=Microsoft.Dynamics.CRM.RibbonLocationFilters'All'")
-            raw = base64.b64decode(d["CompressedEntityXml"])
-            xml = zipfile.ZipFile(io.BytesIO(raw)).read("RibbonXml.xml").decode("utf-8")
-        except Exception as e:  # noqa: BLE001
-            ctx.gap("ribbons", f"ribbon de {ent}", e)
+
+    def fetch(ent):
+        d = c.get(f"RetrieveEntityRibbon(EntityName=@p1,RibbonLocationFilter=@p2)?@p1='{ent}'"
+                  f"&@p2=Microsoft.Dynamics.CRM.RibbonLocationFilters'All'")
+        raw = base64.b64decode(d["CompressedEntityXml"])
+        return zipfile.ZipFile(io.BytesIO(raw)).read("RibbonXml.xml").decode("utf-8")
+
+    for ent, xml, err in c.parallel(fetch, sorted(scope.tables), label="ribbons"):
+        if err:
+            ctx.gap("ribbons", f"ribbon de {ent}", err)
             continue
         commands = {}
         for m in CMD_RE.finditer(xml):

@@ -42,8 +42,12 @@ def compare(raw_a, raw_b, vault_root, folder):
     ta = (a.get("manifest") or {}).get("extracted_at", "")[:10]
     tb = (b.get("manifest") or {}).get("extracted_at", "")[:10]
     ka, kb = keys(a), keys(b)
+    if na == nb:  # mesmo ambiente em dois momentos: o rótulo precisa da data/hora para distinguir os lados
+        ta = (a.get("manifest") or {}).get("extracted_at", "")[:16].replace("T", " ")
+        tb = (b.get("manifest") or {}).get("extracted_at", "")[:16].replace("T", " ")
+    la, lb = f"{na} {ta}", f"{nb} {tb}"
     lines = [f"# Comparação {na} ({ta}) × {nb} ({tb})", "",
-             mdtable(["Tipo", f"{na}", f"{nb}", f"Só em {na}", f"Só em {nb}"],
+             mdtable(["Tipo", la, lb, f"Só em {la}", f"Só em {lb}"],
                      [[t, len(ka[t]), len(kb[t]), len(ka[t] - kb[t]), len(kb[t] - ka[t])] for t in ka])]
     for t in ka:
         only_a, only_b = sorted(ka[t] - kb[t]), sorted(kb[t] - ka[t])
@@ -51,9 +55,9 @@ def compare(raw_a, raw_b, vault_root, folder):
             continue
         lines += [f"## {t}", ""]
         if only_a:
-            lines += [f"> [!minus]- Só em {na} ({len(only_a)})"] + [f"> - `{x}`" for x in only_a] + [""]
+            lines += [f"> [!minus]- Só em {la} ({len(only_a)})"] + [f"> - `{x}`" for x in only_a] + [""]
         if only_b:
-            lines += [f"> [!plus]- Só em {nb} ({len(only_b)})"] + [f"> - `{x}`" for x in only_b] + [""]
+            lines += [f"> [!plus]- Só em {lb} ({len(only_b)})"] + [f"> - `{x}`" for x in only_b] + [""]
     title = safe(f"Comparação {na} {ta} x {nb} {tb}")
     path = Path(vault_root) / folder / "Comparações" / f"{title}.md"
     path.parent.mkdir(parents=True, exist_ok=True)

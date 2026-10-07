@@ -342,18 +342,25 @@ def compute(d):
     by_sol = defaultdict(list)
     for m in dsum["missing"]:
         by_sol[m["solution"]].append(m)
-    for sol, ms in by_sol.items():
-        out.append(_f("DEP-01", "alto", f"Solução {sol} exige {len(ms)} componente(s) que não estão nela",
-                      "RetrieveMissingDependencies: a importação dessa solução falha em ambiente que não tenha os "
-                      "componentes exigidos. Adicione-os à solução ou garanta a ordem de instalação das dependências.",
-                      refs=[("solution", sol)],
-                      evidence=[f"{m.get('dependent_type_label') or m.get('dependent_type')} {m['dependent_id']} → "
-                                f"{m.get('required_type_label') or m.get('required_type')} {m['required_id']}" for m in ms],
-                      metric=len(ms)))
-    hot = [r for r in dsum["per_table"] if r["total"] >= 20]
+    if by_sol:
+        # um achado só (ambientes de DEV/TEST têm centenas de soluções de patch); detalhe por solução no _raw
+        ranked = sorted(by_sol.items(), key=lambda kv: -len(kv[1]))
+        out.append(_f("DEP-01", "alto", f"{len(by_sol)} solução(ões) exigem componentes que não contêm",
+                      "RetrieveMissingDependencies: a importação dessas soluções falha em ambiente que não tenha os "
+                      "componentes exigidos. Adicione-os à solução ou garanta a ordem de instalação. Soluções de "
+                      "patch/teste costumam aparecer aqui — priorize as que são unidades de deploy.",
+                      refs=[("solution", sol) for sol, _ in ranked],
+                      evidence=[f"{sol}: {len(ms)} componente(s) — "
+                                + ", ".join(f"{t} ({n})" for t, n in Counter(
+                                    m.get("required_type_label") or str(m.get("required_type")) for m in ms).most_common(4))
+                                for sol, ms in ranked],
+                      metric=len(by_sol)))
+    hot = [r for r in dsum["per_table"] if r["total"]][:15]
     if hot:
-        out.append(_f("DEP-02", "info", f"{len(hot)} tabela(s) com 20+ componentes dependentes",
-                      "Mudança de schema nessas tabelas exige regressão ampla (formulários, JS, plugins, processos, flows).",
+        out.append(_f("DEP-02", "info", f"As {len(hot)} tabela(s) de maior impacto de mudança",
+                      "Tabelas com mais componentes dependentes (formulários, JS, plugins, processos, flows, apps e, "
+                      "com deep.platform_dependencies, o que a plataforma registra). Mudança de schema nelas exige "
+                      "regressão ampla.",
                       refs=[("table", r["table"]) for r in hot],
                       evidence=[f"{r['table']}: {r['total']} dependentes" for r in hot], metric=len(hot)))
     unused = [n for n in dsum["unused"] if n[0] in ("envvar", "connref", "customapi")]

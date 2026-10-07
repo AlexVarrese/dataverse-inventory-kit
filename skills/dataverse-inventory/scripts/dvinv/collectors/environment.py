@@ -63,19 +63,25 @@ def collect_solutions(ctx):
 
     # Componentes: só para soluções do escopo e soluções não gerenciadas (a Default contém tudo e
     # soluções gerenciadas grandes estouram tempo sem agregar informação de pertencimento útil).
-    for rec in out:
-        uname = rec["uniquename"].lower()
-        if uname in SYSTEM_SOLUTIONS:
-            continue
-        if not (uname in wanted or rec["managed"] is False):
-            continue
+    # Em lotes de 10 soluções por consulta: ambientes de DEV/TEST chegam a centenas de soluções não
+    # gerenciadas, e uma chamada por solução levava >10 min.
+    targets = [r for r in out if r["uniquename"].lower() not in SYSTEM_SOLUTIONS
+               and (r["uniquename"].lower() in wanted or r["managed"] is False)]
+    comps_by_sol = {r["id"].lower(): [] for r in targets}
+    for i in range(0, len(targets), 10):
+        chunk = targets[i:i + 10]
+        flt = " or ".join(f"_solutionid_value eq {r['id']}" for r in chunk)
         try:
-            comps = c.get_all(
-                f"solutioncomponents?$select=componenttype,objectid,rootcomponentbehavior"
-                f"&$filter=_solutionid_value eq {rec['id']}"
-            )
+            for comp in c.get_all(f"solutioncomponents?$select=componenttype,objectid,_solutionid_value&$filter={flt}"):
+                comps_by_sol.setdefault((comp.get("_solutionid_value") or "").lower(), []).append(comp)
         except Exception as e:  # noqa: BLE001
-            ctx.gap("solutions", f"componentes de {rec['uniquename']}", e)
+            for r in chunk:
+                comps_by_sol.pop(r["id"].lower(), None)
+                ctx.gap("solutions", f"componentes de {r['uniquename']}", e)
+    for rec in targets:
+        uname = rec["uniquename"].lower()
+        comps = comps_by_sol.get(rec["id"].lower())
+        if comps is None:
             continue
         counts = {}
         for comp in comps:

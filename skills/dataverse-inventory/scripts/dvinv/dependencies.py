@@ -130,8 +130,8 @@ def build(d):
         tn = table_node(s.get("entity"))
         if tn:
             g.edge(sn, tn, f"registrado em {s.get('message')}")
-        if s.get("assembly"):
-            g.edge(sn, ("assembly", s["assembly"]), "executa código de")
+        if s.get("assembly"):  # pode ser assembly fora do escopo (ex. step não gerenciado em plugin da Microsoft)
+            g.edge(sn, g.node("assembly", s["assembly"], s["assembly"]), "executa código de")
         if s.get("handler_kind") == "serviceendpoint" and s.get("handler"):
             g.edge(sn, g.node("endpoint", s["handler"], s["handler"]), "envia mensagem para")
 

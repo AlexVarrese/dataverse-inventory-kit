@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0 — 2026-10-07
+
+Validado contra um ambiente real de TEST (159 tabelas, 4 mil colunas custom, 900 processos):
+extração completa caiu de **mais de 2 h para 22 min**, e o ambiente revelou bugs que a fixture não tinha.
+
+Desempenho
+- Conexões HTTPS reaproveitadas (keep-alive) e respostas gzip: 2,5× por chamada (medido a ~200 ms do datacenter).
+- Até `parallel` (padrão 4) chamadas simultâneas em colunas por tabela, ribbons e dependências da plataforma.
+- Busca em lote (`$filter=id eq … or …`) para componentes de soluções, conteúdo de web resources, formxml,
+  fetchxml de views e definições de processos/flows. Views: 28 min → 33 s.
+- Progresso no log das etapas longas; aviso explícito e contagem (`throttled_429`) quando o serviço pede espera.
+
+Robustez (bugs encontrados no ambiente real)
+- `systemform` não tem `modifiedon` (usa `publishedon`) — o coletor de formulários falhava inteiro.
+- Tabela virtual derrubava o lote de `RetrieveTotalRecordCount`: virtuais são puladas e lote com erro é
+  dividido até isolar a tabela; as falhas viram uma lacuna consolidada.
+- `countcolumn` falha em colunas Money: elas (e qualquer coluna que falhe) vão para paginação, o resto segue
+  por agregação.
+- Membros de equipe acima de 50 mil vínculos: plano B por paginação de `teammemberships`.
+- `groupby` de notas na org inteira estoura o tempo de SQL: plano B por tabela do escopo.
+- Step em assembly fora do escopo quebrava a matriz de dependências.
+- Bibliotecas `$webresource:<nome>` no formxml geravam falso "web resource inexistente".
+- Senha de connection string com `$` no meio não era detectada.
+- `git` recusava clones de outro dono (safe.directory) — branch/commit saíam vazios.
+- Mensagens de erro da API agora aparecem nas lacunas (antes ficavam truncadas atrás da URL).
+
+Escopo e relatório
+- `scope.exclude_prefixes` e tabela "De onde veio o escopo" (motivo × prefixo) em `01 Ambiente`.
+- DEP-01 consolidado num único achado; DEP-02 lista as 15 tabelas de maior impacto.
+- `diff` do mesmo ambiente rotula os lados com data e hora.
+
 ## 0.3.0 — 2026-10-07
 
 - **Matriz de dependências entre componentes**: grafo "A depende de B" com relações inferidas (steps,

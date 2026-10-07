@@ -64,13 +64,20 @@ def collect_security(ctx):
         fetch = ("<fetch aggregate='true'><entity name='teammembership'>"
                  "<attribute name='teamid' groupby='true' alias='t'/>"
                  "<attribute name='systemuserid' aggregate='count' alias='n'/></entity></fetch>")
+        counts = None
         try:
             rows = c.get_all(f"teammemberships?fetchXml={fetch}")
             counts = {r.get("t"): r.get("n") for r in rows}
+        except Exception:  # noqa: BLE001 — acima de 50 mil vínculos a agregação recusa: pagina só o teamid
+            try:
+                counts = {}
+                for r in c.get_all("teammemberships?$select=teamid"):
+                    counts[r.get("teamid")] = counts.get(r.get("teamid"), 0) + 1
+            except Exception as e:  # noqa: BLE001
+                ctx.gap("security", "membros por equipe", e)
+        if counts is not None:
             for t in out["teams"]:
                 t["members"] = counts.get(t["id"], 0)
-        except Exception as e:  # noqa: BLE001
-            ctx.gap("security", "membros por equipe (limite de agregação de 50k?)", e)
 
     if cfg.deep.get("role_privileges"):
         schema_to_logical = {t["schema"].lower(): t["logical"] for t in ctx.data.get("tables", []) if t.get("schema")}

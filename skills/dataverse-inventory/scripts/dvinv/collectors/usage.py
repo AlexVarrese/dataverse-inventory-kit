@@ -32,29 +32,15 @@ def _select_name(col):
     return f"_{col['logical']}_value" if col.get("type") in LOOKUPS else col["logical"]
 
 
-def measure_fill(ctx, t, cols):
+# countcolumn em coluna Money falha no Dataverse ("expected Microsoft.Xrm.Sdk.Money") — conta por paginação.
+NO_AGG_TYPES = {"Money"}
+
+
+def _page_counts(ctx, t, cols):
+    """Conta valores não nulos paginando os registros (exato até field_usage.max_records)."""
     c, cfg = ctx.client, ctx.cfg
-    es, pk = t.get("entityset"), t.get("primary_id")
-    counts, total, method = {}, None, None
-    if not (es and pk):
-        return counts, total, "sem entity set"
-    rc = t.get("record_count")
-    if rc is None or rc <= AGG_LIMIT:
-        try:
-            for i in range(0, len(cols), BATCH_AGG):
-                batch = cols[i:i + BATCH_AGG]
-                attrs = f'<attribute name="{pk}" alias="total" aggregate="count"/>' + "".join(
-                    f'<attribute name="{col["logical"]}" alias="c{j}" aggregate="countcolumn"/>' for j, col in enumerate(batch))
-                fetch = f'<fetch aggregate="true"><entity name="{t["logical"]}">{attrs}</entity></fetch>'
-                row = (c.get_all(f"{es}?fetchXml={quote(fetch)}") or [{}])[0]
-                total = row.get("total", 0)
-                for j, col in enumerate(batch):
-                    counts[col["logical"]] = row.get(f"c{j}", 0)
-            return counts, total, "agregação"
-        except Exception as e:  # noqa: BLE001 — AggregateQueryRecordLimit e afins: cai para paginação
-            ctx.gap("field_usage", f"agregação em {t['logical']} (usando paginação)", e)
-            counts = {}
-    method = "paginação"
+    es, pk = t["entityset"], t["primary_id"]
+    counts, total, partial = {}, None, False
     for i in range(0, len(cols), BATCH_PAGE):
         batch = cols[i:i + BATCH_PAGE]
         sel = ",".join([pk] + [_select_name(col) for col in batch])
@@ -68,11 +54,66 @@ def measure_fill(ctx, t, cols):
                 k = _select_name(col)
                 local[col["logical"]] += sum(1 for r in rows if r.get(k) not in (None, "", []))
             url = data.get("@odata.nextLink")
-        if url:
-            method = f"parcial (primeiros {seen:,} registros)".replace(",", ".")
+        partial = partial or bool(url)
         c.log.append({"path": f"{es}?$select=<{len(batch)} colunas>", "status": 200, "rows": seen})
         counts.update(local)
         total = seen
+    return counts, total, partial
+
+
+def measure_fill(ctx, t, cols):
+    c = ctx.client
+    es, pk = t.get("entityset"), t.get("primary_id")
+    if not (es and pk):
+        return {}, None, "sem entity set"
+    rc = t.get("record_count")
+    counts, total, to_page = {}, None, []
+
+    def agg(batch):
+        attrs = f'<attribute name="{pk}" alias="total" aggregate="count"/>' + "".join(
+            f'<attribute name="{col["logical"]}" alias="c{j}" aggregate="countcolumn"/>' for j, col in enumerate(batch))
+        fetch = f'<fetch aggregate="true"><entity name="{t["logical"]}">{attrs}</entity></fetch>'
+        row = (c.get_all(f"{es}?fetchXml={quote(fetch)}") or [{}])[0]
+        return row.get("total", 0), {col["logical"]: row.get(f"c{j}", 0) for j, col in enumerate(batch)}
+
+    def agg_safe(batch):
+        """Agrega; se o lote falhar por causa de alguma coluna, divide até isolá-la (ela vai para paginação)."""
+        nonlocal total
+        try:
+            tot, got = agg(batch)
+            total = tot
+            counts.update(got)
+        except Exception as e:  # noqa: BLE001
+            if "50000" in str(e) or "0x8004e023" in str(e).lower():
+                raise  # limite de registros da agregação: a tabela inteira vai para paginação
+            if len(batch) == 1:
+                to_page.append(batch[0])
+            else:
+                agg_safe(batch[:len(batch) // 2])
+                agg_safe(batch[len(batch) // 2:])
+
+    if rc is None or rc <= AGG_LIMIT:
+        aggregable = [col for col in cols if col.get("type") not in NO_AGG_TYPES]
+        to_page += [col for col in cols if col.get("type") in NO_AGG_TYPES]
+        try:
+            for i in range(0, len(aggregable), BATCH_AGG):
+                agg_safe(aggregable[i:i + BATCH_AGG])
+        except Exception as e:  # noqa: BLE001
+            ctx.gap("field_usage", f"agregação em {t['logical']} (usando paginação)", e)
+            counts, to_page = {}, list(cols)
+    else:
+        to_page = list(cols)
+    if not to_page:
+        return counts, total, "agregação"
+    paged, ptotal, partial = _page_counts(ctx, t, to_page)
+    counts.update(paged)
+    total = ptotal if total is None else total
+    if partial:
+        method = f"parcial (primeiros {ptotal:,} registros)".replace(",", ".")
+    elif len(to_page) == len(cols):
+        method = "paginação"
+    else:
+        method = f"agregação + paginação ({len(to_page)} colunas)"
     return counts, total, method
 
 

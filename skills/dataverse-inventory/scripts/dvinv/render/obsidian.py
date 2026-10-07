@@ -668,6 +668,8 @@ def write_storage(v, d):
         sec = st.get(key) or {}
         b += [f"## {sec.get('label', key)}", "", f"**{sec.get('count')}** arquivos · **{gb(sec.get('bytes'))}** "
               f"({sec.get('bytes_method', '—')})", "",
+              *(["> [!note] Quantidade por tabela cobre só as tabelas do escopo (o agrupamento na org inteira "
+                 "excedeu o tempo de SQL do servidor).", ""] if sec.get("by_table_scope_only") else []),
               mdtable(["Tabela", "Quantidade", "Bytes"], [[v.link("table", r["table"], r["table"]), r.get("count"),
                                                          gb(r["bytes"]) if r.get("bytes") is not None else "—"]
                                                         for r in (sec.get("by_table") or [])[:25]]),
@@ -828,7 +830,16 @@ def write_environment(v, d, manifest):
     b += ["## Critério de escopo", "", f"- Prefixos: {', '.join(f'`{p}`' for p in sc.get('prefixes') or []) or '—'}",
           f"- Palavras-chave: {', '.join(f'`{k}`' for k in sc.get('keywords') or []) or '—'}",
           f"- Soluções: {', '.join(sc.get('solutions') or []) or '—'}",
-          f"- Inclui não gerenciados: {sc.get('include_unmanaged')} · tudo: {sc.get('all')}", "",
+          f"- Inclui não gerenciados: {sc.get('include_unmanaged')} · tudo: {sc.get('all')}",
+          f"- Prefixos excluídos: {', '.join(f'`{p}`' for p in sc.get('exclude_prefixes') or []) or '—'}", ""]
+    bd = manifest.get("scope_breakdown") or {}
+    if bd:
+        b += ["### De onde veio o escopo (componentes únicos por motivo × prefixo)", "",
+              "> [!tip] Volume inesperado? Prefixos de terceiros que entraram por *unmanaged* podem ir para "
+              "`scope.exclude_prefixes`; prefixos do próprio cliente, para `scope.prefixes`.", "",
+              mdtable(["Motivo", "Prefixo", "Componentes"],
+                      [[r, p, n] for r, ps in sorted(bd.items()) for p, n in list(ps.items())[:15]])]
+    b += ["",
           "## Escopo × organização", "",
           mdtable(["Coletor", "Métricas"], [[k, ", ".join(f"{a}={b_}" for a, b_ in (s or {}).items())]
                                             for k, s in (manifest.get("stats") or {}).items()])]

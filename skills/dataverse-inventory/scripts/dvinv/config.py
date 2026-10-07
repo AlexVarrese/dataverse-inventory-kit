@@ -35,12 +35,14 @@ class Config:
     url: str
     prefixes: list = field(default_factory=list)
     keywords: list = field(default_factory=list)
+    exclude_prefixes: list = field(default_factory=list)
     solutions: list = field(default_factory=list)
     include_unmanaged: bool = True
     scope_all: bool = False
     deep: dict = field(default_factory=lambda: dict(DEEP_DEFAULTS))
     plugin_trace_days: int = 7
     collectors: list = field(default_factory=list)  # vazio = todos
+    parallel: int = 4  # chamadas simultâneas nas etapas de uma chamada por item
     raw_dir: Path = Path("out/_raw")
     vault_root: Path = Path("vault")
     vault_folder: str = "Dataverse"
@@ -124,6 +126,7 @@ def load(path, overrides=None):
         url=url.rstrip("/"),
         prefixes=prefixes,
         keywords=[k.lower() for k in keywords],
+        exclude_prefixes=[p.lower() for p in scope.get("exclude_prefixes", []) or []],
         solutions=scope.get("solutions", []) or [],
         include_unmanaged=scope.get("include_unmanaged", True),
         scope_all=scope.get("all", False),
@@ -133,6 +136,7 @@ def load(path, overrides=None):
         field_usage_max_records=int(fu.get("max_records", 500_000)),
         repos=repos,
         collectors=overrides.get("collectors") or data.get("collectors") or [],
+        parallel=int(data.get("parallel", 4)),
         raw_dir=rel(out.get("raw_dir"), f"out/{slug}/_raw"),
         vault_root=rel(out.get("vault_root"), "vault"),
         vault_folder=out.get("vault_folder", f"Dataverse/{name}"),

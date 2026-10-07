@@ -236,6 +236,12 @@ definições de processos, **uso de campos**, **armazenamento/auditoria** e **de
 pela plataforma** (inclusive por coluna, uma chamada por coluna customizada). Para ligar só parte
 delas, use as chaves de `deep:` no `inventory.yaml` em vez do `--deep`.
 
+Desempenho: o kit reaproveita conexões HTTPS (keep-alive), pede respostas comprimidas (gzip), busca
+em lote (até 25 ids por consulta) e faz até `parallel` (padrão 4) chamadas simultâneas nas etapas de uma
+chamada por item. O log mostra o progresso dessas etapas e avisa se o serviço pedir espera (429).
+Referência medida: ambiente com 159 tabelas, 4 mil colunas custom, 1,8 mil views, 900 processos e 1,5 mil
+consultas de dependência — **22 min** com `--deep` completo, a partir de um host a ~200 ms do datacenter.
+
 Tempo típico: de minutos (org pequena) até 30–60 min com `--deep` em orgs com centenas de tabelas e
 milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service protection limits).
 
@@ -261,7 +267,9 @@ milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service 
 | `mcp indisponível … libsecret` | keyring ausente (Linux headless) | SPN para o extrator; MCP segue para o agente |
 | MCP `403` após `mcp allow` | consentimento do tenant pendente | URL de admin consent (3B passo 3) |
 | poucos cloud flows | flows fora de solução não aparecem na Web API | Power Platform admin / `pac admin list` / PAC CLI |
-| `AggregateQueryRecordLimit` em membros de equipe | > 50 mil linhas de teammembership | lacuna declarada; medir por amostragem |
+| `AggregateQueryRecordLimit` em membros de equipe | > 50 mil linhas de teammembership | o kit pagina `teammemberships` automaticamente |
+| milhares de web resources/notas que não são do cliente | `include_unmanaged` trouxe bibliotecas de terceiros | `scope.exclude_prefixes` (ver "De onde veio o escopo" em `01 Ambiente`) |
+| extração lenta | latência alta até o datacenter | aumente `parallel` (ex. 6–8); observe se aparecem avisos de 429 no log |
 
 ## 8. Testar a instalação sem ambiente
 

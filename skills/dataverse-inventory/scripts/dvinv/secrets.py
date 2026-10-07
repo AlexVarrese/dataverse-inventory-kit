@@ -21,8 +21,9 @@ PATTERNS = [
     ("Senha em appSettings (.NET)", re.compile(
         r"(?i)key=[\"'][\w.:-]*(?:password|passwd|pwd|senha|secret|apikey|api_key|clientsecret)[\"']\s+"
         r"value=[\"'](?P<v>[^\"']{6,})[\"']")),
-    # connection string: ...;Password=xxx; (ignora placeholders como {0} e $(Var))
-    ("Senha em connection string", re.compile(r"(?i)(?:^|[;\"'\s])(?:password|pwd)=(?P<v>[^;\"'\s{$]{6,})")),
+    # connection string: ...;Password=xxx; — ignora só valores que COMEÇAM como placeholder ({0}, $(Var));
+    # senha real pode ter $ ou { no meio
+    ("Senha em connection string", re.compile(r"(?i)(?:^|[;\"'\s])(?:password|pwd)=(?!\$\(|\{)(?P<v>[^;\"'\s]{6,})")),
     ("Senha/segredo literal", re.compile(
         r"(?i)(?:password|passwd|pwd|senha|client_?secret|api_?key|x-api-key|secret)"
         r"[\"']?\s*[:=]\s*[\"'](?P<v>[^\"'\s]{6,})[\"']")),

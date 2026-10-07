@@ -103,11 +103,14 @@ def run(ctx, only=None):
         "scope": {
             "prefixes": ctx.cfg.prefixes, "keywords": ctx.cfg.keywords, "solutions": ctx.cfg.solutions,
             "include_unmanaged": ctx.cfg.include_unmanaged, "all": ctx.cfg.scope_all,
+            "exclude_prefixes": ctx.cfg.exclude_prefixes,
         },
+        "scope_breakdown": ctx.scope.breakdown(),
         "deep": ctx.cfg.deep,
         "stats": ctx.stats,
         "gaps": ctx.gaps,
         "timings_s": timings,
+        "throttled_429": getattr(ctx.client, "throttled", 0),
         "queries": secrets.redact_tree(ctx.client.log),
     }
     save_json(ctx.cfg.raw_dir / "manifest.json", manifest)

@@ -3,6 +3,36 @@ import json
 from ..util import enum_value, label
 
 
+def record_counts(ctx, names, collector):
+    """RetrieveTotalRecordCount em lotes de 50; se um lote falhar, divide ao meio até isolar a tabela."""
+    c, counts, failed = ctx.client, {}, []
+
+    def run(chunk):
+        try:
+            d = c.get(f"RetrieveTotalRecordCount(EntityNames=@p1)?@p1={json.dumps(chunk)}")
+            coll = d.get("EntityRecordCountCollection") or {}
+            counts.update(dict(zip(coll.get("Keys", []), coll.get("Values", []))))
+        except Exception as ex:  # noqa: BLE001
+            if len(chunk) == 1:
+                failed.append((chunk[0], getattr(ex, "message", str(ex))))
+            else:
+                run(chunk[:len(chunk) // 2])
+                run(chunk[len(chunk) // 2:])
+
+    for i in range(0, len(names), 50):
+        run(names[i:i + 50])
+    if failed:
+        # uma lacuna só: tabelas de sistema virtuais/sem leitura não interessam uma a uma
+        why = {}
+        for name, msg in failed:
+            k = ("virtual" if "virtual entity" in msg else "não legível" if "not valid for read" in msg
+                 else "sem privilégio" if "CheckPrivilege" in msg else "outro erro")
+            why.setdefault(k, []).append(name)
+        ctx.gap(collector, f"contagem de registros indisponível em {len(failed)} tabela(s)",
+                "; ".join(f"{k}: {', '.join(v[:12])}{' …' if len(v) > 12 else ''}" for k, v in why.items()))
+    return counts
+
+
 def collect_tables(ctx):
     c, cfg, scope = ctx.client, ctx.cfg, ctx.scope
 
@@ -17,7 +47,7 @@ def collect_tables(ctx):
     # Índice leve de TODAS as tabelas (objecttypecode → nome): usado por storage/auditoria.
     ctx.data["_tables_index"] = [{"logical": e["LogicalName"], "otc": e.get("ObjectTypeCode"),
                                   "display": label(e.get("DisplayName")), "custom": e.get("IsCustomEntity"),
-                                  "intersect": e.get("IsIntersect")} for e in ents]
+                                  "intersect": e.get("IsIntersect"), "table_type": e.get("TableType")} for e in ents]
 
     def custom_attrs(e):
         attrs = e.get("Attributes") or []
@@ -39,6 +69,21 @@ def collect_tables(ctx):
         if reason:
             selected.append((e, reason, len(ca)))
 
+    # Fase 2 em paralelo: colunas (labels, tipo, obrigatoriedade) e chaves de cada tabela do escopo.
+    def details(ln):
+        attrs = c.get_all(
+            f"EntityDefinitions(LogicalName='{ln}')/Attributes?$select=MetadataId,LogicalName,SchemaName,"
+            "DisplayName,Description,AttributeType,AttributeTypeName,RequiredLevel,IsCustomAttribute,"
+            "IsManaged,AttributeOf,IsAuditEnabled")
+        try:
+            keys = c.get_all(f"EntityDefinitions(LogicalName='{ln}')/Keys?$select=LogicalName,KeyAttributes")
+        except Exception as ex:  # noqa: BLE001
+            ctx.gap("tables", f"chaves alternativas de {ln}", ex)
+            keys = []
+        return attrs, keys
+
+    fetched = {it: (res, err) for it, res, err in
+               c.parallel(details, [e["LogicalName"] for e, _, _ in selected], label="colunas das tabelas")}
     tables = []
     for e, reason, n_custom in selected:
         ln = e["LogicalName"]
@@ -63,13 +108,11 @@ def collect_tables(ctx):
             "keys": [],
             "record_count": None,
         }
-        # Fase 2: detalhes de colunas (labels, tipo, obrigatoriedade) só para tabelas do escopo.
+        res, err = fetched[ln]
         try:
-            attrs = c.get_all(
-                f"EntityDefinitions(LogicalName='{ln}')/Attributes?$select=MetadataId,LogicalName,SchemaName,"
-                "DisplayName,Description,AttributeType,AttributeTypeName,RequiredLevel,IsCustomAttribute,"
-                "IsManaged,AttributeOf,IsAuditEnabled"
-            )
+            if err:
+                raise err
+            attrs, keys = res
             for a in attrs:
                 if a.get("AttributeOf"):  # colunas virtuais derivadas (ex. *name de lookup)
                     continue
@@ -91,26 +134,15 @@ def collect_tables(ctx):
                     "solutions": scope.solutions_of(a.get("MetadataId")),
                 })
             rec["columns"].sort(key=lambda x: (not x["custom"], x["logical"]))
-        except Exception as ex:  # noqa: BLE001
-            ctx.gap("tables", f"colunas de {ln}", ex)
-        try:
-            keys = c.get_all(f"EntityDefinitions(LogicalName='{ln}')/Keys?$select=LogicalName,KeyAttributes")
             rec["keys"] = [{"name": k["LogicalName"], "columns": k.get("KeyAttributes")} for k in keys]
         except Exception as ex:  # noqa: BLE001
-            ctx.gap("tables", f"chaves alternativas de {ln}", ex)
+            ctx.gap("tables", f"colunas de {ln}", ex)
         tables.append(rec)
 
     if cfg.deep.get("record_counts") and tables:
-        names = [t["logical"] for t in tables]
-        counts = {}
-        for i in range(0, len(names), 50):
-            chunk = names[i:i + 50]
-            try:
-                d = c.get(f"RetrieveTotalRecordCount(EntityNames=@p1)?@p1={json.dumps(chunk)}")
-                coll = d.get("EntityRecordCountCollection") or {}
-                counts.update(dict(zip(coll.get("Keys", []), coll.get("Values", []))))
-            except Exception as ex:  # noqa: BLE001
-                ctx.gap("tables", f"RetrieveTotalRecordCount lote {i // 50}", ex)
+        # tabelas virtuais não suportam RetrieveTotalRecordCount — e uma só derruba o lote inteiro
+        names = [t["logical"] for t in tables if t.get("table_type") != "Virtual"]
+        counts = record_counts(ctx, names, "tables")
         for t in tables:
             t["record_count"] = counts.get(t["logical"])
 

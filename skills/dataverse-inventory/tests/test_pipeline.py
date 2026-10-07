@@ -42,7 +42,8 @@ Contoso.Account = {{
 function standalone() {{}}
 """
 FORMXML = """<form><formLibraries><Library name="contoso_/js/account.js" libraryUniqueId="{1}"/>
-<Library name="contoso_/js/missing.js" libraryUniqueId="{2}"/></formLibraries>
+<Library name="contoso_/js/missing.js" libraryUniqueId="{2}"/>
+<Library name="$webresource:contoso_/js/account.js" libraryUniqueId="{3}"/></formLibraries>
 <events><event name="onload" application="false" active="true"><Handlers>
 <Handler functionName="Contoso.Account.onLoad" libraryName="contoso_/js/account.js" enabled="true"/></Handlers></event>
 <event name="onchange" application="false" active="true" attribute="contoso_tier"><Handlers>
@@ -85,11 +86,14 @@ ENTITIES = [
     {"MetadataId": G(1), "LogicalName": "account", "SchemaName": "Account", "EntitySetName": "accounts", "IsCustomEntity": False,
      "IsManaged": True, "OwnershipType": "UserOwned", "ObjectTypeCode": 1, "DisplayName": {"UserLocalizedLabel": {"Label": "Conta"}},
      "PrimaryIdAttribute": "accountid",
-     "Attributes": [attr("name", False), attr("contoso_tier", True, False, "Picklist"), attr("contoso_legacy", True, False)]},
+     "Attributes": [attr("name", False), attr("contoso_tier", True, False, "Picklist"), attr("contoso_legacy", True, False),
+                    attr("contoso_revenue", True, False, "Money"), attr("contoso_weird", True, False)]},
     {"MetadataId": G(2), "LogicalName": "contoso_project", "SchemaName": "contoso_Project", "EntitySetName": "contoso_projects",
      "IsCustomEntity": True, "IsManaged": False, "OwnershipType": "UserOwned", "ObjectTypeCode": 10001,
      "PrimaryIdAttribute": "contoso_projectid",
      "DisplayName": {"UserLocalizedLabel": {"Label": "Projeto"}}, "Attributes": [attr("contoso_name", True, False), attr("contoso_accountid", True, False, "Lookup")]},
+    {"MetadataId": G(4), "LogicalName": "contoso_virtual", "SchemaName": "contoso_Virtual", "EntitySetName": "contoso_virtuals",
+     "IsCustomEntity": True, "IsManaged": False, "TableType": "Virtual", "Attributes": [attr("contoso_vname", True, False)]},
     {"MetadataId": G(3), "LogicalName": "contact", "SchemaName": "Contact", "IsCustomEntity": False, "IsManaged": True,
      "OwnershipType": "UserOwned", "Attributes": [attr("fullname", False)]},
 ]
@@ -99,8 +103,14 @@ def route(path):
     p = urllib.parse.unquote(path)
     # --- uso de campos ---
     if p.startswith("accounts?fetchXml="):
+        assert "contoso_revenue" not in p, "coluna Money não pode ir para countcolumn"
+        if "contoso_weird" in p:
+            raise DataverseError(400, p, '{"error":{"message":"The property provided was of type System.Int32"}}')
         n = p.count('aggregate="countcolumn"')
         return [dict({"total": 1000}, **{f"c{j}": 0 for j in range(n)})]
+    if p.startswith("accounts?$select="):
+        return [{"accountid": G(600 + i), "contoso_revenue": {"Value": 10} if i < 2 else None, "contoso_weird": None}
+                for i in range(4)]
     if p.startswith("contoso_projects?fetchXml="):
         raise DataverseError(400, p, "AggregateQueryRecordLimit exceeded")
     if p.startswith("contoso_projects?$select="):
@@ -112,7 +122,9 @@ def route(path):
                 "layoutxml": '<grid><row><cell name="contoso_name"/></row></grid>'}
     # --- armazenamento e auditoria ---
     if p.startswith("annotations?$apply=groupby((objecttypecode)"):
-        return [{"objecttypecode": "account", "cnt": 40}, {"objecttypecode": "contoso_project", "cnt": 2}]
+        raise DataverseError(500, p, '{"error":{"message":"Sql error: Generic SQL error. Sql Number: 8003"}}')
+    if p.startswith("annotations?$apply=filter(objecttypecode eq") and "aggregate($count as cnt)" in p and "filesize" not in p:
+        return [{"cnt": 40 if "'account'" in p else 2}]
     if p.startswith("activitymimeattachments?$apply=groupby((objecttypecode)"):
         return [{"objecttypecode": "email", "cnt": 900}]
     if "groupby((mimetype)" in p:
@@ -142,8 +154,8 @@ def route(path):
                  "ismanaged": False, "publisherid": {"friendlyname": "Contoso", "customizationprefix": "contoso"}}]
     if p.startswith("solutioncomponents"):
         assert G(11) in p, "não deveria ler componentes da Default"
-        return [{"componenttype": 1, "componenttype" + FV: "Entity", "objectid": G(2)},
-                {"componenttype": 29, "componenttype" + FV: "Workflow", "objectid": G(50)}]
+        return [{"componenttype": 1, "componenttype" + FV: "Entity", "objectid": G(2), "_solutionid_value": G(11)},
+                {"componenttype": 29, "componenttype" + FV: "Workflow", "objectid": G(50), "_solutionid_value": G(11)}]
     if p.startswith("EntityDefinitions?"):
         return ENTITIES
     m = re.match(r"EntityDefinitions\(LogicalName='(\w+)'\)/(Attributes|Keys)", p)
@@ -152,6 +164,10 @@ def route(path):
         return ent["Attributes"] if m.group(2) == "Attributes" else []
     if p.startswith("RetrieveTotalRecordCount"):
         names = json.loads(p.split("@p1=", 1)[1])
+        if "contoso_virtual" in names:
+            raise DataverseError(400, p, '{"error":{"message":"Entity contoso_virtual is a virtual entity, which is not supported"}}')
+        if "contact" in names:
+            raise DataverseError(400, p, '{"error":{"message":"contagem indisponível"}}')
         return {"EntityRecordCountCollection": {"Keys": names, "Values": [1000 * (i + 1) for i in range(len(names))]}}
     if "OneToManyRelationshipMetadata" in p:
         return [{"MetadataId": G(20), "SchemaName": "contoso_account_project", "ReferencedEntity": "account",
@@ -164,6 +180,18 @@ def route(path):
     if p.startswith("GlobalOptionSetDefinitions"):
         return [{"MetadataId": G(30), "Name": "contoso_status", "IsCustomOptionSet": True, "IsManaged": False},
                 {"MetadataId": G(31), "Name": "budgetstatus", "IsCustomOptionSet": False, "IsManaged": True}]
+    # --- consultas em lote (get_many): $filter=<chave> eq id1 or <chave> eq id2 … ---
+    if "$filter=" in p and " eq " in p and any(p.startswith(x) for x in ("webresourceset?", "systemforms?", "workflows?", "savedqueries?")):
+        ids = re.findall(r"(?:webresourceid|formid|workflowid|savedqueryid) eq ([0-9a-f-]{36})", p)
+        if ids:
+            key = p.split("?")[0]
+            res = []
+            for i in ids:
+                one = route(f"{key}({i})?$select=" + p.split("$select=")[1].split("&")[0])
+                k = {"webresourceset": "webresourceid", "systemforms": "formid", "workflows": "workflowid",
+                     "savedqueries": "savedqueryid"}[key]
+                res.append(dict(one, **{k: i}))
+            return res
     m = re.match(r"webresourceset\((.+?)\)", p)
     if m:
         content = {G(40): JS_ACCOUNT, G(41): "function nobodyCallsMe(){}"}[m.group(1)]
@@ -224,6 +252,8 @@ def route(path):
                 dict(base, sdkmessageprocessingstepid=G(113), name="AccountPre: Create of account (desligado)", stage=20, mode=0,
                      _plugintypeid_value=G(100), sdkmessageid={"name": "Create"},
                      sdkmessagefilterid={"primaryobjecttypecode": "account"}, statecode=1),
+                dict(base, sdkmessageprocessingstepid=G(114), name="Customização em plugin Microsoft", stage=40, mode=1,
+                     _plugintypeid_value=G(102), sdkmessageid={"name": "Create"}, sdkmessagefilterid={"primaryobjecttypecode": "contact"}),
                 dict(base, sdkmessageprocessingstepid=G(112), name="MS internal", stage=40, mode=1, ismanaged=True,
                      _plugintypeid_value=G(102), sdkmessageid={"name": "Create"}, sdkmessagefilterid={"primaryobjecttypecode": "contact"})]
     if p.startswith("sdkmessageprocessingstepimages"):
@@ -237,6 +267,8 @@ def route(path):
     if p.startswith("serviceendpoints"):
         return []
     m = re.match(r"workflows\((.+?)\)", p)
+    if m and m.group(1) == G(50):
+        return {"clientdata": json.dumps(FLOW), "xaml": None}
     if m and "xaml" in p:
         return {"xaml": '<Activity><SetEntityProperty Attribute="contoso_tier" Entity="account"/></Activity>', "clientdata": None}
     if m:
@@ -270,8 +302,10 @@ def route(path):
     if p.startswith("RetrieveRolePrivilegesRole"):
         return {"RolePrivileges": [{"PrivilegeName": "prvReadAccount", "Depth": "Global"},
                                    {"PrivilegeName": "prvWriteAccount", "Depth": "Local"}]}
-    if p.startswith("teammemberships"):
-        return [{"t": G(170), "n": 1500}]
+    if p.startswith("teammemberships?fetchXml"):
+        raise DataverseError(400, p, '{"error":{"code":"0x8004e023","message":"The maximum record limit of 50000 is exceeded"}}')
+    if p.startswith("teammemberships?$select=teamid"):
+        return [{"teamid": G(170)}] * 1500
     if p.startswith("teams"):
         return [{"teamid": G(170), "name": "Todos Vendas", "teamtype": 0, "_businessunitid_value": G(150)}]
     if p.startswith("fieldsecurityprofiles"):
@@ -323,7 +357,7 @@ def check_vault(vault_dir, vault_root):
             if target and target not in names:
                 broken.append((p.name, target))
         assert "SuperSecret123" not in text and "AbCdEfGhIjKlMnOp" not in text and "ABCDEFGHIJKLMNOPQRST" not in text \
-            and "Sup3rS3cretValue" not in text, f"segredo vazou em {p}"
+            and "Sup3rS3cretValue" not in text and "Ab$cd3fgh1" not in text, f"segredo vazou em {p}"
     assert not broken, f"wikilinks quebrados: {broken[:10]}"
     for b in vault_dir.rglob("*.base"):
         data = yaml.safe_load(b.read_text(encoding="utf-8"))
@@ -409,7 +443,9 @@ def main():
         (repo / "Plugins" / "AccountPre.cs").write_text(
             "namespace Contoso.Plugins { public class AccountPre : IPlugin { public void Execute(IServiceProvider s) {"
             " var x = entity[\"contoso_name\"]; } } }")
-        (repo / "app.config").write_text('<add key="Password" value="Sup3rS3cretValue"/>\n<setting password="Sup3rS3cretValue"/>')
+        (repo / "app.config").write_text('<add key="Password" value="Sup3rS3cretValue"/>\n<setting password="Sup3rS3cretValue"/>\n'
+                                         '<add name="PROD" connectionString="Url=https://x; Username=u; Password=Ab$cd3fgh1; authtype=Office365"/>\n'
+                                         '<add name="CI" connectionString="Password=$(DbPwd);"/>')
         (tmp / "inventory.yaml").write_text(yaml.safe_dump({
             "repos": [{"path": "repo", "kind": "any", "name": "contoso-crm"}],
             "environment": {"name": "CONTOSO-PRD", "url": "https://contoso.crm.dynamics.com"},
@@ -422,10 +458,16 @@ def main():
         ctx.client._bearer = lambda: "fake"
         manifest = run(ctx)
 
+        bd = manifest["scope_breakdown"]
+        assert bd["prefix"]["contoso_"] >= 5 and "msdyn_" not in str(bd), bd
         st = manifest["stats"]
-        assert st["tables"]["scope"] == 2 and st["tables"]["custom"] == 1, st["tables"]
+        assert st["tables"]["scope"] == 3 and st["tables"]["custom"] == 2, st["tables"]
+        gaps_txt = json.dumps(manifest["gaps"], ensure_ascii=False)
+        assert "contoso_virtual" not in gaps_txt, "tabela virtual não deveria ir para RetrieveTotalRecordCount"
+        assert "contagem de registros indisponível em 1 tabela(s)" in gaps_txt and "outro erro: contact" in gaps_txt, gaps_txt
+        assert "lote" not in gaps_txt  # lote dividido até isolar a tabela
         assert st["webresources"]["scope"] == 2
-        assert st["plugins"]["steps"] == 3 and st["plugins"]["assemblies"] == 1, st["plugins"]
+        assert st["plugins"]["steps"] == 4 and st["plugins"]["assemblies"] == 1, st["plugins"]
         assert st["processes"]["scope"] == 5, st["processes"]  # gerenciado de 'contact' fica fora
         assert st["security"]["roles_root_bu"] == 2, st["security"]  # dedupe por BU raiz
         gaps = " ".join(g["what"] for g in manifest["gaps"])
@@ -435,6 +477,8 @@ def main():
 
         v = render(cfg)
         fnd = {f["id"]: f for f in json.loads((cfg.raw_dir / "findings.json").read_text())}
+        assert sum(1 for f in fnd.values() if f["id"] == "DEP-01") == 1
+        assert not any("$webresource:" in e for f in fnd.values() for e in f.get("evidence") or []), "prefixo não removido"
         expected = {"DEP-01", "DEP-03", "FLW-01", "FLD-01", "FLD-03", "JS-03", "JS-06", "STO-01", "AUD-01", "REPO-01", "REPO-02", "REPO-03", "SEC-01", "UI-01", "UI-02", "UI-03", "PLG-01", "PLG-02", "PLG-03", "PLG-04", "OPS-01", "OPS-02",
                     "PRC-01", "PRC-02", "PRC-03", "SEG-02", "ALM-01", "ALM-02", "ALM-03"}
         assert expected <= set(fnd), f"faltam achados: {expected - set(fnd)}"
@@ -442,6 +486,9 @@ def main():
         md = check_vault(cfg.vault_dir, cfg.vault_root)
         fu = {t["table"]: {f["logical"]: f for f in t["fields"]} for t in json.loads((cfg.raw_dir / "field_usage.json").read_text())}
         assert fu["account"]["contoso_legacy"]["bucket"] == "candidato-seguro", fu["account"]["contoso_legacy"]
+        assert fu["account"]["contoso_revenue"]["populated"] == 2 and fu["account"]["contoso_weird"]["populated"] == 0
+        fu_acc = next(t for t in json.loads((cfg.raw_dir / "field_usage.json").read_text()) if t["table"] == "account")
+        assert fu_acc["method"] == "agregação + paginação (2 colunas)", fu_acc["method"]
         assert fu["account"]["contoso_tier"]["bucket"] == "sem-dados-com-logica", fu["account"]["contoso_tier"]
         assert fu["contoso_project"]["contoso_name"]["populated"] == 3 and fu["contoso_project"]["contoso_name"]["bucket"] == "em-uso"
         assert fu["contoso_project"]["contoso_name"]["repo_files"] == 1
@@ -449,7 +496,7 @@ def main():
         wr = {w["name"]: w for w in repo_raw["webresources"]}
         assert wr["contoso_/js/unused.js"]["status"] == "idêntico", wr  # CRLF/BOM não contam
         assert wr["contoso_/js/account.js"]["functions_only_env"] == ["helper"], wr["contoso_/js/account.js"]
-        assert sum(1 for h in repo_raw["secret_hits"] if h["file"] == "app.config") == 2, repo_raw["secret_hits"]
+        assert sum(1 for h in repo_raw["secret_hits"] if h["file"] == "app.config") == 3, repo_raw["secret_hits"]  # 2 + connection string com $ no meio; $(DbPwd) não
         ty = {t["type"]: t["status"] for t in repo_raw["plugin_types"]}
         assert ty == {"Contoso.Plugins.AccountPre": "com fonte", "Contoso.Plugins.ProjectRetrieve": "sem fonte no repo"}, ty
         st = json.loads((cfg.raw_dir / "storage.json").read_text())

@@ -18,6 +18,8 @@ scope:
   # keywords: [contoso]                   # default = prefixos sem "_" (casa nomes de processos/assemblies)
   solutions: []                           # uniquenames de soluções a inventariar integralmente
   include_unmanaged: true                 # tudo que é não gerenciado (customização direta no ambiente)
+  exclude_prefixes: []                    # ex. [cc_] — bibliotecas de terceiros que entram por "não gerenciado"
+                                          # (veja "De onde veio o escopo" em 01 Ambiente após a 1ª extração)
   all: false                              # true = tudo da org (gera MUITO volume; use com cuidado)
 
 deep:                                     # coletas pesadas — `--deep` liga todas
@@ -37,6 +39,7 @@ deep:                                     # coletas pesadas — `--deep` liga to
   platform_dependencies_columns: false  # idem por coluna custom (1 chamada por coluna — pesado)
 
 plugin_trace_days: 7
+parallel: 4                               # chamadas simultâneas nas etapas de uma chamada por item
 
 field_usage:
   tables: []                      # vazio = todas as tabelas do escopo; ex.: [account, contact, contoso_project]

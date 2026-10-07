@@ -154,6 +154,19 @@ def collect_processes(ctx):
         toks = set(field_refs(text, set(envvar_names) | set(api_names)))
         return (sorted(envvar_names[t] for t in toks if t in envvar_names),
                 sorted(api_names[t] for t in toks if t in api_names))
+    # Definições (clientdata/xaml) em lotes — uma chamada por processo custava minutos em orgs grandes.
+    defs = {}
+    if cfg.deep.get("flow_definitions") or cfg.deep.get("process_definitions"):
+        want = []
+        for w in rows:
+            cat = w.get("category")
+            ent_ = w.get("primaryentity")
+            r_ = scope.reason(w.get("name"), w.get("ismanaged"), w["workflowid"]) or (
+                ent_ in scope.tables and w.get("ismanaged") is False)
+            if r_ and ((cat == 5 and cfg.deep.get("flow_definitions")) or
+                       (cat in (0, 2, 3, 4) and cfg.deep.get("process_definitions"))):
+                want.append(w["workflowid"])
+        defs = c.get_many("workflows", "workflowid", want, "clientdata,xaml", batch=5)
     out = []
     for w in rows:
         ent = w.get("primaryentity")
@@ -185,7 +198,10 @@ def collect_processes(ctx):
         }
         if cat == 5 and cfg.deep.get("flow_definitions"):
             try:
-                cdata = c.get(f"workflows({w['workflowid']})?$select=clientdata").get("clientdata") or ""
+                d = defs.get(w["workflowid"].lower())
+                if d is None:
+                    raise RuntimeError("não retornado pela API")
+                cdata = d.get("clientdata") or ""
                 rec.update(parse_flow(cdata))
                 rec["tables"] = sorted({set_to_logical.get(t, t) for t in rec["tables"]})
                 rec["field_refs"] = field_refs(cdata, known_fields)
@@ -196,7 +212,9 @@ def collect_processes(ctx):
         if cat in (0, 2, 3, 4) and cfg.deep.get("process_definitions"):
             # XAML (workflow/action/BPF) e clientdata (business rule) citam os campos que o processo lê/grava.
             try:
-                d = c.get(f"workflows({w['workflowid']})?$select=xaml,clientdata")
+                d = defs.get(w["workflowid"].lower())
+                if d is None:
+                    raise RuntimeError("não retornado pela API")
                 text = (d.get("xaml") or "") + (d.get("clientdata") or "")
                 rec["field_refs"] = field_refs(text, known_fields)
                 rec["secret_hits"] = secrets.scan(text)

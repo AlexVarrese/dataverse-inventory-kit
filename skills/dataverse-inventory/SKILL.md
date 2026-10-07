@@ -1,7 +1,7 @@
 ---
 name: dataverse-inventory
 description: Inventaria ambientes Dataverse/D365 num vault Obsidian.
-version: 0.3.0
+version: 0.4.0
 author: Alex Giovani Varrese (alexvarrese)
 license: MIT
 platforms: [linux, macos, windows]
@@ -79,6 +79,10 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
 4. **Descobrir o escopo** se o usuário não souber o prefixo do publisher: rode
    `extract --only solutions` e leia `publisher_prefix` das soluções não gerenciadas em
    `<raw_dir>/solutions.json`. Confirme com o usuário prefixos e soluções antes da extração completa.
+   Depois da 1ª extração, confira em `01 Ambiente.md` a tabela **De onde veio o escopo** (motivo ×
+   prefixo): em ambientes de DEV/TEST, `include_unmanaged` costuma trazer milhares de bibliotecas de
+   terceiros — mova o prefixo para `scope.exclude_prefixes`, e prefixos do próprio cliente (ex. de outra
+   operação regional) para `scope.prefixes`.
 5. **Extrair:** `python3 <skill>/scripts/dvinv.py extract -c inventory.yaml`. `--deep` liga tudo:
    privilégios por papel, ribbons, plugin trace, membros de equipe, DLLs de plugin, definições de
    processos, **uso de campos** (preenchimento real + matriz + candidatos a remoção) e **armazenamento/
