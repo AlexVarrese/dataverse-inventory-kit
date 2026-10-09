@@ -149,6 +149,8 @@ def run(ctx, only=None):
             "url": ctx.cfg.url,
             "started_at": started.isoformat(timespec="seconds"),
             "extracted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "profile": getattr(ctx.cfg, "profile", "padrao"),
+            "profile_blocked": list(getattr(ctx.cfg, "profile_blocked", [])),
             "only": requested,
             "scope": {
                 "prefixes": ctx.cfg.prefixes, "keywords": ctx.cfg.keywords, "solutions": ctx.cfg.solutions,

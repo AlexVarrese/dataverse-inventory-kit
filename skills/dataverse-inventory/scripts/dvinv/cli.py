@@ -5,6 +5,8 @@
   render   gera/atualiza o vault Obsidian a partir do último snapshot íntegro (ou --snapshot)
   all      extract + render do snapshot recém-criado
   diff     compara dois snapshots (mesmo ambiente em datas diferentes, ou ambientes) → nota de comparação
+
+Perfis: --profile metadata_only desliga e trava toda coleta que lê conteúdo ou registros.
 """
 
 import argparse
@@ -35,6 +37,8 @@ def cmd_extract(cfg, only=None):
     if (cfg.raw_dir / "manifest.json").exists():
         print(f"[dvinv] aviso: {cfg.raw_dir} tem arquivos do formato antigo (<= 0.4); eles são ignorados — "
               "cada extração agora vira um snapshot em subpasta própria", file=sys.stderr)
+    if cfg.profile != "padrao":
+        print(f"[dvinv] perfil {cfg.profile}: bloqueado {', '.join(cfg.profile_blocked)}", flush=True)
     ctx = Context(cfg, _client(cfg), Scope(cfg))
     manifest = run(ctx, only)
     falhou = [k for k, s in manifest["collectors"].items() if s["status"] == "falhou"]
@@ -59,7 +63,8 @@ def main(argv=None):
     ap.add_argument("command", choices=["check", "extract", "render", "all", "diff", "collectors"])
     ap.add_argument("-c", "--config", default="inventory.yaml")
     ap.add_argument("--only", help="lista de coletores separada por vírgula (ver 'collectors')")
-    ap.add_argument("--deep", action="store_true", help="liga todas as coletas pesadas")
+    ap.add_argument("--deep", action="store_true", help="liga todas as coletas pesadas (respeita o perfil)")
+    ap.add_argument("--profile", choices=sorted(config_mod.PROFILES), help="perfil de coleta (sobrepõe o yaml)")
     ap.add_argument("--snapshot", help="render: diretório do snapshot ou run_id (padrão: último íntegro)")
     ap.add_argument("--no-snapshot", action="store_true", help=argparse.SUPPRESS)  # obsoleto desde 0.5.0
     ap.add_argument("--a", help="diff: snapshot A (diretório, raiz _raw → último íntegro, ou run_id)")
@@ -74,6 +79,8 @@ def main(argv=None):
               file=sys.stderr)
 
     overrides = {"deep_all": args.deep}
+    if args.profile:
+        overrides["profile"] = args.profile
     if args.only:
         overrides["collectors"] = [x.strip() for x in args.only.split(",") if x.strip()]
     cfg = config_mod.load(args.config, overrides)

@@ -25,6 +25,25 @@ DEEP_DEFAULTS = {
     "platform_dependencies_columns": False,  # idem para cada coluna custom (1 chamada por coluna — pesado)
 }
 
+# Perfis de coleta. `metadata_only` = só metadados de customização: desliga (e trava, mesmo com
+# --deep) toda coleta que lê CONTEÚDO (código, definições, binários) ou REGISTROS de negócio/log.
+# Ficam permitidos: record_counts (contagem agregada por tabela, sem ler registro), form_events
+# (formxml = customização), ribbons, role_privileges e platform_dependencies (metadados).
+PROFILES = {
+    "padrao": set(),
+    "metadata_only": {
+        "webresource_content",   # código JS/HTML dos web resources
+        "flow_definitions",      # clientdata dos cloud flows
+        "process_definitions",   # xaml/clientdata de workflows, business rules, actions
+        "plugin_binaries",       # .dll dos assemblies
+        "field_usage",           # lê registros (preenchimento por coluna)
+        "storage",               # agrega anexos/auditoria (lê tabelas de dados)
+        "plugin_trace",          # logs de execução (podem conter dados de registros)
+        "team_members",          # associações usuário × equipe (registros)
+    },
+}
+PROFILE_ALIASES = {"padrão": "padrao", "default": "padrao", "metadata-only": "metadata_only"}
+
 # Soluções que contêm "tudo" e não servem para dizer a que solução um componente pertence.
 SYSTEM_SOLUTIONS = {"default", "active", "basic", "system", "activitypartysolution"}
 
@@ -51,9 +70,14 @@ class Config:
     repos: list = field(default_factory=list)               # [{"path": ..., "kind": webresources|plugins|any}]
     auth_method: str = "auto"  # auto | spn | mcp | azcli | devicecode
     devicecode_cache: bool = False  # cache persistente CRIPTOGRAFADO do device code (opt-in; nunca texto puro)
+    profile: str = "padrao"         # padrao | metadata_only (ver PROFILES)
     derived_dir: Path = Path("out/_derived")
     env_file: Path | None = None
     tenant_id: str | None = None
+
+    @property
+    def profile_blocked(self):
+        return sorted(PROFILES.get(self.profile, set()))
 
     @property
     def api(self):
@@ -114,6 +138,12 @@ def load(path, overrides=None):
     if deep.get("field_usage"):  # a matriz precisa dos campos citados em workflows/BRs e nos formulários
         deep["process_definitions"] = True
         deep["form_events"] = True
+    profile = str(overrides.get("profile") or data.get("profile") or "padrao").strip().lower()
+    profile = PROFILE_ALIASES.get(profile, profile)
+    if profile not in PROFILES:
+        raise SystemExit(f"profile '{profile}' desconhecido — use: {', '.join(PROFILES)}")
+    for k in PROFILES[profile]:  # por último: nem deep.* do yaml, nem --deep, nem field_usage religam
+        deep[k] = False
     fu = data.get("field_usage", {}) or {}
     repos = []
     for r in data.get("repos", []) or []:
@@ -145,6 +175,7 @@ def load(path, overrides=None):
         vault_folder=out.get("vault_folder", f"Dataverse/{name}"),
         auth_method=auth.get("method", "auto"),
         devicecode_cache=bool(auth.get("devicecode_cache", False)),
+        profile=profile,
         env_file=env_file,
         tenant_id=auth.get("tenant_id") or os.environ.get("TENANT_ID"),
     )

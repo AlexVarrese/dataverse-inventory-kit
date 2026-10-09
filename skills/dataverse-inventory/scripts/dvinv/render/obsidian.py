@@ -897,6 +897,8 @@ def write_environment(v, d, manifest):
         ["Auditoria", env.get("audit_enabled")], ["Plugin trace", env.get("plugin_trace_setting")],
         ["Extraído em (UTC)", manifest.get("extracted_at")], ["Chamadas à API", len(manifest.get("queries") or [])],
         ["Snapshot (run_id)", manifest.get("run_id") or "formato antigo"],
+        ["Perfil de coleta", manifest.get("profile") or "padrao"],
+        ["Bloqueado pelo perfil", ", ".join(manifest.get("profile_blocked") or []) or "—"],
     ])]
     sc = manifest.get("scope") or {}
     b += ["## Critério de escopo", "", f"- Prefixos: {', '.join(f'`{p}`' for p in sc.get('prefixes') or []) or '—'}",
@@ -935,7 +937,7 @@ def write_environment(v, d, manifest):
     b += ["## Coleta (deep)", "", mdtable(["Opção", "Ligada"], list((manifest.get("deep") or {}).items())),
           "## Tempo por coletor (s)", "", mdtable(["Coletor", "s"], list((manifest.get("timings_s") or {}).items()))]
     v.write(f"{v.folder}/01 Ambiente", {"tipo": "secao", "url": env.get("url"), "versao": env.get("version"),
-                                        "snapshot": manifest.get("run_id"),
+                                        "snapshot": manifest.get("run_id"), "perfil": manifest.get("profile") or "padrao",
                                         "tags": v.tags("secao")}, "\n".join(b))
 
 
