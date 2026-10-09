@@ -242,12 +242,17 @@ anteriores é ignorada.
 
 **Perfil `metadata_only`** (`profile: metadata_only` no YAML ou `--profile metadata_only`): desliga e trava
 — mesmo com `--deep` ou `deep.*: true` — tudo que lê conteúdo ou registros: `webresource_content`,
-`flow_definitions`, `process_definitions`, `plugin_binaries`, `field_usage`, `storage`, `plugin_trace` e
-`team_members`. Continuam permitidos metadados de customização (`form_events`, `ribbons`,
+`flow_definitions`, `process_definitions`, `plugin_binaries`, `field_usage`, `storage`, `plugin_trace`,
+`team_members` e `users`. Continuam permitidos metadados de customização (`form_events`, `ribbons`,
 `role_privileges`, `platform_dependencies`) e `record_counts`: é uma contagem agregada por tabela
 (`RetrieveTotalRecordCount`), que não lê nenhum registro — desligue com `deep.record_counts: false` se
 nem o volume puder ser coletado. O perfil aparece no manifesto e em `01 Ambiente.md`. Observação: o
 coletor `security` continua contando usuários ativos (`systemusers`, só flags de status).
+
+`deep.users` traz a lista nominal de usuários (nome, UPN, BU, licença, papéis diretos e via equipe,
+equipes) e uma nota por usuário ativo em `Usuários/`. É **dado pessoal**: ligue só quando o levantamento de
+acessos estiver no escopo acordado e trate o vault como confidencial. Sem ele, BUs, equipes (com papéis) e
+PCF continuam no vault, e os usuários aparecem só como contagem.
 
 O `--deep` liga: privilégios por papel, ribbons, plugin trace, membros de equipe, DLLs de plugin,
 definições de processos, **uso de campos**, **armazenamento/auditoria** e **dependências registradas

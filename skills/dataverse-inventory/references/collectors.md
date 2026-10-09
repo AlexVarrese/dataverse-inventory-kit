@@ -17,6 +17,7 @@ escopo) e depois os demais.
 | webresources | `webresourceset` (todos os nomes) + `webresourceset(id)?$select=content` | webresources.json, _webresource_names.json | prefixo/solução/não gerenciado |
 | forms | `systemforms` + `systemforms(id)?$select=formxml` (ativos; inativos também com `deep.field_usage`, só para colunas) | forms.json | forms de tabelas do escopo |
 | views | `savedqueries` | views.json | views de tabelas do escopo |
+| pcf | `customcontrols` + `customcontrols(id)?$select=manifest`; vínculos coluna → controle vêm do formxml (coletor forms) | pcf.json | critério de escopo, ou de terceiros usado em formulário de tabela do escopo; controles nativos (`MscrmControls.*`) fora |
 | ribbons\* | `RetrieveEntityRibbon` (zip base64 → RibbonXml.xml) | ribbons.json | botões cujo comando chama biblioteca do escopo |
 | apps | `appmodules`, `canvasapps`, `bots` | apps.json | critério de escopo |
 | plugins | `pluginassemblies`, `plugintypes`, `sdkmessageprocessingsteps` (`customizationlevel eq 1`), `…stepimages`, `pluginassemblies(id)?$select=content`\* | plugins.json, bin/*.dll | assembly no escopo; step de classe no escopo ou webhook em tabela do escopo |
@@ -24,7 +25,8 @@ escopo) e depois os demais.
 | serviceendpoints | `serviceendpoints` | serviceendpoints.json | critério de escopo |
 | processes | `workflows` (`type eq 1 or category eq 5`) + `workflows(id)?$select=clientdata` para flows | processes.json | nome/solução/não gerenciado, ou tabela do escopo + não gerenciado |
 | alm | `environmentvariabledefinitions` (+valores), `connectionreferences`, `connectors` | alm.json | critério de escopo |
-| security | `businessunits`, `roles`, `teams`, `fieldsecurityprofiles`, `systemusers`, `RetrieveRolePrivilegesRole`\*, FetchXML aggregate em `teammemberships`\* | security.json | papéis da BU raiz |
+| security | `businessunits`, `roles`, `teams`, `teamrolescollection` (papéis das equipes), `fieldsecurityprofiles`, `systemusers` (só contagens: tipo, status, BU), `RetrieveRolePrivilegesRole`\*, FetchXML aggregate em `teammemberships`\* | security.json | papéis da BU raiz |
+| users\* | `systemusers` (nome, UPN, BU, status, modo de acesso, licença, application id), `systemuserrolescollection`, `teammemberships` | users.json | org inteira — **dado pessoal**, só com `deep.users` (bloqueado em `metadata_only`) |
 | health\* | `plugintracelogs` (todas e `exceptiondetails ne null`) | health.json | janela `plugin_trace_days` |
 | repos (`repos:`) | arquivos dos clones locais + `git rev-parse`/`log -1`; `ilspycmd` nas DLLs (se instalado) | repos.json, decompiled/ | web resources e classes do escopo |
 | field_usage\* | FetchXML `countcolumn` (≤ 50 mil registros) ou paginação `$select`; cruza forms, views (`savedqueries(id)` fetchxml/layoutxml), processos, steps, JS, repos | field_usage.json | colunas custom das tabelas do escopo ou `field_usage.tables` |
@@ -61,6 +63,11 @@ plataforma, resolvendo os ids para componentes conhecidos quando possível.
 - **Colunas que não existem em todas as versões/regiões** (ex. `canvasapps.canvasapptype`): `get_first_ok` tenta um `$select` mais enxuto.
 - **429 / 5xx**: retry com `Retry-After` (service protection limits).
 - **Flows referenciam tabelas por entity set** (`contoso_projects`) nas ações e por nome lógico no gatilho: os dois são mapeados para o nome lógico.
+- **PCF**: só os vínculos em formulários ativos são visíveis (`controlDescriptions` do formxml). PCF definido
+  como controle padrão da coluna/tabela ou em view não é exposto de forma consultável pela Web API — lacuna
+  declarada (`kind=limitação`). Parâmetros não estáticos do controle contam como uso da coluna na matriz.
+- **Equipes de acesso** (teamtype 1) são criadas por registro via access team template e podem ser milhares:
+  entram só na contagem, sem nota nem nó no grafo.
 - **Secure config de steps** não é exposta pela Web API, por design. Só a unsecure é lida e varrida.
 - **Preenchimento de colunas**: agregação nativa só até ~50 mil registros. Acima disso, pagina contando
   valores não nulos em lotes de 35 colunas (lookups via `_x_value`), até `field_usage.max_records`. Se parar

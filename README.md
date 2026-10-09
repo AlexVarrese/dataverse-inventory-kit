@@ -24,6 +24,9 @@ skills, há um prompt equivalente.
   registradas pelo próprio Dataverse e as que faltam em cada solução.
 - **Uso de campos**: preenchimento real × onde cada coluna é usada, com candidatos a *investigação* de
   remoção (só com contagem completa e todas as fontes medidas; o resto fica como inconclusivo).
+- **Estrutura de segurança e PCF**: nota por business unit, equipe (com papéis) e componente PCF
+  (manifesto, domínios externos, formulários e colunas onde é usado); lista nominal de usuários opcional
+  (`deep.users`).
 - **Achados automáticos** (segredos expostos, JS quebrado ou obsoleto, plugins sem filtro, automações
   de dono desativado, drift entre ambiente e repositório Git, soluções com dependências faltando…).
 - **Comparação** entre ambientes (TEST × PRD) ou entre datas.

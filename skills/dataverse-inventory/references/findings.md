@@ -28,6 +28,11 @@ antes de afirmar.
 | ALM-03 | baixo | Custom API sem plugin de implementação | pode ser só uma mensagem para steps/flows |
 | ALM-04 | baixo | processo não gerenciado fora de qualquer solução | customização direta no ambiente, não migra por ALM |
 
+| SEG-03 | baixo | equipe proprietária (não padrão da BU) sem nenhum papel | pode ser equipe usada só para compartilhamento — confirmar |
+| SEG-04 | alto | usuário de aplicação ativo com System Administrator (direto ou via equipe) | exige `deep.users`; aplicar menor privilégio |
+| SEG-05 | baixo | papel do escopo sem usuário ativo nem equipe | exige `deep.users`; pode ser atribuído por processo externo |
+| PCF-01 | info | componente PCF declara domínios externos (`external-service-usage`) | confirmar finalidade, dono do serviço e licenciamento premium |
+| PCF-02 | baixo | PCF não gerenciado sem uso em formulário ativo | pode ser controle padrão de coluna/tabela ou de view (não visível pela Web API) |
 | FLD-01 | médio | coluna custom com zero registros (contagem **completa**) e nenhuma referência (form ativo ou inativo, view, processo, flow, plugin, JS, repo), com **todas** essas fontes medidas — candidata a **investigação** de remoção | nunca afirma que remover é seguro: confirmar integrações externas (ETL, Power BI, portais, APIs), flows fora de solução e código não versionado |
 | FLD-02 | baixo | coluna sem dados que ainda aparece em formulário/view, ou só em formulário inativo (uso fraco) | pode ser campo recém-criado (verifique a data de criação); limpe o formulário inativo antes |
 | FLD-03 | baixo | coluna sem dados (contagem completa) citada em automação/código | regra morta ou gravação que nunca acontece (bug) |

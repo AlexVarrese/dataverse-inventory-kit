@@ -16,6 +16,10 @@ e `extraido_em` (Date). Links em properties são strings `"[[caminho|alias]]"`, 
 | `app` | `Apps/` | `subtipo` (model-driven / canvas / agente Copilot Studio), `nome_unico` |
 | `solucao` | `Soluções/` | `versao`, `gerenciada`, `publisher`, `prefixo`, `componentes` |
 | `papel` | `Papéis/` | `gerenciado`, `tabelas_com_privilegio` |
+| `pcf` | `Componentes PCF/` | `namespace`, `construtor`, `versao`, `tipo_controle`, `gerenciado`, `formularios`, `campos`, `dominios_externos`, `web_api` |
+| `business-unit` | `Business Units/` | `pai` (link), `filhas`, `equipes`, `usuarios_ativos`, `desativada` |
+| `equipe` | `Equipes/` | `tipo_equipe`, `business_unit` (link), `grupo_entra`, `membros`, `papeis` (links), `administrador` |
+| `usuario` | `Usuários/` (só `deep.users`, só ativos) | `upn`, `tipo_usuario`, `modo_acesso`, `licenca`, `business_unit` (link), `papeis`, `papeis_via_equipe`, `equipes` |
 | `achado` | `Achados/` | `id_achado`, `severidade`, `titulo`, `metrica`, **`status`**, **`responsavel`** |
 | `comparacao` | `Comparações/` | `ambiente_a`, `ambiente_b`, `data_a`, `data_b` |
 
@@ -41,7 +45,9 @@ Todas filtram por `file.inFolder("<vault_folder>")` + `tipo`, então cada ambien
 - **Plugin Steps**: Por tabela · Síncronos · Por assembly
 - **Web Resources**: Todos por tipo · JS sem uso em formulário
 - **Achados**: Por severidade · Abertos
-- **Componentes**: assemblies, Custom APIs, apps, soluções e papéis agrupados por tipo
+- **Componentes**: assemblies, Custom APIs, apps, soluções, papéis e PCF agrupados por tipo
+- **Componentes PCF**: Todos · Sem uso em formulário
+- **Segurança**: Business units · Equipes (por BU) · Usuários por BU · Usuários de aplicação
 
 Para uma visão transversal a vários ambientes, crie uma Base sem o filtro de pasta e agrupe por
 `ambiente` (skill `obsidian-bases`).

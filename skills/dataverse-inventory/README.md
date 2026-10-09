@@ -19,10 +19,11 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
 |---|---|
 | Ambiente e ALM | versão, organização, auditoria, plugin trace, soluções e componentes por solução, publishers, variáveis de ambiente, referências de conexão, conectores customizados |
 | Dados | tabelas custom e nativas customizadas, colunas (tipo, obrigatoriedade, auditoria), chaves alternativas, relacionamentos 1:N/N:N, option sets globais, contagem de registros |
-| Interface | formulários (bibliotecas JS, handlers por evento/campo), views, web resources (com código-fonte redigido e funções), botões de ribbon\*, apps model-driven, canvas apps, agentes Copilot Studio |
+| Interface | formulários (bibliotecas JS, handlers por evento/campo, controles PCF por coluna), views, web resources (com código-fonte redigido e funções), botões de ribbon\*, apps model-driven, canvas apps, agentes Copilot Studio |
+| Componentes PCF | controles de código (`customcontrols`): manifesto (namespace, versão, tipo, propriedades, Web API, domínios externos), formulários e colunas onde são usados |
 | Código e integração | plugin assemblies, classes, steps, imagens, binários\*, Custom APIs (parâmetros/respostas), service endpoints (webhook/Service Bus) |
 | Automação | workflows clássicos, business rules, actions, BPFs, cloud flows (gatilho, conectores, hosts HTTP, tabelas tocadas), desktop flows, proprietário e status |
-| Segurança | árvore de BUs, papéis (deduplicados pela BU raiz), privilégios por tabela\*, equipes e membros\*, perfis de segurança de campo, usuários |
+| Segurança | árvore de BUs (nota por BU), papéis (deduplicados pela BU raiz) e a quem estão atribuídos, privilégios por tabela\*, equipes com papéis (nota por equipe) e membros\*, perfis de segurança de campo, contagem de usuários por tipo e BU; lista nominal de usuários (nome, UPN, BU, licença, papéis, equipes)\* com `deep.users` |
 | Saúde | plugin trace log: execuções, erros e tempo por classe\* |
 | Uso de campos\* | preenchimento real por coluna, matriz de uso (forms ativos e inativos, eventos, views, processos, flows, plugins, JS, repo), candidatos a investigação de remoção e inconclusivos |
 | Qualidade de código | JS: APIs obsoletas (Xrm.Page, SOAP 2011), eval, XHR síncrono, libs legadas, hosts fixos · flows: estrutura, condições, tratamento de erro |
@@ -46,9 +47,11 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
   08 Matriz de Dependências.md   impacto por tabela, tipo × tipo, órfãos, externos
   Matriz de Dependências.xlsx    matriz por tabela, arestas, tipo × tipo, componentes (fan-in/out)
   Dependências.csv               lista de arestas (A depende de B)
-  Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/
-  Custom APIs/  Apps/  Soluções/  Papéis/  Achados/  Comparações/
-  Bases/                Tabelas · Automações · Plugin Steps · Web Resources · Achados · Componentes
+  Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/  Componentes PCF/
+  Custom APIs/  Apps/  Soluções/  Papéis/  Business Units/  Equipes/  Usuários/ (deep.users)
+  Achados/  Comparações/
+  Bases/                Tabelas · Automações · Plugin Steps · Web Resources · Achados · Componentes ·
+                        Componentes PCF · Segurança (BUs, equipes, usuários)
   Mapa do Ambiente.canvas
 ```
 

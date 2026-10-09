@@ -38,6 +38,7 @@ deep:                                     # coletas pesadas — `--deep` liga to
   ribbons: false
   plugin_trace: false
   team_members: false
+  users: false                    # lista nominal de usuários (nome, UPN, BU, papéis, equipes) — DADO PESSOAL
   plugin_binaries: false          # baixa as DLLs; com `ilspycmd` no PATH, decompila e compara com o repo
   process_definitions: false      # XAML/clientdata de workflows, business rules, actions e BPFs
   field_usage: false              # preenchimento real + matriz de uso + candidatos a investigação de remoção (liga process_definitions)

@@ -93,6 +93,8 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    que falham (403, coluna inexistente) viram **lacunas declaradas** no manifest — não aborte;
    reporte-as. Cada extração vira um snapshot imutável `<raw_dir>/<run_id>/` (manifesto com status por
    coletor e sha256 por arquivo); coletor que falhou não tem arquivo e nunca herda dado de outra extração.
+   BUs, equipes (com papéis) e componentes PCF entram sempre; a lista nominal de usuários só com
+   `deep.users` (dado pessoal — confirme com o usuário antes de ligar).
    Se o cliente só autoriza leitura de metadados, use `--profile metadata_only` (ou `profile: metadata_only`
    no YAML): conteúdo de web resources/flows/processos, binários, uso de campos, storage, plugin trace e
    membros de equipe ficam desligados mesmo com `--deep`.

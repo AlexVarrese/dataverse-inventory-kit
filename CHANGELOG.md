@@ -54,6 +54,21 @@ Perfil `metadata_only`
   `storage`, `plugin_trace` e `team_members`. `record_counts` continua permitido (contagem agregada, não lê
   registros). O perfil vai para o manifesto e para `01 Ambiente`.
 
+Inventário: PCF, business units, equipes e usuários
+- Novo coletor `pcf`: `customcontrols` + manifesto (namespace, versão, tipo, propriedades, Web API, domínios
+  externos) e vínculos coluna → controle lidos do formxml (`controlDescriptions`). Nota por controle em
+  `Componentes PCF/`, seção nos formulários da tabela, Base própria, arestas formulário → PCF e PCF → host
+  externo. Colunas passadas como parâmetro do PCF contam como uso na matriz de uso de campos.
+- `security` passa a ler os papéis das equipes (`teamrolescollection`) e a contar usuários ativos por BU.
+  Notas por business unit (`Business Units/`) e por equipe owner/Entra ID (`Equipes/`); papéis ganham a
+  seção "Atribuído a"; `04 Segurança` com links, contagens e papéis; arestas BU → BU pai, equipe → BU e
+  equipe → papel. Equipes de acesso (por registro) ficam só na contagem.
+- Novo coletor opt-in `users` (`deep.users`, dado pessoal, bloqueado em `metadata_only`): nome, UPN, BU,
+  status, modo de acesso, licença, papéis diretos e via equipe, equipes. Nota por usuário ativo em
+  `Usuários/` e Base **Segurança**.
+- Novos achados: SEG-03 (equipe proprietária sem papel), SEG-04 (usuário de aplicação com System
+  Administrator), SEG-05 (papel do escopo sem atribuição), PCF-01 (domínios externos), PCF-02 (PCF sem uso).
+
 Testes
 - `tests/test_regressao_p0.py` (unittest, offline): falha de coletor entre dois runs, snapshot adulterado,
   colisão de run_id, interrupção no meio, vetores de segredo em todas as saídas e no console, varredura
