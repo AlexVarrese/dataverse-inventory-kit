@@ -217,7 +217,7 @@ scope:
 ```
 
 Não sabe o prefixo? Rode `dvinv.py extract -c inventory.yaml --only solutions` e veja
-`publisher_prefix` das soluções não gerenciadas em `out/<AMBIENTE>/_raw/solutions.json`.
+`publisher_prefix` das soluções não gerenciadas em `out/<AMBIENTE>/_raw/<run_id>/solutions.json`.
 
 ## 5. Executar
 
@@ -229,7 +229,25 @@ python3 $D extract -c inventory.yaml --deep   # liga todas as coletas pesadas (l
 python3 $D render  -c inventory.yaml          # (re)gera o vault — edições do analista são preservadas
 python3 $D all     -c inventory.yaml          # extract + render
 python3 $D diff    -c inventory.prd.yaml --a out/CLIENTE-PRD/_raw --b out/CLIENTE-TEST/_raw
+python3 $D render  -c inventory.yaml --snapshot 20261009T203200Z   # renderiza um snapshot específico
+python3 $D all     -c inventory.yaml --profile metadata_only       # só metadados (ver abaixo)
 ```
+
+Cada `extract` cria um snapshot imutável em `<raw_dir>/<run_id>/` (run_id = data/hora UTC) com
+`manifest.json` (status de cada coletor, arquivos com sha256, lacunas). A extração grava numa pasta
+`.staging-*` e só publica no fim; se for interrompida, nada fica com cara de snapshot. O `render` usa o
+último snapshot íntegro e grava achados/dependências em `_derived/<run_id>/` (fora do snapshot). Vários
+snapshots no mesmo dia coexistem; apague os antigos quando quiser. A opção `--no-snapshot` das versões
+anteriores é ignorada.
+
+**Perfil `metadata_only`** (`profile: metadata_only` no YAML ou `--profile metadata_only`): desliga e trava
+— mesmo com `--deep` ou `deep.*: true` — tudo que lê conteúdo ou registros: `webresource_content`,
+`flow_definitions`, `process_definitions`, `plugin_binaries`, `field_usage`, `storage`, `plugin_trace` e
+`team_members`. Continuam permitidos metadados de customização (`form_events`, `ribbons`,
+`role_privileges`, `platform_dependencies`) e `record_counts`: é uma contagem agregada por tabela
+(`RetrieveTotalRecordCount`), que não lê nenhum registro — desligue com `deep.record_counts: false` se
+nem o volume puder ser coletado. O perfil aparece no manifesto e em `01 Ambiente.md`. Observação: o
+coletor `security` continua contando usuários ativos (`systemusers`, só flags de status).
 
 O `--deep` liga: privilégios por papel, ribbons, plugin trace, membros de equipe, DLLs de plugin,
 definições de processos, **uso de campos**, **armazenamento/auditoria** e **dependências registradas
@@ -264,6 +282,9 @@ milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service 
 | `HTTP 403` em tudo | Application User inexistente ou sem papel | 3A passos 5–6 |
 | `HTTP 403` só em um coletor (ex. canvasapps) | papel sem Read naquela tabela | vira lacuna em `01 Ambiente.md`; ampliar o papel se precisar |
 | device code bloqueado / AADSTS53003 | Conditional Access | usar SPN (3A) |
+| device code pede login a cada execução | o token fica só em memória por padrão | `auth.devicecode_cache: true` (cache criptografado do sistema; sem cofre disponível, falha — não há fallback em texto puro) |
+| `possível segredo não redigido … publicação abortada` | a varredura final achou padrão de segredo numa saída | nada foi publicado. Se o arquivo apontado for uma nota do vault, confira também a parte manual (abaixo do marcador), que é varrida junto; se for falso positivo do kit, abra uma issue com o tipo/linha (o valor não é exibido) |
+| `URL recusada (host … difere …)` | `@odata.nextLink` ou URL absoluta fora do ambiente configurado | o token não foi enviado; confira `environment.url` (precisa ser `https://`) |
 | `mcp indisponível … libsecret` | keyring ausente (Linux headless) | SPN para o extrator; MCP segue para o agente |
 | MCP `403` após `mcp allow` | consentimento do tenant pendente | URL de admin consent (3B passo 3) |
 | poucos cloud flows | flows fora de solução não aparecem na Web API | Power Platform admin / `pac admin list` / PAC CLI |
@@ -275,6 +296,7 @@ milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service 
 
 ```bash
 python3 $SKILL/tests/test_pipeline.py --keep
+python3 $SKILL/tests/test_regressao_p0.py
 ```
 
 Roda o pipeline inteiro contra uma org fictícia (sem rede) e deixa um vault de exemplo em `/tmp` para abrir no Obsidian.

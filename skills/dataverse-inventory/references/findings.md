@@ -1,7 +1,7 @@
 # Achados automáticos
 
-Fonte: `scripts/dvinv/findings.py`, recalculados a cada `render` a partir de `_raw/` e gravados em
-`_raw/findings.json`. Todo achado traz a métrica e a evidência. **Achados são candidatos**: valide
+Fonte: `scripts/dvinv/findings.py`, recalculados a cada `render` a partir do snapshot `_raw/<run_id>/`
+e gravados em `_derived/<run_id>/findings.json` (fora do snapshot). Todo achado traz a métrica e a evidência. **Achados são candidatos**: valide
 antes de afirmar.
 
 | ID | Sev. | Regra | Como validar / falsos positivos |
@@ -28,9 +28,10 @@ antes de afirmar.
 | ALM-03 | baixo | Custom API sem plugin de implementação | pode ser só uma mensagem para steps/flows |
 | ALM-04 | baixo | processo não gerenciado fora de qualquer solução | customização direta no ambiente, não migra por ALM |
 
-| FLD-01 | médio | coluna custom com zero registros preenchidos e nenhuma referência (form, view, processo, flow, plugin, JS, repo) | confirmar integrações externas (ETL, Power BI, portais, apps fora do Dataverse); se `repos:` não foi informado, uso em código externo não foi verificado |
-| FLD-02 | baixo | coluna sem dados que ainda aparece em formulário/view | pode ser campo recém-criado (verifique a data de criação) |
-| FLD-03 | baixo | coluna sem dados citada em automação/código | regra morta ou gravação que nunca acontece (bug) |
+| FLD-01 | médio | coluna custom com zero registros (contagem **completa**) e nenhuma referência (form ativo ou inativo, view, processo, flow, plugin, JS, repo), com **todas** essas fontes medidas — candidata a **investigação** de remoção | nunca afirma que remover é seguro: confirmar integrações externas (ETL, Power BI, portais, APIs), flows fora de solução e código não versionado |
+| FLD-02 | baixo | coluna sem dados que ainda aparece em formulário/view, ou só em formulário inativo (uso fraco) | pode ser campo recém-criado (verifique a data de criação); limpe o formulário inativo antes |
+| FLD-03 | baixo | coluna sem dados (contagem completa) citada em automação/código | regra morta ou gravação que nunca acontece (bug) |
+| FLD-04 | info | coluna com uso **inconclusivo**: zero na amostra parcial, medição que falhou, ou fonte da matriz de uso ausente/falha/não medida | resolver a lacuna (motivos na evidência) antes de qualquer conclusão |
 | JS-01 | alto | JS usa `XRMServices/2011` ou `OrganizationData.svc` (removidos) | confirmar se o trecho é alcançável |
 | JS-02 | alto | JS usa `eval()` | — |
 | JS-03 | médio | JS usa `Xrm.Page` (obsoleto) | bibliotecas de terceiros são excluídas pelo nome |

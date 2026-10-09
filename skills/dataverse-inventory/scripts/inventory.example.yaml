@@ -11,6 +11,13 @@ auth:
   # mcp  = mesmo login do servidor MCP do Dataverse    — ver INSTALL.md §3B
   method: auto
   env_file: .env                          # TENANT_ID, CLIENT_ID, CLIENT_SECRET (nunca versionar)
+  # devicecode_cache: false               # true = guarda o token do device code no cofre CRIPTOGRAFADO do
+                                          # sistema (DPAPI/Keychain/libsecret); nunca em texto puro
+
+# padrao | metadata_only — metadata_only trava em desligado tudo que lê conteúdo ou registros
+# (webresource_content, flow/process_definitions, plugin_binaries, field_usage, storage, plugin_trace,
+# team_members), mesmo com --deep. record_counts (contagem agregada) continua permitido.
+profile: padrao
 
 scope:
   # O que é "componente do cliente". Qualquer critério que bater inclui o componente.
@@ -33,7 +40,7 @@ deep:                                     # coletas pesadas — `--deep` liga to
   team_members: false
   plugin_binaries: false          # baixa as DLLs; com `ilspycmd` no PATH, decompila e compara com o repo
   process_definitions: false      # XAML/clientdata de workflows, business rules, actions e BPFs
-  field_usage: false              # preenchimento real + matriz de uso + candidatos a remoção (liga process_definitions)
+  field_usage: false              # preenchimento real + matriz de uso + candidatos a investigação de remoção (liga process_definitions)
   storage: false                  # maiores tabelas, anexos (notas/e-mail), auditoria
   platform_dependencies: false    # dependências registradas pelo Dataverse + dependências ausentes por solução
   platform_dependencies_columns: false  # idem por coluna custom (1 chamada por coluna — pesado)
@@ -54,6 +61,7 @@ repos: []
 #    kind: plugins
 
 output:
-  raw_dir: out/CLIENTE-PRD/_raw           # evidência JSON (redigida) + manifest.json
+  raw_dir: out/CLIENTE-PRD/_raw           # raiz dos snapshots: <raw_dir>/<run_id>/*.json + manifest.json
+  # derived_dir: out/CLIENTE-PRD/_derived # achados/dependências por snapshot (padrão: irmão de raw_dir)
   vault_root: ./vault                     # raiz do vault Obsidian (pode ser um vault já existente)
   vault_folder: Dataverse/CLIENTE-PRD     # pasta dentro do vault

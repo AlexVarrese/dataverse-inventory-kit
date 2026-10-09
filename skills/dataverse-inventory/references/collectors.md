@@ -2,10 +2,12 @@
 
 Todos usam a Dataverse Web API v9.2 com `Prefer: odata.include-annotations="*"` (valores formatados
 e tipo de lookup) e `odata.maxpagesize=5000`, seguindo `@odata.nextLink`. Falhas viram lacunas no
-`manifest.json` em vez de abortar. Ordem de execução: `environment → solutions → tables` (definem o
+`manifest.json` em vez de abortar, e cada coletor recebe um status (`ok`, `parcial` = terminou com
+lacunas, `falhou`, `sem-dados` = desligado/nada a coletar, `nao-executado` = fora do `--only`). Coletor
+que falha não grava arquivo e seus dados parciais são descartados (não alimentam os coletores seguintes). Ordem de execução: `environment → solutions → tables` (definem o
 escopo) e depois os demais.
 
-| Coletor | Fontes (Web API) | Saída `_raw/` | Escopo |
+| Coletor | Fontes (Web API) | Saída `_raw/<run_id>/` | Escopo |
 |---|---|---|---|
 | environment | `RetrieveVersion()`, `WhoAmI()`, `organizations` | environment.json | — |
 | solutions | `solutions` (+publisher), `solutioncomponents` por solução | solutions.json | componentes só de soluções não gerenciadas + `scope.solutions` (Default/Active/Basic ignoradas) |
@@ -13,7 +15,7 @@ escopo) e depois os demais.
 | relationships | `RelationshipDefinitions/…OneToMany…` e `…ManyToMany…` (2 chamadas para a org inteira) | relationships.json | toca tabela do escopo **e** (custom ou envolve tabela custom) |
 | optionsets | `GlobalOptionSetDefinitions` | optionsets.json | custom + critério de escopo |
 | webresources | `webresourceset` (todos os nomes) + `webresourceset(id)?$select=content` | webresources.json, _webresource_names.json | prefixo/solução/não gerenciado |
-| forms | `systemforms` + `systemforms(id)?$select=formxml` | forms.json | forms de tabelas do escopo |
+| forms | `systemforms` + `systemforms(id)?$select=formxml` (ativos; inativos também com `deep.field_usage`, só para colunas) | forms.json | forms de tabelas do escopo |
 | views | `savedqueries` | views.json | views de tabelas do escopo |
 | ribbons\* | `RetrieveEntityRibbon` (zip base64 → RibbonXml.xml) | ribbons.json | botões cujo comando chama biblioteca do escopo |
 | apps | `appmodules`, `canvasapps`, `bots` | apps.json | critério de escopo |
@@ -38,7 +40,8 @@ coletor `webresources` faz análise estática de todo JS baixado (`js`).
 
 ## Matriz de dependências (render)
 
-Montada em `dvinv/dependencies.py` a partir de `_raw/` (não exige coleta extra). Relações inferidas:
+Montada em `dvinv/dependencies.py` a partir do snapshot (não exige coleta extra); o render grava
+`_derived/<run_id>/dependencies.json` e o `diff` recalcula a partir do snapshot. Relações inferidas:
 step → tabela/assembly/service endpoint · processo → tabela primária · flow → tabelas, referências de
 conexão, variáveis de ambiente, Custom APIs, child flows, conectores e hosts HTTP · formulário → tabela e
 bibliotecas JS · botão de ribbon → JS · JS → tabelas e Custom APIs citadas **entre aspas** e hosts externos
@@ -62,6 +65,13 @@ plataforma, resolvendo os ids para componentes conhecidos quando possível.
 - **Preenchimento de colunas**: agregação nativa só até ~50 mil registros. Acima disso, pagina contando
   valores não nulos em lotes de 35 colunas (lookups via `_x_value`), até `field_usage.max_records`. Se parar
   antes do fim, o método fica "parcial" e os números valem só para os registros lidos.
+- **Classificação do uso de campos**: `candidato-seguro` (rótulo: *candidato a investigação de remoção*)
+  exige contagem completa e todas as fontes da matriz medidas — forms (formxml de todos os forms da
+  tabela), views (colunas de todas as views da tabela), processos (`process_definitions` e
+  `flow_definitions`), plugins, web resources (`webresource_content`) e repositório (`repos:`). Zero
+  preenchido numa amostra parcial, medição que falhou ou fonte ausente/falha/parcial/desligada →
+  `inconclusivo`, com os motivos em `inconclusive_reasons`. Coluna que só aparece em formulário inativo →
+  `sem-dados-uso-fraco` (listada em `forms_inactive`).
 - **Comparação com o repositório**: o conteúdo é normalizado (BOM, CRLF, espaços, linhas vazias e
   segredos redigidos dos dois lados) antes de comparar. Web resource sem arquivo de mesmo nome é
   casado pelo conteúdo mais parecido (Jaccard de linhas ≥ 50%).
@@ -72,7 +82,9 @@ plataforma, resolvendo os ids para componentes conhecidos quando possível.
 
 Um coletor novo é uma função `collect_x(ctx)` que grava `ctx.data["x"]` (e opcionalmente
 `ctx.stats["x"]`), registrada em `collectors/__init__.py::REGISTRY`. Use `ctx.scope.reason(...)`
-para decidir o escopo e `ctx.gap(...)` para falhas parciais. Depois renderize a nova família em
+para decidir o escopo e `ctx.gap(...)` para falhas parciais (`kind="limitação"` para limites
+permanentes da fonte, que não deixam o coletor `parcial`). Arquivos extras (binários) vão em
+`ctx.out_dir`, nunca em `cfg.raw_dir`. Não grave nada fora do `ctx.data`: o `run` publica o snapshot. Depois renderize a nova família em
 `render/obsidian.py` e, se fizer sentido, crie uma regra em `findings.py` e uma Base em
 `render/bases.py`. Acrescente a rota na fixture de `tests/test_pipeline.py`.
 

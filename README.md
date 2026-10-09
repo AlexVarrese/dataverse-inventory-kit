@@ -22,7 +22,8 @@ skills, há um prompt equivalente.
   processos, flows, Custom APIs, apps, papéis, tabelas filhas), seção *Depende de / Usado por* em cada
   nota e **`Matriz de Dependências.xlsx`** para entregar ao cliente. Opcionalmente inclui as dependências
   registradas pelo próprio Dataverse e as que faltam em cada solução.
-- **Uso de campos**: preenchimento real × onde cada coluna é usada, com candidatos seguros a remoção.
+- **Uso de campos**: preenchimento real × onde cada coluna é usada, com candidatos a *investigação* de
+  remoção (só com contagem completa e todas as fontes medidas; o resto fica como inconclusivo).
 - **Achados automáticos** (segredos expostos, JS quebrado ou obsoleto, plugins sem filtro, automações
   de dono desativado, drift entre ambiente e repositório Git, soluções com dependências faltando…).
 - **Comparação** entre ambientes (TEST × PRD) ou entre datas.
@@ -84,12 +85,18 @@ Documentação: [README da skill](skills/dataverse-inventory/README.md) ·
 
 - Só leitura: o cliente HTTP implementa apenas GET.
 - Credenciais ficam no `.env` da pasta de cada cliente e nunca entram no pacote nem no vault.
-- Segredos encontrados no ambiente são redigidos antes de qualquer gravação.
+- Segredos encontrados no ambiente são redigidos antes de qualquer gravação (query string, headers de
+  autenticação, credencial em URL, atribuições JS/JSON/YAML, connection strings, SAS, JWT), inclusive em
+  mensagens de erro, e uma varredura final bloqueia a publicação se algo escapar.
+- Cada extração é um snapshot imutável (`_raw/<run_id>/` com manifesto e sha256); coletor que falha vira
+  lacuna, nunca dado de uma extração anterior.
+- Perfil `metadata_only` (`--profile metadata_only`) para ambientes onde só metadados podem ser lidos.
 - O kit não contém dados de nenhum cliente. O teste usa uma organização fictícia (Contoso).
 
 ## Validar a instalação
 
 ```bash
 python3 <pasta-da-skill>/tests/test_pipeline.py
-# OK — 42 notas, 6 bases, 20 achados, …
+# OK — 61 notas, 6 bases, 33 achados, …
+python3 <pasta-da-skill>/tests/test_regressao_p0.py   # regressões de segurança/confiabilidade
 ```

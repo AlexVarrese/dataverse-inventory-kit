@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.5.0 — não lançado
+
+Correções de segurança e confiabilidade. **Muda a estrutura de `out/`** (ver README da skill, "Estrutura de saída").
+
+Snapshots imutáveis (P0-01, P1-05)
+- Cada `extract` grava numa área de staging e publica, por rename atômico, um snapshot
+  `<raw_dir>/<run_id>/` (run_id em UTC, ex. `20261009T203200Z`). O `manifest.json` traz run_id, perfil,
+  status de cada coletor (`ok`/`parcial`/`falhou`/`sem-dados`/`nao-executado`) e a lista de arquivos com sha256.
+- Antes, coletor que falhava deixava o JSON da extração anterior no `_raw/` e o render o tratava como
+  atual. Agora coletor que falha não tem arquivo (e seus dados parciais são descartados), vira lacuna,
+  e o render lê só os arquivos listados no manifesto do snapshot escolhido, conferindo o sha256.
+- `render` usa o último snapshot íntegro (ou `--snapshot <dir|run_id>`); `findings.json` e
+  `dependencies.json` saem do snapshot e vão para `_derived/<run_id>/`. O `diff` recalcula as dependências
+  a partir do snapshot e aceita diretório, raiz `_raw` (último íntegro) ou run_id.
+- Vários snapshots no mesmo dia coexistem (antes a cópia `_raw-AAAA-MM-DD` era feita uma vez por dia).
+  `--no-snapshot` virou opção obsoleta e ignorada. Pastas no formato antigo ainda são lidas por
+  `render --snapshot`/`diff`, com aviso de que não há verificação de integridade.
+- `01 Ambiente` ganhou a tabela "Status dos coletores", o run_id e o perfil de coleta.
+- DLLs e fontes decompilados de plugin ficam dentro do snapshot (`bin/`, `decompiled/`); o decompilado é redigido.
+
+Segredos (P0-02)
+- Redação estruturada: parâmetros de query sensíveis (`api_key`, `access_token`, `client_secret`, `code`,
+  `sig`, `token`, `pwd`, `subscription-key`…), headers (`Authorization`, `x-functions-key`,
+  `Ocp-Apim-Subscription-Key`, `x-api-key`), credencial em URL (`https://user:senha@host`), atribuições
+  JS/JSON/YAML/.env de nomes sensíveis com ou sem aspas, e valores de chaves sensíveis em estruturas JSON.
+  Nomes que só contêm a palavra (`tokenize(`, `tokenizer`, `secret_hits`) não são afetados.
+- Lacunas, mensagens de `DataverseError` e prints de falha são redigidos na origem; o manifesto inteiro
+  passa por `redact_tree`. Hosts HTTP de flows/JS não carregam mais `user:senha@`.
+- Varredura final fail-closed: snapshot (JSON, decompilados), vault (MD, Bases, Canvas, CSV, XLSX) e
+  derivados são varridos antes da publicação; se algo casar, o comando falha com o tipo e a linha (sem o
+  valor) e o vault/snapshot anterior fica intacto.
+
+Uso de campos (P0-03)
+- Novo bucket `inconclusivo`: zero preenchido numa amostra parcial, medição que falhou ou qualquer fonte
+  da matriz (forms, views, processos/flows, plugins, web resources, repositórios) ausente, com falha,
+  parcial ou desligada — os motivos ficam em `inconclusive_reasons`.
+- `candidato-seguro` só com contagem completa e todas as fontes medidas, e o rótulo passou a ser
+  "candidato a investigação de remoção — confirmar integrações externas" (nunca "seguro").
+- Formulários inativos entram como uso fraco (`forms_inactive`, bucket `sem-dados-uso-fraco`, FLD-02).
+- FLD-01/02/03 ajustados; novo FLD-04 (info) lista as colunas inconclusivas. Notas `05 Uso de Campos` e
+  de tabela mostram a cobertura e as fontes que faltaram.
+
+Rede e autenticação
+- P1-02: o cliente só segue `@odata.nextLink` e só envia o Bearer para URLs `https` do mesmo host/porta
+  de `environment.url`; o contrário vira erro (`UnsafeUrlError`) antes de pedir o token.
+- P1-03: device code não usa mais cache de token em texto puro. Padrão: token só em memória; opt-in
+  `auth.devicecode_cache: true` usa apenas o cofre criptografado do sistema.
+
+Perfil `metadata_only`
+- `profile: metadata_only` no YAML ou `--profile metadata_only` desliga e trava (mesmo com `--deep`)
+  `webresource_content`, `flow_definitions`, `process_definitions`, `plugin_binaries`, `field_usage`,
+  `storage`, `plugin_trace` e `team_members`. `record_counts` continua permitido (contagem agregada, não lê
+  registros). O perfil vai para o manifesto e para `01 Ambiente`.
+
+Testes
+- `tests/test_regressao_p0.py` (unittest, offline): falha de coletor entre dois runs, snapshot adulterado,
+  colisão de run_id, interrupção no meio, vetores de segredo em todas as saídas e no console, varredura
+  bloqueando render/snapshot, amostra parcial, forms com falha, sem repositório, formulário inativo,
+  nextLink para outro host, cache de token e perfil `metadata_only`.
+
 ## 0.4.0 — 2026-10-07
 
 Validado contra um ambiente real de TEST (159 tabelas, 4 mil colunas custom, 900 processos):

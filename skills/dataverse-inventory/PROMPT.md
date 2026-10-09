@@ -35,7 +35,7 @@ Se o servidor MCP do Dataverse estiver disponível, use-o só para consultas pon
 - Nunca escreva no ambiente Dataverse.
 - Nunca exiba, copie para o vault nem versione o conteúdo do `.env` ou qualquer segredo. Se encontrar
   um, informe a localização e recomende rotação.
-- Todo número citado deve vir de `_raw/*.json` ou das notas geradas; diga o escopo a que se refere.
+- Todo número citado deve vir do snapshot (`_raw/<run_id>/*.json`) ou das notas geradas; diga o escopo a que se refere.
   Nada de score decorativo.
 - Declare as lacunas (o que não foi possível coletar e por quê).
 - Não edite acima do marcador manual: essa parte é regenerada a cada extração.

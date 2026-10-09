@@ -6,7 +6,7 @@ e `extraido_em` (Date). Links em properties são strings `"[[caminho|alias]]"`, 
 | `tipo` | Pasta | Properties principais |
 |---|---|---|
 | `indice` | `00 Índice.md` | — |
-| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências` | `url`, `versao` |
+| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências` | `url`, `versao`, `snapshot` (run_id) e `perfil` em `01 Ambiente` |
 | `tabela` | `Tabelas/` | `nome_logico`, `nome_exibicao`, `aliases`, `customizada`, `gerenciada`, `propriedade`, `registros`, `colunas_custom`, `colunas_total`, `relacionamentos`, `formularios`, `plugin_steps`, `processos`, `flows_que_tocam`, `achados`, `escopo`, `solucoes` |
 | `plugin-assembly` | `Plugins/` | `versao`, `isolamento`, `origem`, `gerenciado`, `tipos`, `steps`, `modificado` |
 | `plugin-step` | `Plugin Steps/` | `assembly` (link), `classe`, `handler`, `mensagem`, `tabela` (link), `estagio`, `modo`, `ordem`, `ativo`, `filtering`, `imagens`, `impersonando` |
@@ -27,7 +27,9 @@ pela relação. ⚙︎ marca dependência registrada pela plataforma.
 
 - Corpo: tudo a partir da linha `%% dvinv:manual — … %%` é mantido.
 - Properties mantidas: `status`, `responsavel`, `decisao`, `prazo`, `revisado`, `tags_extra`.
-- O resto é regenerado. Componentes que sumiram do ambiente **não** são apagados do vault: use o
+- O resto é regenerado. O render escreve numa cópia de trabalho (`<vault_root>/.dvinv-render-*`) e
+  troca a pasta `<vault_folder>` só no fim, depois da varredura de segredos; se falhar, o vault anterior
+  fica intacto. Edições feitas no vault *durante* o render se perdem (a cópia é tirada no início). Componentes que sumiram do ambiente **não** são apagados do vault: use o
   `diff` para identificá-los e arquive manualmente.
 
 ## Bases geradas (`Bases/`)
