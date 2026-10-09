@@ -415,13 +415,17 @@ def _render_into(v, d):
             cnt = Counter(f["bucket"] for f in fu["fields"])
             b += ["## Uso das colunas customizadas", "",
                   f"Registros considerados: **{fu.get('total')}** · método: {fu.get('method')}"
-                  f"{'' if fu.get('views_measured') else ' · colunas de views não lidas'}"
                   f"{'' if fu.get('repos_measured') else ' · sem repositório de código'}", "",
+                  *(["> [!warning] Cobertura incompleta da matriz de uso — colunas sem dados e sem uso encontrado "
+                     "ficam como **inconclusivo**", *[f"> - {m}" for m in fu.get("missing_sources") or []], ""]
+                    if fu.get("missing_sources") else []),
                   " · ".join(f"**{cnt[k]}** {BUCKETS[k].lower()}" for k in BUCKETS if cnt.get(k)), "",
-                  mdtable(["Coluna", "Preenchido", "%", "Forms", "Views", "Processos/flows", "Plugins", "JS", "Repo", "Classificação"],
+                  mdtable(["Coluna", "Preenchido", "%", "Forms", "Forms inativos", "Views", "Processos/flows", "Plugins",
+                           "JS", "Repo", "Classificação"],
                           [[f"`{f['logical']}`", f.get("populated"), f.get("pct"), len(f["forms"]) + len(f["form_events"]),
-                            len(f["views"]), len(f["processes"]), len(f["plugin_steps"]), len(f["javascript"]),
-                            f["repo_files"], f["bucket"]] for f in fu["fields"]])]
+                            len(f.get("forms_inactive") or []), len(f["views"]), len(f["processes"]),
+                            len(f["plugin_steps"]), len(f["javascript"]), f["repo_files"], f["bucket"]]
+                           for f in fu["fields"]])]
         if ln in matrix:
             acts = ["Create", "Read", "Write", "Delete", "Append", "AppendTo", "Assign", "Share"]
             b += ["## Privilégios (papéis analisados)", "",
@@ -689,16 +693,35 @@ def write_field_usage(v, d):
     from ..collectors.usage import BUCKETS
     total = Counter(f["bucket"] for t in fu for f in t["fields"])
     b = ["# Uso de campos", "",
-         "Preenchimento real × onde cada coluna customizada é usada. **Candidato seguro** = zero registros "
-         "preenchidos e nenhuma referência encontrada; ainda assim confirme integrações externas (ETL, Power BI, portais) antes de remover.", "",
+         "Preenchimento real × onde cada coluna customizada é usada.", "",
+         "> [!warning] Nenhuma classificação afirma que remover é seguro",
+         "> **Candidato a investigação de remoção** = contagem completa com zero preenchidos, nenhuma referência "
+         "encontrada e todas as fontes da matriz medidas (forms, views, processos/flows, plugins, JS, repositório). "
+         "Antes de remover, confirme integrações externas (ETL, Power BI, portais, APIs) e flows fora de solução.",
+         "> **Inconclusivo** = zero preenchidos numa amostra parcial, medição que falhou, ou alguma fonte da matriz "
+         "ausente/falha/não medida — resolver a lacuna antes de concluir.", "",
          mdtable(["Classificação", "Colunas"], [[BUCKETS[k], total.get(k, 0)] for k in BUCKETS]),
          "## Por tabela", "",
-         mdtable(["Tabela", "Registros", "Método"] + list(BUCKETS),
-                 [[v.link("table", t["table"], t["table"]), t.get("total"), t.get("method")] +
+         mdtable(["Tabela", "Registros", "Método", "Cobertura"] + list(BUCKETS),
+                 [[v.link("table", t["table"], t["table"]), t.get("total"), t.get("method"),
+                   "completa" if t.get("coverage_complete") else "incompleta"] +
                   [sum(1 for f in t["fields"] if f["bucket"] == k) for k in BUCKETS] for t in fu])]
     safe = [(t, f) for t in fu for f in t["fields"] if f["bucket"] == "candidato-seguro"]
-    b += ["## Candidatos seguros a remoção", "", mdtable(["Tabela", "Coluna", "Nome", "Tipo"],
-          [[v.link("table", t["table"], t["table"]), f"`{f['logical']}`", f.get("display"), f.get("type")] for t, f in safe])]
+    b += ["## Candidatos a investigação de remoção", "",
+          "Confirmar integrações externas antes de qualquer remoção.", "",
+          mdtable(["Tabela", "Coluna", "Nome", "Tipo"],
+                  [[v.link("table", t["table"], t["table"]), f"`{f['logical']}`", f.get("display"), f.get("type")]
+                   for t, f in safe])]
+    inc = [(t, f) for t in fu for f in t["fields"] if f["bucket"] == "inconclusivo"]
+    if inc:
+        b += ["## Inconclusivos", "", mdtable(["Tabela", "Coluna", "Preenchido", "Motivos"],
+              [[v.link("table", t["table"], t["table"]), f"`{f['logical']}`", f.get("populated"),
+                "; ".join(f.get("inconclusive_reasons") or [])] for t, f in inc])]
+    weak = [(t, f) for t in fu for f in t["fields"] if f.get("forms_inactive")]
+    if weak:
+        b += ["## Uso fraco (só em formulário inativo)", "", mdtable(["Tabela", "Coluna", "Formulários inativos", "Classificação"],
+              [[v.link("table", t["table"], t["table"]), f"`{f['logical']}`", ", ".join(f["forms_inactive"]), f["bucket"]]
+               for t, f in weak])]
     v.write(f"{v.folder}/05 Uso de Campos", {"tipo": "secao", "tags": v.tags("secao")}, "\n".join(b))
 
 

@@ -143,16 +143,20 @@ def collect_forms(ctx):
             "solutions": scope.solutions_of(f["formid"]), "libraries": [], "handlers": [], "fields": [],
         }
         out.append(rec)
-    # formxml só de forms ativos com tabela (dashboards não têm eventos de campo), em lotes.
+    # formxml de forms com tabela (dashboards não têm eventos de campo), em lotes. Forms inativos só
+    # entram com deep.field_usage: contam como uso "fraco" de coluna (não como biblioteca/handler ativo).
     if cfg.deep.get("form_events"):
-        need = [r for r in out if r["active"] and r["entity"] and r["entity"] != "none"]
+        need = [r for r in out if r["entity"] and r["entity"] != "none" and (r["active"] or cfg.deep.get("field_usage"))]
         xmls = c.get_many("systemforms", "formid", [r["id"] for r in need], "formxml")
         for rec in need:
             d = xmls.get(rec["id"].lower())
             if d is None:
                 ctx.gap("forms", f"formxml de {rec['entity']}/{rec['name']}", "não retornado pela API")
                 continue
-            rec["libraries"], rec["handlers"], rec["fields"] = parse_formxml(d.get("formxml") or "")
+            libs, handlers, fields = parse_formxml(d.get("formxml") or "")
+            rec["fields"], rec["xml_read"] = fields, True
+            if rec["active"]:
+                rec["libraries"], rec["handlers"] = libs, handlers
     ctx.stats["forms"] = {"org_total": len(forms), "scope": len(out)}
     ctx.data["forms"] = sorted(out, key=lambda x: (x["entity"] or "", x["name"] or ""))
 

@@ -7,7 +7,11 @@
 2. Matriz de uso: para cada coluna, onde ela aparece — formulários (controle e eventos), views,
    business rules/workflows/actions/BPFs (XAML/clientdata), cloud flows, plugin steps (filtering
    attributes e imagens), JavaScript e arquivos de repositório.
-3. Classificação (bucket) que separa 'candidato seguro a remoção' de 'sem dados mas ainda na UI'.
+3. Classificação (bucket). `candidato-seguro` (rótulo: candidato a INVESTIGAÇÃO de remoção) só sai
+   com contagem completa (não parcial, não falhou) E todas as fontes da matriz de uso medidas
+   (forms, views, processos, plugins, web resources, repositórios). Qualquer lacuna nessas fontes,
+   ou zero preenchido numa amostra parcial, vira `inconclusivo` com os motivos registrados.
+   Nenhuma classificação afirma que remover é seguro: integrações externas não são visíveis daqui.
 """
 
 from collections import defaultdict
@@ -19,7 +23,10 @@ AGG_LIMIT = 50_000
 BATCH_AGG, BATCH_PAGE = 20, 35
 
 BUCKETS = {
-    "candidato-seguro": "Sem dados e sem nenhum uso encontrado — candidato a remoção",
+    "candidato-seguro": "Sem dados e sem uso encontrado (cobertura completa) — candidato a investigação de remoção; "
+                        "confirmar integrações externas",
+    "inconclusivo": "Sem dados na amostra ou cobertura incompleta — investigar",
+    "sem-dados-uso-fraco": "Sem dados; só aparece em formulário inativo",
     "sem-dados-na-ui": "Sem dados, mas ainda aparece em formulário/view",
     "sem-dados-com-logica": "Sem dados, mas citado em automação/código — remover exige limpar a lógica",
     "dados-sem-uso-conhecido": "Tem dados, mas nenhum uso encontrado (integração/importação?)",
@@ -119,6 +126,40 @@ def measure_fill(ctx, t, cols):
     return counts, total, method
 
 
+# Fontes da matriz de uso: coletor -> o que precisa estar ligado para a fonte valer como "medida".
+USAGE_SOURCES = {
+    "forms": ("form_events",),
+    "views": (),
+    "processes": ("process_definitions", "flow_definitions"),
+    "plugins": (),
+    "webresources": ("webresource_content",),
+    "repos": (),
+}
+
+
+def source_coverage(ctx):
+    """Fontes da matriz que NÃO estão completas nesta extração → [motivo] (vazio = todas medidas)."""
+    cfg, missing = ctx.cfg, []
+    for src, needs in USAGE_SOURCES.items():
+        st = (getattr(ctx, "status", {}) or {}).get(src)
+        if st is None:
+            missing.append(f"{src}: status desconhecido")
+            continue
+        if st["status"] in ("falhou", "nao-executado"):
+            missing.append(f"{src}: {st['status']}")
+            continue
+        if st["status"] == "parcial":
+            missing.append(f"{src}: parcial ({st.get('lacunas', '?')} lacuna(s))")
+        off = [n for n in needs if not cfg.deep.get(n)]
+        if off:
+            missing.append(f"{src}: deep.{', deep.'.join(off)} desligado")
+        if src == "repos" and not cfg.repos:
+            missing.append("repos: nenhum repositório configurado (repos:)")
+        elif st["status"] == "sem-dados" and src != "repos":
+            missing.append(f"{src}: sem dados")
+    return missing
+
+
 def collect_field_usage(ctx):
     cfg = ctx.cfg
     if not cfg.deep.get("field_usage"):
@@ -133,6 +174,7 @@ def collect_field_usage(ctx):
     steps = (ctx.data.get("plugins") or {}).get("steps") or []
     wrs = ctx.data.get("webresources") or []
     repos = ctx.data.get("repos") or []
+    global_missing = source_coverage(ctx)
 
     from ..util import field_refs
     out = []
@@ -147,21 +189,29 @@ def collect_field_usage(ctx):
         except Exception as e:  # noqa: BLE001
             ctx.gap("field_usage", f"preenchimento de {ln}", e)
             counts, total, method = {}, None, "falhou"
+        partial = str(method).startswith("parcial")
+
+        # cobertura desta tabela: fontes globais + formulários/views da própria tabela lidos por inteiro
+        t_forms = [f for f in forms if f["entity"] == ln]
+        t_views = [v for v in views if v["entity"] == ln]
+        forms_measured = all(f.get("xml_read") for f in t_forms)
+        views_measured = all(v.get("columns") is not None for v in t_views)
+        missing = list(global_missing)
+        if not forms_measured:
+            missing.append(f"forms: formxml não lido em {sum(1 for f in t_forms if not f.get('xml_read'))} formulário(s)")
+        if not views_measured:
+            missing.append(f"views: colunas não lidas em {sum(1 for v in t_views if v.get('columns') is None)} view(s)")
 
         use = defaultdict(lambda: defaultdict(set))
-        for f in forms:
-            if f["entity"] != ln:
-                continue
+        for f in t_forms:
             for fld in f.get("fields") or []:
-                if f.get("active"):
-                    use[fld]["forms"].add(f["name"])
+                use[fld]["forms" if f.get("active") else "forms_inactive"].add(f["name"])
             for h in f.get("handlers") or []:
                 if h.get("field"):
                     use[h["field"]]["form_events"].add(f"{f['name']}:{h['event']}")
-        for v in views:
-            if v["entity"] == ln:
-                for fld in v.get("columns") or []:
-                    use[fld]["views"].add(v["name"])
+        for v in t_views:
+            for fld in v.get("columns") or []:
+                use[fld]["views"].add(v["name"])
         for p in procs:
             if p.get("entity") == ln or ln in (p.get("tables") or []):
                 for fld in p.get("field_refs") or []:
@@ -188,24 +238,44 @@ def collect_field_usage(ctx):
             u = use.get(fld, {})
             pop = counts.get(fld)
             ui = bool(u.get("forms") or u.get("views"))
+            weak = bool(u.get("forms_inactive"))
             logic = bool(u.get("form_events") or u.get("processes") or u.get("plugin_steps") or u.get("javascript")
                          or repo_hits.get(fld))
+            reasons = []
             if pop is None:
-                bucket = "nao-medido"
-            elif pop == 0:
-                bucket = "sem-dados-com-logica" if logic else "sem-dados-na-ui" if ui else "candidato-seguro"
-            else:
+                bucket = "inconclusivo" if method == "falhou" else "nao-medido"
+                if method == "falhou":
+                    reasons.append("preenchimento: medição falhou")
+            elif pop > 0:  # há dado: a amostra (mesmo parcial) já prova preenchimento
                 bucket = "em-uso" if (ui or logic) else "dados-sem-uso-conhecido"
+            elif partial:
+                bucket = "inconclusivo"
+                reasons.append(f"preenchimento: zero na amostra {method} — registros não lidos podem ter valor")
+            elif logic:
+                bucket = "sem-dados-com-logica"
+            elif ui:
+                bucket = "sem-dados-na-ui"
+            elif missing:
+                bucket = "inconclusivo"
+                reasons += missing
+            elif weak:
+                bucket = "sem-dados-uso-fraco"
+            else:
+                bucket = "candidato-seguro"
             rows.append({
                 "logical": fld, "display": col.get("display"), "type": col.get("type"),
                 "populated": pop, "pct": round(100 * pop / total, 2) if pop is not None and total else None,
-                **{k: sorted(u.get(k, [])) for k in ("forms", "form_events", "views", "processes", "plugin_steps", "javascript")},
-                "repo_files": repo_hits.get(fld, 0), "bucket": bucket,
+                **{k: sorted(u.get(k, [])) for k in ("forms", "forms_inactive", "form_events", "views", "processes",
+                                                     "plugin_steps", "javascript")},
+                "repo_files": repo_hits.get(fld, 0), "bucket": bucket, "inconclusive_reasons": reasons,
             })
         rows.sort(key=lambda r: (list(BUCKETS).index(r["bucket"]), r["logical"]))
         out.append({"table": ln, "total": total, "method": method, "fields": rows,
-                    "views_measured": any(v.get("columns") is not None for v in views if v["entity"] == ln),
+                    "count_complete": method not in ("falhou", "sem entity set") and not partial,
+                    "coverage_complete": not missing, "missing_sources": missing,
+                    "forms_measured": forms_measured, "views_measured": views_measured,
                     "repos_measured": bool(repos)})
     ctx.stats["field_usage"] = {"tables": len(out), "fields": sum(len(t["fields"]) for t in out),
-                                "safe_candidates": sum(1 for t in out for f in t["fields"] if f["bucket"] == "candidato-seguro")}
+                                "safe_candidates": sum(1 for t in out for f in t["fields"] if f["bucket"] == "candidato-seguro"),
+                                "inconclusive": sum(1 for t in out for f in t["fields"] if f["bucket"] == "inconclusivo")}
     ctx.data["field_usage"] = out

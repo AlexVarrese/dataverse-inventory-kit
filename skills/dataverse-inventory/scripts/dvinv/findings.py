@@ -228,32 +228,47 @@ def compute(d):
     # 10. Uso de campos ---------------------------------------------------------------------
     fu = d.get("field_usage") or []
     if fu:
-        measured = [(t, f) for t in fu for f in t["fields"] if f["bucket"] != "nao-medido"]
-        safe = [(t, f) for t, f in measured if f["bucket"] == "candidato-seguro"]
-        partial = [t["table"] for t in fu if str(t.get("method", "")).startswith("parcial")]
-        caveat = (" Medição parcial em: " + ", ".join(partial) + "." if partial else "") + (
-            "" if all(t.get("repos_measured") for t in fu) else " Repositório de código não informado (`repos:`) — "
-            "uso em código-fonte fora do Dataverse não foi verificado.")
+        conclusive = [(t, f) for t in fu for f in t["fields"] if f["bucket"] not in ("nao-medido", "inconclusivo")]
+        safe = [(t, f) for t, f in conclusive if f["bucket"] == "candidato-seguro"]
+        caveat = "" if all(t.get("repos_measured") for t in fu) else (
+            " Repositório de código não informado (`repos:`) — uso em código-fonte fora do Dataverse não foi verificado.")
         if safe:
-            out.append(_f("FLD-01", "médio", f"{len(safe)} de {len(measured)} coluna(s) custom sem dados e sem uso encontrado",
-                          "Nenhum registro preenchido e nenhuma referência em formulário, view, processo, flow, plugin, JS"
-                          " ou repositório. Candidatas a remoção após confirmar integrações externas (ETL, relatórios"
-                          " Power BI, portais)." + caveat,
+            out.append(_f("FLD-01", "médio",
+                          f"{len(safe)} coluna(s) custom sem dados e sem uso encontrado — candidatas a investigação de remoção",
+                          "Contagem completa com zero registros preenchidos e nenhuma referência em formulário (ativo ou "
+                          "inativo), view, processo, flow, plugin, JS ou repositório, com todas essas fontes medidas. "
+                          "NÃO significa que remover é seguro: confirmar integrações externas (ETL, relatórios Power BI, "
+                          "portais, APIs), flows fora de solução e uso por código não versionado antes de qualquer remoção."
+                          + caveat,
                           refs=[("table", t["table"]) for t, _ in safe],
                           evidence=[f"{t['table']}.{f['logical']} ({f['type']})" for t, f in safe], metric=len(safe)))
-        ui = [(t, f) for t, f in measured if f["bucket"] == "sem-dados-na-ui"]
+        ui = [(t, f) for t, f in conclusive if f["bucket"] in ("sem-dados-na-ui", "sem-dados-uso-fraco")]
         if ui:
-            out.append(_f("FLD-02", "baixo", f"{len(ui)} coluna(s) sem dados mas ainda em formulário/view",
-                          "Campo exibido que ninguém preenche: poluição de tela ou funcionalidade abandonada.",
+            out.append(_f("FLD-02", "baixo", f"{len(ui)} coluna(s) sem dados mas ainda em formulário/view (inclusive inativo)",
+                          "Campo exibido que ninguém preenche: poluição de tela ou funcionalidade abandonada. "
+                          "Formulário inativo conta como uso fraco: limpe o formulário antes de pensar em remover a coluna.",
                           refs=[("table", t["table"]) for t, _ in ui],
-                          evidence=[f"{t['table']}.{f['logical']} — forms: {', '.join(f['forms'][:3]) or '—'}" for t, f in ui],
+                          evidence=[f"{t['table']}.{f['logical']} — forms: {', '.join(f['forms'][:3]) or '—'}"
+                                    + (f" · forms inativos: {', '.join((f.get('forms_inactive') or [])[:3])}"
+                                       if f.get("forms_inactive") else "")
+                                    + (f" · views: {', '.join(f['views'][:3])}" if f.get("views") else "")
+                                    for t, f in ui],
                           metric=len(ui)))
-        logic = [(t, f) for t, f in measured if f["bucket"] == "sem-dados-com-logica"]
+        logic = [(t, f) for t, f in conclusive if f["bucket"] == "sem-dados-com-logica"]
         if logic:
             out.append(_f("FLD-03", "baixo", f"{len(logic)} coluna(s) sem dados mas citadas em automação/código",
-                          "Lógica que lê/escreve um campo sempre vazio — regra morta ou bug (a gravação nunca acontece).",
+                          "Contagem completa com zero preenchidos, mas há lógica que lê/escreve o campo — regra morta ou "
+                          "bug (a gravação nunca acontece).",
                           refs=[("table", t["table"]) for t, _ in logic],
                           evidence=[f"{t['table']}.{f['logical']}" for t, f in logic], metric=len(logic)))
+        inc = [(t, f) for t in fu for f in t["fields"] if f["bucket"] == "inconclusivo"]
+        if inc:
+            out.append(_f("FLD-04", "info", f"{len(inc)} coluna(s) com uso inconclusivo",
+                          "Zero preenchido numa amostra parcial, medição que falhou ou fonte da matriz de uso ausente/"
+                          "falha/não medida. Não são candidatas a remoção até a lacuna ser resolvida.",
+                          refs=[("table", t["table"]) for t, _ in inc],
+                          evidence=[f"{t['table']}.{f['logical']} — {'; '.join(f.get('inconclusive_reasons') or [])[:300]}"
+                                    for t, f in inc], metric=len(inc)))
 
     # 11. JavaScript -------------------------------------------------------------------------
     js = [w for w in wrs if w.get("js") and not w["js"].get("third_party")]
