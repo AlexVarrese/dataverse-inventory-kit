@@ -230,5 +230,6 @@ def collect_processes(ctx):
         by_cat[r["category"]] = by_cat.get(r["category"], 0) + 1
     ctx.stats["processes"] = {"org_definitions": len(rows), "scope": len(out), "by_category": by_cat}
     ctx.gap("processes", "cloud flows fora de solução",
-            "flows não solution-aware não aparecem na tabela workflow — inventariar via Power Platform admin/PAC CLI")
+            "flows não solution-aware não aparecem na tabela workflow — inventariar via Power Platform admin/PAC CLI",
+            kind="limitação")
     ctx.data["processes"] = sorted(out, key=lambda x: (x["category"], x["entity"] or "", x["name"] or ""))

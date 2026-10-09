@@ -1,4 +1,8 @@
-"""Gera o vault Obsidian a partir de _raw/*.json (convenções kepano/obsidian-skills).
+"""Gera o vault Obsidian a partir de um snapshot `_raw/<run_id>/` (convenções kepano/obsidian-skills).
+
+- Lê só os arquivos listados (e conferidos) no manifesto do snapshot; coletor sem arquivo = lacuna.
+- Renderiza numa cópia de trabalho do vault, varre segredos (fail-closed) e só então troca a pasta
+  publicada; saídas derivadas (findings.json, dependencies.json) vão para `_derived/<run_id>/`.
 
 - Uma nota por componente, com properties tipadas (frontmatter) para alimentar Obsidian Bases.
 - Wikilinks com caminho a partir da raiz do vault (`[[Pasta/Nota|alias]]`) — sem ambiguidade entre
@@ -7,7 +11,9 @@
   properties em PRESERVE_PROPS (ex.: status/responsável de um achado).
 """
 
+import os
 import re
+import shutil
 from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
@@ -16,9 +22,10 @@ import yaml
 
 from .. import dependencies as deps_mod
 from .. import findings as findings_mod
+from .. import secrets
+from .. import snapshot as snapshot_mod
 from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
-from ..util import load_json, save_json
 from . import bases, canvas
 
 MANUAL = "%% dvinv:manual — o conteúdo abaixo desta linha é preservado nas próximas extrações %%"
@@ -121,21 +128,62 @@ class Vault:
         return ["dataverse", f"dataverse/{kind}", f"ambiente/{safe(self.env).lower().replace(' ', '-')}"]
 
 
-def load_raw(raw_dir):
-    raw_dir = Path(raw_dir)
-    d = {}
-    for p in raw_dir.glob("*.json"):
-        d[p.stem] = load_json(p)
-    return d
+def load_raw(path, root=None):
+    """Carrega um snapshot (diretório, raiz de snapshots → último íntegro, ou formato antigo)."""
+    snap = snapshot_mod.resolve(path, root)
+    return snapshot_mod.load(snap)
 
 
-def render(cfg):
-    d = load_raw(cfg.raw_dir)
+def render(cfg, snapshot=None):
+    """Renderiza o snapshot indicado (ou o último íntegro de cfg.raw_dir). Publica vault e derivados
+    só se a varredura de segredos passar; caso contrário levanta SecretLeakError e nada muda."""
+    snap = snapshot_mod.resolve(snapshot or cfg.raw_dir, cfg.raw_dir)
+    d = snapshot_mod.load(snap)
+    run_id = snapshot_mod.run_id_of(snap, d["manifest"])
+    stage_root = Path(cfg.vault_root) / f".dvinv-render-{run_id}-{os.getpid()}"
+    shutil.rmtree(stage_root, ignore_errors=True)
+    stage_dir = stage_root / cfg.vault_folder
+    final_dir = Path(cfg.vault_dir)
+    derived = snapshot_mod.DerivedStaging(cfg.derived_dir, run_id)
+    try:
+        if final_dir.exists():
+            shutil.copytree(final_dir, stage_dir)  # preserva edições do analista e notas antigas
+        v = Vault(stage_root, cfg.vault_folder, cfg.name)
+        v.snapshot, v.run_id = snap, run_id
+        fnd, deps_json = _render_into(v, d)
+        derived.write_json("findings", fnd)
+        derived.write_json("dependencies", deps_json)
+        secrets.assert_clean(list(v.written) + derived.paths, f"render {run_id}")
+        # publicação: troca a pasta do vault inteira (rename) e os derivados do run
+        final_dir.parent.mkdir(parents=True, exist_ok=True)
+        old = None
+        if final_dir.exists():
+            old = final_dir.parent / f".{final_dir.name}.dvinv-old-{os.getpid()}"
+            os.rename(final_dir, old)
+        try:
+            os.rename(stage_dir, final_dir)
+        except OSError:
+            if old:  # devolve o vault anterior
+                os.rename(old, final_dir)
+            raise
+        if old:
+            shutil.rmtree(old, ignore_errors=True)
+        v.derived_dir = derived.publish()
+    except BaseException:
+        derived.discard()
+        raise
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+    v.written = [final_dir / Path(w).relative_to(stage_dir) if str(w).startswith(str(stage_dir)) else w
+                 for w in v.written]
+    v.root = Path(cfg.vault_root)
+    return v
+
+
+def _render_into(v, d):
     if not d.get("manifest"):
-        raise SystemExit(f"Nada para renderizar em {cfg.raw_dir} — rode 'extract' antes.")
+        raise SystemExit("Snapshot sem manifest.json — rode 'extract' antes.")
     fnd = findings_mod.compute(d)
-    save_json(cfg.raw_dir / "findings.json", fnd)
-    v = Vault(cfg.vault_root, cfg.vault_folder, cfg.name)
 
     tables = d.get("tables") or []
     plugins = d.get("plugins") or {"assemblies": [], "steps": []}
@@ -195,7 +243,7 @@ def render(cfg):
     # ---- grafo de dependências (antes das notas: cada nota mostra 'depende de' / 'usado por') ----
     graph = deps_mod.build(d)
     dsum = deps_mod.summarize(graph, d)
-    save_json(cfg.raw_dir / "dependencies.json", deps_mod.to_json(graph, dsum))
+    deps_json = deps_mod.to_json(graph, dsum)
     for n in graph.nodes:
         if n in v.paths:
             v.dep_counts[v.paths[n]] = {"dependencias": dsum["fan_out"][n], "dependentes": dsum["fan_in"][n]}
@@ -588,7 +636,7 @@ def render(cfg):
             b += [f"## Componentes afetados ({len(uniq)})", "", "\n".join(f"- {v.link(k, key)}" for k, key in uniq[:500]), ""]
         if f.get("evidence"):
             b += ["## Evidências", "", "\n".join(f"- {e}" for e in f["evidence"][:500]), ""]
-        b += ["Fonte: `_raw/findings.json` (regra em `dvinv/findings.py`). Status e responsável editáveis — preservados entre extrações."]
+        b += ["Fonte: `_derived/<run_id>/findings.json` (regra em `dvinv/findings.py`). Status e responsável editáveis — preservados entre extrações."]
         v.write(v.paths[("finding", f["id"])], props, "\n".join(b))
 
     # ---- 8) notas de seção ----
@@ -603,7 +651,7 @@ def render(cfg):
     bases.write_all(v, fnd)
     canvas.write_map(v, d)
     write_index(v, d, manifest, fnd)
-    return v
+    return fnd, deps_json
 
 
 def write_integrations(v, d, procs, apis):
@@ -825,6 +873,7 @@ def write_environment(v, d, manifest):
         ["Organization ID", env.get("organizationid")], ["Criada em", env.get("created")],
         ["Auditoria", env.get("audit_enabled")], ["Plugin trace", env.get("plugin_trace_setting")],
         ["Extraído em (UTC)", manifest.get("extracted_at")], ["Chamadas à API", len(manifest.get("queries") or [])],
+        ["Snapshot (run_id)", manifest.get("run_id") or "formato antigo"],
     ])]
     sc = manifest.get("scope") or {}
     b += ["## Critério de escopo", "", f"- Prefixos: {', '.join(f'`{p}`' for p in sc.get('prefixes') or []) or '—'}",
@@ -843,16 +892,27 @@ def write_environment(v, d, manifest):
           "## Escopo × organização", "",
           mdtable(["Coletor", "Métricas"], [[k, ", ".join(f"{a}={b_}" for a, b_ in (s or {}).items())]
                                             for k, s in (manifest.get("stats") or {}).items()])]
+    cols = manifest.get("collectors") or {}
+    if cols:
+        b += ["## Status dos coletores", "",
+              "> [!info] Cada extração é um snapshot imutável; coletor que falhou ou não rodou não tem dado neste vault "
+              "(nunca é preenchido com arquivo de outra extração).", "",
+              mdtable(["Coletor", "Status", "Lacunas", "Arquivos", "Motivo"],
+                      [[k, st.get("status"), st.get("lacunas"), ", ".join(st.get("arquivos") or []), st.get("motivo")]
+                       for k, st in cols.items()])]
+    elif manifest.get("legacy"):
+        b += ["> [!warning] Snapshot no formato antigo (sem manifesto de integridade) — rode `extract` de novo.", ""]
     gaps = manifest.get("gaps") or []
     b += ["## Lacunas declaradas", "",
           "> [!warning] O que **não** foi coletado nesta extração\n> Números deste vault só valem para o que foi efetivamente lido.", "",
-          mdtable(["Coletor", "O quê", "Motivo"], [[g["collector"], g["what"], g["error"].splitlines()[0][:200]] for g in gaps])]
+          mdtable(["Coletor", "O quê", "Motivo"], [[g["collector"], g["what"], (g["error"].splitlines() or [""])[0][:200]] for g in gaps])]
     b += ["## Soluções", "", mdtable(["Solução", "Versão", "Gerenciada", "Publisher", "Componentes"],
           [[v.link("solution", s["uniquename"], s["uniquename"], in_table=True), s.get("version"), s.get("managed"),
             s.get("publisher"), s.get("component_total")] for s in d.get("solutions") or []])]
     b += ["## Coleta (deep)", "", mdtable(["Opção", "Ligada"], list((manifest.get("deep") or {}).items())),
           "## Tempo por coletor (s)", "", mdtable(["Coletor", "s"], list((manifest.get("timings_s") or {}).items()))]
     v.write(f"{v.folder}/01 Ambiente", {"tipo": "secao", "url": env.get("url"), "versao": env.get("version"),
+                                        "snapshot": manifest.get("run_id"),
                                         "tags": v.tags("secao")}, "\n".join(b))
 
 

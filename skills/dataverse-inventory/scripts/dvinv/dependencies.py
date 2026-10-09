@@ -9,7 +9,7 @@ Aresta = "A depende de B" (se B mudar ou sumir, A é afetado). Duas origens:
 - plataforma — RetrieveDependentComponents (deep.platform_dependencies): o que o Dataverse registra
   e usa para bloquear exclusão.
 
-Saídas: _raw/dependencies.json, matriz por tabela, matriz tipo × tipo, fan-in/fan-out, órfãos.
+Saídas: _derived/<run_id>/dependencies.json (render; o diff recalcula), matriz por tabela, matriz tipo × tipo, fan-in/fan-out, órfãos.
 """
 
 import re

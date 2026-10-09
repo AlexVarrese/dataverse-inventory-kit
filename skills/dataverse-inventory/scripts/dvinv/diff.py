@@ -1,13 +1,25 @@
-"""Compara dois snapshots _raw/ (mesmo ambiente em datas diferentes, ou DEV × TEST × PRD).
+"""Compara dois snapshots (mesmo ambiente em datas diferentes, ou DEV × TEST × PRD).
 
+Cada lado pode ser: diretório de snapshot (`_raw/<run_id>`), raiz de snapshots (`_raw` → último
+íntegro), run_id (relativo ao raw_dir da config) ou diretório no formato antigo.
 Identidade de componente = nome lógico/único (não GUID), porque GUIDs mudam entre ambientes
 para componentes recriados. Gera uma nota Obsidian com o que existe só de um lado.
+As dependências são recalculadas a partir do snapshot (não dependem de saída do render).
 """
 
+import os
 from datetime import date
 from pathlib import Path
 
+from . import dependencies as deps_mod
+from . import secrets
 from .render.obsidian import load_raw, mdtable, safe
+
+
+def _with_dependencies(d):
+    g = deps_mod.build(d)
+    d["dependencies"] = deps_mod.to_json(g, deps_mod.summarize(g, d))
+    return d
 
 
 def keys(d):
@@ -35,8 +47,8 @@ def keys(d):
     return k
 
 
-def compare(raw_a, raw_b, vault_root, folder):
-    a, b = load_raw(raw_a), load_raw(raw_b)
+def compare(raw_a, raw_b, vault_root, folder, root=None):
+    a, b = _with_dependencies(load_raw(raw_a, root)), _with_dependencies(load_raw(raw_b, root))
     na = (a.get("manifest") or {}).get("environment", "A")
     nb = (b.get("manifest") or {}).get("environment", "B")
     ta = (a.get("manifest") or {}).get("extracted_at", "")[:10]
@@ -63,5 +75,12 @@ def compare(raw_a, raw_b, vault_root, folder):
     path.parent.mkdir(parents=True, exist_ok=True)
     fm = (f"---\ntipo: comparacao\nambiente_a: {na}\nambiente_b: {nb}\ndata_a: {ta}\ndata_b: {tb}\n"
           f"extraido_em: {date.today().isoformat()}\ntags:\n  - dataverse\n  - dataverse/comparacao\n---\n")
-    path.write_text(fm + "\n".join(lines) + "\n", encoding="utf-8")
+    tmp = path.with_name(f".tmp-{os.getpid()}-{path.name}")  # mesma extensão: a varredura reconhece
+    tmp.write_text(fm + "\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        secrets.assert_clean([tmp], "diff")
+    except secrets.SecretLeakError:
+        tmp.unlink()
+        raise
+    os.replace(tmp, path)
     return path

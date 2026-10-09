@@ -27,6 +27,7 @@ from dvinv.collectors import Context, run  # noqa: E402
 from dvinv.diff import compare  # noqa: E402
 from dvinv.render.obsidian import MANUAL, render  # noqa: E402
 from dvinv.scope import Scope  # noqa: E402
+from dvinv.snapshot import sha256_file  # noqa: E402
 
 FV = "@OData.Community.Display.V1.FormattedValue"
 LK = "@Microsoft.Dynamics.CRM.lookuplogicalname"
@@ -377,8 +378,8 @@ def check_vault(vault_dir, vault_root):
     return md
 
 
-def check_dependencies(cfg):
-    dep = json.loads((cfg.raw_dir / "dependencies.json").read_text())
+def check_dependencies(cfg, derived):
+    dep = json.loads((derived / "dependencies.json").read_text())
     edges = {(e["from_label"], e["relation"], e["to_label"]) for e in dep["edges"]}
     flow = "Contoso - Sync conta → ERP"
     must = {
@@ -472,11 +473,18 @@ def main():
         assert st["security"]["roles_root_bu"] == 2, st["security"]  # dedupe por BU raiz
         gaps = " ".join(g["what"] for g in manifest["gaps"])
         assert "canvasapps" in gaps and "naoexiste" in gaps, gaps
-        raw_text = " ".join(p.read_text() for p in cfg.raw_dir.glob("*.json"))
+        snap = ctx.snapshot_dir
+        assert snap.parent == cfg.raw_dir and snap.name == manifest["run_id"], (snap, manifest["run_id"])
+        assert not list(cfg.raw_dir.glob(".staging-*")), "staging não foi publicado/limpo"
+        assert set(manifest["files"]) >= {"tables.json", "field_usage.json", "processes.json"}, manifest["files"]
+        assert manifest["collectors"]["apps"]["status"] == "parcial" and manifest["collectors"]["forms"]["status"] == "ok"
+        raw_text = " ".join(p.read_text() for p in snap.glob("*.json"))
         assert "SuperSecret123" not in raw_text and "AbCdEfGhIjKlMnOp" not in raw_text, "segredo no _raw"
 
         v = render(cfg)
-        fnd = {f["id"]: f for f in json.loads((cfg.raw_dir / "findings.json").read_text())}
+        assert v.snapshot == snap and v.derived_dir == cfg.derived_dir / manifest["run_id"], (v.snapshot, v.derived_dir)
+        assert not (snap / "findings.json").exists() and not (snap / "dependencies.json").exists(), "derivado no snapshot"
+        fnd = {f["id"]: f for f in json.loads((v.derived_dir / "findings.json").read_text())}
         assert sum(1 for f in fnd.values() if f["id"] == "DEP-01") == 1
         assert not any("$webresource:" in e for f in fnd.values() for e in f.get("evidence") or []), "prefixo não removido"
         expected = {"DEP-01", "DEP-03", "FLW-01", "FLD-01", "FLD-03", "JS-03", "JS-06", "STO-01", "AUD-01", "REPO-01", "REPO-02", "REPO-03", "SEC-01", "UI-01", "UI-02", "UI-03", "PLG-01", "PLG-02", "PLG-03", "PLG-04", "OPS-01", "OPS-02",
@@ -484,29 +492,29 @@ def main():
         assert expected <= set(fnd), f"faltam achados: {expected - set(fnd)}"
         assert fnd["SEC-01"]["metric"] == 3, fnd["SEC-01"]  # JS (sig=) + flow (code=) + config do step
         md = check_vault(cfg.vault_dir, cfg.vault_root)
-        fu = {t["table"]: {f["logical"]: f for f in t["fields"]} for t in json.loads((cfg.raw_dir / "field_usage.json").read_text())}
+        fu = {t["table"]: {f["logical"]: f for f in t["fields"]} for t in json.loads((snap / "field_usage.json").read_text())}
         assert fu["account"]["contoso_legacy"]["bucket"] == "candidato-seguro", fu["account"]["contoso_legacy"]
         assert fu["account"]["contoso_revenue"]["populated"] == 2 and fu["account"]["contoso_weird"]["populated"] == 0
-        fu_acc = next(t for t in json.loads((cfg.raw_dir / "field_usage.json").read_text()) if t["table"] == "account")
+        fu_acc = next(t for t in json.loads((snap / "field_usage.json").read_text()) if t["table"] == "account")
         assert fu_acc["method"] == "agregação + paginação (2 colunas)", fu_acc["method"]
         assert fu["account"]["contoso_tier"]["bucket"] == "sem-dados-com-logica", fu["account"]["contoso_tier"]
         assert fu["contoso_project"]["contoso_name"]["populated"] == 3 and fu["contoso_project"]["contoso_name"]["bucket"] == "em-uso"
         assert fu["contoso_project"]["contoso_name"]["repo_files"] == 1
-        repo_raw = json.loads((cfg.raw_dir / "repos.json").read_text())[0]
+        repo_raw = json.loads((snap / "repos.json").read_text())[0]
         wr = {w["name"]: w for w in repo_raw["webresources"]}
         assert wr["contoso_/js/unused.js"]["status"] == "idêntico", wr  # CRLF/BOM não contam
         assert wr["contoso_/js/account.js"]["functions_only_env"] == ["helper"], wr["contoso_/js/account.js"]
         assert sum(1 for h in repo_raw["secret_hits"] if h["file"] == "app.config") == 3, repo_raw["secret_hits"]  # 2 + connection string com $ no meio; $(DbPwd) não
         ty = {t["type"]: t["status"] for t in repo_raw["plugin_types"]}
         assert ty == {"Contoso.Plugins.AccountPre": "com fonte", "Contoso.Plugins.ProjectRetrieve": "sem fonte no repo"}, ty
-        st = json.loads((cfg.raw_dir / "storage.json").read_text())
+        st = json.loads((snap / "storage.json").read_text())
         acc = next(r for r in st["annotations"]["by_table"] if r["table"] == "account")
         assert acc["bytes"] == 1000 * (date.today().year - 2008 + 1), acc  # partição por ano após estouro
         assert st["audit"]["by_table"][0]["table"] == "account" and st["audit"]["oldest"] == "2022-07-19"
-        check_dependencies(cfg)
+        check_dependencies(cfg, v.derived_dir)
         for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios", "08 Matriz de Dependências"):
             assert (cfg.vault_dir / f"{sec}.md").exists(), sec
-        flow = json.loads((cfg.raw_dir / "processes.json").read_text())
+        flow = json.loads((snap / "processes.json").read_text())
         assert next(p for p in flow if p["category"] == "Cloud Flow")["tables"] == ["account", "contoso_project"]
         cv = json.loads((cfg.vault_dir / "Mapa do Ambiente.canvas").read_text())
         assert any(e["label"] == "flow HTTP" for e in cv["edges"]), "aresta tabela→HTTP ausente no canvas"
@@ -520,14 +528,21 @@ def main():
         txt2 = note.read_text()
         assert "status: em análise" in txt2 and "Rotacionado em 06/10." in txt2 and txt2.count(MANUAL) == 1
 
-        # diff contra uma cópia alterada
-        b = tmp / "out" / "_raw_b"
-        shutil.copytree(cfg.raw_dir, b)
+        # diff contra uma cópia alterada (outro snapshot: manifesto com o sha256 novo)
+        b = tmp / "out" / "_raw_b" / "20990101T000000Z"
+        shutil.copytree(snap, b)
         t = json.loads((b / "tables.json").read_text())
         t[0]["columns"].append({"logical": "contoso_new", "custom": True})
         (b / "tables.json").write_text(json.dumps(t))
-        out = compare(cfg.raw_dir, b, cfg.vault_root, "Dataverse")
+        mb = json.loads((b / "manifest.json").read_text())
+        mb["files"]["tables.json"] = sha256_file(b / "tables.json")
+        mb["run_id"] = b.name
+        (b / "manifest.json").write_text(json.dumps(mb))
+        out = compare(cfg.raw_dir, b.parent, cfg.vault_root, "Dataverse")  # raiz → último íntegro de cada lado
         assert "contoso_new" in out.read_text()
+        dep_row = re.search(r"^\| Dependências \| (\d+) \|", out.read_text(), re.M)
+        assert dep_row and int(dep_row.group(1)) > 0, "diff sem dependências recalculadas a partir do snapshot"
+        assert not list(cfg.vault_root.glob(".dvinv-render-*")), "cópia de trabalho do render não foi removida"
 
         print(f"OK — {len(md)} notas, {len(list(cfg.vault_dir.rglob('*.base')))} bases, "
               f"{len(fnd)} achados, {len(manifest['queries'])} chamadas simuladas, {len(manifest['gaps'])} lacunas")

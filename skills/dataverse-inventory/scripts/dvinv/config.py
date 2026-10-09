@@ -51,6 +51,7 @@ class Config:
     repos: list = field(default_factory=list)               # [{"path": ..., "kind": webresources|plugins|any}]
     auth_method: str = "auto"  # auto | spn | mcp | azcli | devicecode
     devicecode_cache: bool = False  # cache persistente CRIPTOGRAFADO do device code (opt-in; nunca texto puro)
+    derived_dir: Path = Path("out/_derived")
     env_file: Path | None = None
     tenant_id: str | None = None
 
@@ -139,6 +140,7 @@ def load(path, overrides=None):
         collectors=overrides.get("collectors") or data.get("collectors") or [],
         parallel=int(data.get("parallel", 4)),
         raw_dir=rel(out.get("raw_dir"), f"out/{slug}/_raw"),
+        derived_dir=rel(out.get("derived_dir"), str(Path(out.get("raw_dir") or f"out/{slug}/_raw").parent / "_derived")),
         vault_root=rel(out.get("vault_root"), "vault"),
         vault_folder=out.get("vault_folder", f"Dataverse/{name}"),
         auth_method=auth.get("method", "auto"),

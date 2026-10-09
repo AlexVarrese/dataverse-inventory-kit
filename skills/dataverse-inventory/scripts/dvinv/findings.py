@@ -1,7 +1,7 @@
 """Achados automáticos derivados do inventário.
 
 Regra da casa: todo achado carrega numerador/denominador ou lista de evidências
-rastreável a um arquivo de _raw/. Nada de score decorativo. Os achados são *candidatos* — o analista
+rastreável a um arquivo do snapshot (_raw/<run_id>/). Nada de score decorativo. Os achados são *candidatos* — o analista
 confirma, muda status e anota na nota do achado (o render preserva essas edições).
 """
 

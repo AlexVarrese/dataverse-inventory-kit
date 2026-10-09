@@ -99,10 +99,11 @@ def collect_plugins(ctx):
             try:
                 d = c.get(f"pluginassemblies({aid})?$select=content")
                 if d.get("content"):
-                    path = cfg.raw_dir / "bin" / f"{a['name']}.dll"
+                    rel = f"bin/{a['name']}.dll"  # relativo ao snapshot (o staging muda de nome ao publicar)
+                    path = (ctx.out_dir or cfg.raw_dir) / rel
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(base64.b64decode(d["content"]))
-                    rec["binary"] = str(path)
+                    rec["binary"] = rel
             except Exception as e:  # noqa: BLE001
                 ctx.gap("plugins", f"binário de {a['name']}", e)
         out_asms.append(rec)

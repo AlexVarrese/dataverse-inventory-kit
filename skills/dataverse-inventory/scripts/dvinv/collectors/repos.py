@@ -93,7 +93,9 @@ def decompile(ctx, dll):
     tool = shutil.which("ilspycmd")
     if not tool:
         return None
-    out = ctx.cfg.raw_dir / "decompiled" / Path(dll).stem
+    base = ctx.out_dir or ctx.cfg.raw_dir
+    dll = base / dll if not Path(dll).is_absolute() else Path(dll)
+    out = base / "decompiled" / Path(dll).stem
     if not out.exists():
         out.mkdir(parents=True, exist_ok=True)
         try:
@@ -101,6 +103,13 @@ def decompile(ctx, dll):
         except Exception as e:  # noqa: BLE001
             ctx.gap("repos", f"decompilar {Path(dll).name}", e)
             return None
+        # o fonte decompilado também vai para disco: mesma redação do resto (literal de senha em plugin)
+        for f in out.rglob("*"):
+            if f.is_file() and f.suffix.lower() in (".cs", ".config", ".json", ".xml", ".resx"):
+                txt = f.read_text(encoding="utf-8", errors="replace")
+                red = secrets.redact(txt)
+                if red != txt:
+                    f.write_text(red, encoding="utf-8")
     return out
 
 
@@ -174,7 +183,8 @@ def collect_repos(ctx):
                     item = {"assembly": a["name"], "type": t["typename"], "repo_files": [h[0] for h in hits],
                             "status": "com fonte" if hits else "sem fonte no repo"}
                     if dec_files and hits:
-                        dec = [(str(p), x) for p, x in dec_files if re.search(rf"\bclass\s+{re.escape(cls)}\b", x)]
+                        dec = [(p.relative_to(ctx.out_dir).as_posix() if ctx.out_dir else str(p), x)
+                               for p, x in dec_files if re.search(rf"\bclass\s+{re.escape(cls)}\b", x)]
                         if dec:
                             m_prd = methods(dec[0][1], cls)
                             m_repo = set().union(*(methods(x, cls) for _, x in hits))
