@@ -10,6 +10,11 @@
        do usuário logado.
 
 Fallbacks: azcli (az login) e devicecode. Em `auto` a ordem é spn → mcp → azcli → devicecode.
+
+devicecode: por padrão o token fica só em memória (novo login a cada execução). Com
+`auth.devicecode_cache: true` o token é persistido no cache CRIPTOGRAFADO do sistema (DPAPI no
+Windows, Keychain no macOS, libsecret no Linux). Não existe fallback para arquivo em texto puro: se o
+cofre do sistema não estiver disponível, a autenticação falha com mensagem clara.
 """
 
 import os
@@ -75,7 +80,7 @@ class McpSharedCacheCredential:
         return _AccessToken(res["access_token"], int(time.time()) + int(res.get("expires_in", 3600)))
 
 
-def build_credential(method, tenant_id):
+def build_credential(method, tenant_id, devicecode_cache=False):
     try:
         from azure.identity import (AzureCliCredential, ClientSecretCredential,
                                     DeviceCodeCredential, TokenCachePersistenceOptions)
@@ -108,9 +113,13 @@ def build_credential(method, tenant_id):
     def prompt(uri, code, _exp):
         print(f"\nPara autenticar, abra {uri} e informe o código: {code}\n", file=sys.stderr, flush=True)
 
-    return DeviceCodeCredential(
-        tenant_id=tenant_id or "organizations",
-        client_id=DATAVERSE_CLI_CLIENT_ID,
-        prompt_callback=prompt,
-        cache_persistence_options=TokenCachePersistenceOptions(name="dvinv", allow_unencrypted_storage=True),
-    ), "devicecode"
+    return DeviceCodeCredential(**devicecode_kwargs(tenant_id, prompt, devicecode_cache, TokenCachePersistenceOptions)), \
+        "devicecode" + (" (cache criptografado)" if devicecode_cache else " (sem cache persistente)")
+
+
+def devicecode_kwargs(tenant_id, prompt, persist, options_cls):
+    """Parâmetros do DeviceCodeCredential. Cache persistente só criptografado e só por opt-in."""
+    kw = {"tenant_id": tenant_id or "organizations", "client_id": DATAVERSE_CLI_CLIENT_ID, "prompt_callback": prompt}
+    if persist:
+        kw["cache_persistence_options"] = options_cls(name="dvinv", allow_unencrypted_storage=False)
+    return kw

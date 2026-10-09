@@ -20,7 +20,7 @@ from .scope import Scope
 
 
 def _client(cfg):
-    cred, method = build_credential(cfg.auth_method, cfg.tenant_id)
+    cred, method = build_credential(cfg.auth_method, cfg.tenant_id, getattr(cfg, "devicecode_cache", False))
     print(f"[dvinv] autenticação: {method}", flush=True)
     return Client(cfg, cred)
 

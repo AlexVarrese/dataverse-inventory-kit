@@ -50,6 +50,7 @@ class Config:
     field_usage_max_records: int = 500_000
     repos: list = field(default_factory=list)               # [{"path": ..., "kind": webresources|plugins|any}]
     auth_method: str = "auto"  # auto | spn | mcp | azcli | devicecode
+    devicecode_cache: bool = False  # cache persistente CRIPTOGRAFADO do device code (opt-in; nunca texto puro)
     env_file: Path | None = None
     tenant_id: str | None = None
 
@@ -141,6 +142,7 @@ def load(path, overrides=None):
         vault_root=rel(out.get("vault_root"), "vault"),
         vault_folder=out.get("vault_folder", f"Dataverse/{name}"),
         auth_method=auth.get("method", "auto"),
+        devicecode_cache=bool(auth.get("devicecode_cache", False)),
         env_file=env_file,
         tenant_id=auth.get("tenant_id") or os.environ.get("TENANT_ID"),
     )
