@@ -35,6 +35,13 @@ class DataverseError(Exception):
         self.message = msg
 
 
+class UnsafeUrlError(DataverseError):
+    """URL fora da base configurada (esquema ≠ https ou host diferente): não seguimos nem enviamos token."""
+
+    def __init__(self, url, reason):
+        super().__init__(0, url, f"URL recusada ({reason}) — o token só é enviado para a base configurada")
+
+
 class Client:
     def __init__(self, cfg, credential=None, timeout=180, max_retries=5):
         self.cfg = cfg
@@ -51,6 +58,27 @@ class Client:
         self.throttled = 0                # quantas vezes o serviço pediu para esperar (429)
         self.workers = max(1, int(getattr(cfg, "parallel", 4) or 1))
         self.log = []
+        base = urllib.parse.urlsplit(self.base)
+        self._host = (base.hostname or "").lower()
+        self._port = base.port or 443
+        if base.scheme != "https" or not self._host:
+            raise ValueError(f"environment.url precisa ser https://<org>.crm*.dynamics.com (recebido: {cfg.url})")
+
+    def check_url(self, url):
+        """Só https e o MESMO host/porta da base configurada. Vale para caminhos absolutos passados por
+        coletores e, principalmente, para `@odata.nextLink` vindo na resposta (não é confiável)."""
+        try:
+            parts = urllib.parse.urlsplit(url)
+            port = parts.port or 443
+        except ValueError:
+            raise UnsafeUrlError(url, "URL malformada") from None
+        if parts.scheme.lower() != "https":
+            raise UnsafeUrlError(url, f"esquema '{parts.scheme}' não é https")
+        if parts.username or parts.password:
+            raise UnsafeUrlError(url, "credencial embutida na URL")
+        if (parts.hostname or "").lower() != self._host or port != self._port:
+            raise UnsafeUrlError(url, f"host '{parts.hostname}' difere de '{self._host}'")
+        return url
 
     def _bearer(self):
         with self._lock:  # threads compartilham o token; renova uma vez só
@@ -83,8 +111,8 @@ class Client:
         return out
 
     def _url(self, path):
-        url = path if path.startswith("http") else f"{self.base}/{path}"
-        return urllib.parse.quote(url, safe=_SAFE + "%")
+        url = path if path.lower().startswith(("http:", "https:", "//")) else f"{self.base}/{path}"
+        return self.check_url(urllib.parse.quote(url, safe=_SAFE + "%"))
 
     def _conn(self, host, fresh=False):
         """Conexão HTTPS reaproveitada (keep-alive): sem isso cada chamada paga TCP+TLS de novo
@@ -98,6 +126,7 @@ class Client:
         return c
 
     def _request(self, url, page_size=5000):
+        self.check_url(url)  # antes de pedir token: nada de Bearer para host desconhecido
         parts = urllib.parse.urlsplit(url)
         target = parts.path + (f"?{parts.query}" if parts.query else "")
         short = url.replace(self.base, "")
@@ -156,6 +185,8 @@ class Client:
                 data = self._request(url)
                 out.extend(data.get("value", []))
                 url = data.get("@odata.nextLink")
+                if url:
+                    self.check_url(url)
         except DataverseError as e:
             self.log.append({"path": path, "status": e.status, "rows": len(out),
                              "ms": int((time.time() - t0) * 1000)})

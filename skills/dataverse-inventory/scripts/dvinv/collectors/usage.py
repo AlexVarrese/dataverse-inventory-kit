@@ -54,6 +54,8 @@ def _page_counts(ctx, t, cols):
                 k = _select_name(col)
                 local[col["logical"]] += sum(1 for r in rows if r.get(k) not in (None, "", []))
             url = data.get("@odata.nextLink")
+            if url:
+                c.check_url(url)  # nextLink vem da resposta: só segue para a base configurada
         partial = partial or bool(url)
         c.log.append({"path": f"{es}?$select=<{len(batch)} colunas>", "status": 200, "rows": seen})
         counts.update(local)
