@@ -25,6 +25,7 @@ KIND_LABEL = {
     "process": "Processo", "customapi": "Custom API", "app": "App", "role": "Papel", "envvar": "Variável de ambiente",
     "connref": "Referência de conexão", "endpoint": "Service endpoint", "connector": "Conector (externo)",
     "host": "Host HTTP (externo)", "optionset": "Option set", "platform": "Outro (plataforma)",
+    "pcf": "Componente PCF", "team": "Equipe", "bu": "Business unit",
 }
 # Processos são subdivididos por categoria na matriz por tabela.
 PROC_KIND = {"Workflow": "workflow", "Dialog": "workflow", "Business Rule": "businessrule", "Action": "action",
@@ -63,6 +64,12 @@ class Graph:
 
     def into(self, n):
         return [(k[0], k[2], self.edges[k]) for k in self._in.get(n, [])]
+
+
+def structural_teams(sec):
+    """Equipes que viram nota/nó: owner e grupo Entra. Equipes de acesso (teamtype 1) são criadas por
+    registro (access team templates) e podem ser milhares — ficam só na contagem."""
+    return [t for t in sec.get("teams") or [] if t.get("type_code") != 1]
 
 
 def build(d):
@@ -110,6 +117,8 @@ def build(d):
     for r in sec.get("roles") or []:
         if r.get("scope_reason"):
             g.node("role", r["name"], r["name"])
+    for p in d.get("pcf") or []:
+        g.node("pcf", p["name"], p["name"])
 
     known_tables = {t["logical"] for t in tables}
 
@@ -170,6 +179,12 @@ def build(d):
         g.edge(fn, tn, "formulário de")
         for lib in f.get("libraries") or []:
             g.edge(fn, g.node("webresource", lib, lib), "carrega biblioteca")
+        for p in f.get("pcf") or []:
+            if ("pcf", p["control"]) in g.nodes:
+                g.edge(fn, ("pcf", p["control"]), "usa controle PCF", detail=p.get("field"))
+    for p in d.get("pcf") or []:
+        for h in (p.get("manifest") or {}).get("external_domains") or []:
+            g.edge(("pcf", p["name"]), g.node("host", h, h), "chama HTTP (PCF)")
     for r in d.get("ribbons") or []:
         tn = table_node(r.get("entity"))
         for c in r.get("calls") or []:
@@ -214,6 +229,19 @@ def build(d):
         for rn in roles:
             if ("role", rn) in g.nodes and t in known_tables:
                 g.edge(("role", rn), ("table", t), "concede acesso a")
+    # --- estrutura de segurança: BU → BU pai, equipe → BU, equipe → papel do escopo ---
+    for b in sec.get("business_units") or []:
+        g.node("bu", b["id"], b["name"])
+    for b in sec.get("business_units") or []:
+        if b.get("parent_id") and ("bu", b["parent_id"]) in g.nodes:
+            g.edge(("bu", b["id"]), ("bu", b["parent_id"]), "filha de")
+    for t in structural_teams(sec):
+        tn = g.node("team", t["id"], t["name"])
+        if t.get("bu_id") and ("bu", t["bu_id"]) in g.nodes:
+            g.edge(tn, ("bu", t["bu_id"]), "pertence a")
+        for rn in t.get("roles") or []:
+            if ("role", rn) in g.nodes:
+                g.edge(tn, ("role", rn), "recebe papel")
     for r in d.get("relationships") or []:
         if r["kind"] == "1:N" and r["from"] in known_tables and r["to"] in known_tables:
             g.edge(("table", r["to"]), ("table", r["from"]), f"lookup {r.get('lookup')}")
@@ -287,7 +315,7 @@ def summarize(g, d):
     orphans = [n for n in g.nodes if n[0] in scoped and not fan_in[n] and not fan_out[n]
                and not (n[0] == "process" and g.nodes[n]["label"].endswith("(fora do escopo)"))]
     # sem dependentes: componentes que ninguém usa (mas que podem usar algo)
-    unused = [n for n in g.nodes if n[0] in {"webresource", "customapi", "envvar", "connref"} and not fan_in[n]]
+    unused = [n for n in g.nodes if n[0] in {"webresource", "customapi", "envvar", "connref", "pcf"} and not fan_in[n]]
     external = sorted(((n, fan_in[n]) for n in g.nodes if n[0] in ("host", "connector", "endpoint")),
                       key=lambda x: -x[1])
     return {"fan_in": fan_in, "fan_out": fan_out, "per_table": per_table, "type_x_type": tt,

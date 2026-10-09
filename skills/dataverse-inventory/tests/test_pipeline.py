@@ -50,8 +50,19 @@ FORMXML = """<form><formLibraries><Library name="contoso_/js/account.js" library
 <event name="onchange" application="false" active="true" attribute="contoso_tier"><Handlers>
 <Handler functionName="Contoso.Account.onTierChange" libraryName="contoso_/js/account.js" enabled="true"/></Handlers></event>
 </events><tabs><tab><columns><column><sections><section><rows><row>
-<cell><control id="name" datafieldname="name"/></cell><cell><control id="t" datafieldname="contoso_tier"/></cell>
-</row></rows></section></sections></column></columns></tab></tabs></form>"""
+<cell><control id="name" datafieldname="name"/></cell><cell><control id="t" datafieldname="contoso_tier" uniqueid="{u-tier}"/></cell>
+</row></rows></section></sections></column></columns></tab></tabs>
+<controlDescriptions><controlDescription forControl="{u-tier}">
+<customControl formFactor="0" name="MscrmControls.FieldControls.OptionSetControl"><parameters><value type="OptionSet">contoso_tier</value></parameters></customControl>
+<customControl formFactor="2" name="contoso_Contoso.TierPicker"><parameters><value type="OptionSet">contoso_tier</value>
+<amount type="Currency">contoso_revenue</amount><theme static="true" type="Enum">dark</theme></parameters></customControl>
+</controlDescription></controlDescriptions></form>"""
+PCF_MANIFEST = """<?xml version="1.0" encoding="utf-8"?><manifest><control namespace="Contoso" constructor="TierPicker"
+ version="1.0.3" display-name-key="Tier" control-type="standard"><external-service-usage enabled="true">
+<domain>api.rating.contoso.example</domain></external-service-usage>
+<property name="value" of-type="OptionSet" usage="bound" required="true"/><property name="amount" of-type="Currency" usage="bound"/>
+<property name="theme" of-type="Enum" usage="input"/><resources><code path="index.ts" order="1"/></resources>
+<feature-usage><uses-feature name="WebAPI" required="true"/></feature-usage></control></manifest>"""
 RIBBON = """<RibbonDefinitions><Button Id="contoso.account.Sync" Command="contoso.cmd.Sync" LabelText="Sincronizar ERP"/>
 <Button Id="Mscrm.Save" Command="Mscrm.SavePrimary"/>
 <CommandDefinition Id="contoso.cmd.Sync"><Actions><JavaScriptFunction Library="$webresource:contoso_/js/erp.js" FunctionName="sync"/></Actions></CommandDefinition>
@@ -182,17 +193,33 @@ def route(path):
         return [{"MetadataId": G(30), "Name": "contoso_status", "IsCustomOptionSet": True, "IsManaged": False},
                 {"MetadataId": G(31), "Name": "budgetstatus", "IsCustomOptionSet": False, "IsManaged": True}]
     # --- consultas em lote (get_many): $filter=<chave> eq id1 or <chave> eq id2 … ---
-    if "$filter=" in p and " eq " in p and any(p.startswith(x) for x in ("webresourceset?", "systemforms?", "workflows?", "savedqueries?")):
-        ids = re.findall(r"(?:webresourceid|formid|workflowid|savedqueryid) eq ([0-9a-f-]{36})", p)
+    if "$filter=" in p and " eq " in p and any(p.startswith(x) for x in ("webresourceset?", "systemforms?", "workflows?",
+                                                                         "savedqueries?", "customcontrols?")):
+        ids = re.findall(r"(?:webresourceid|formid|workflowid|savedqueryid|customcontrolid) eq ([0-9a-f-]{36})", p)
         if ids:
             key = p.split("?")[0]
             res = []
             for i in ids:
                 one = route(f"{key}({i})?$select=" + p.split("$select=")[1].split("&")[0])
                 k = {"webresourceset": "webresourceid", "systemforms": "formid", "workflows": "workflowid",
-                     "savedqueries": "savedqueryid"}[key]
+                     "savedqueries": "savedqueryid", "customcontrols": "customcontrolid"}[key]
                 res.append(dict(one, **{k: i}))
             return res
+    m = re.match(r"customcontrols\((.+?)\)", p)
+    if m:
+        return {"manifest": PCF_MANIFEST if m.group(1) == G(190) else
+                '<manifest><control namespace="Contoso" constructor="Unused" version="0.1.0"/></manifest>'}
+    if p.startswith("customcontrols"):
+        return [{"customcontrolid": G(190), "name": "contoso_Contoso.TierPicker", "version": "1.0.3", "ismanaged": False,
+                 "compatibledatatypes": "OptionSet"},
+                {"customcontrolid": G(191), "name": "contoso_Contoso.Unused", "version": "0.1.0", "ismanaged": False},
+                {"customcontrolid": G(192), "name": "MscrmControls.Grid.ReadOnlyGrid", "ismanaged": True}]
+    if p.startswith("teamrolescollection"):
+        return [{"teamid": G(170), "roleid": G(161)}]
+    if p.startswith("systemuserrolescollection"):
+        return [{"systemuserid": G(181), "roleid": G(162)}, {"systemuserid": G(182), "roleid": G(160)}]
+    if p.startswith("teammemberships?$select=teamid,systemuserid"):
+        return [{"teamid": G(170), "systemuserid": G(182)}, {"teamid": G(170), "systemuserid": G(183)}]
     m = re.match(r"webresourceset\((.+?)\)", p)
     if m:
         content = {G(40): JS_ACCOUNT, G(41): "function nobodyCallsMe(){}"}[m.group(1)]
@@ -308,11 +335,19 @@ def route(path):
     if p.startswith("teammemberships?$select=teamid"):
         return [{"teamid": G(170)}] * 1500
     if p.startswith("teams"):
-        return [{"teamid": G(170), "name": "Todos Vendas", "teamtype": 0, "_businessunitid_value": G(150)}]
+        return [{"teamid": G(170), "name": "Todos Vendas", "teamtype": 0, "_businessunitid_value": G(150),
+                 "_businessunitid_value" + FV: "contoso"},
+                {"teamid": G(171), "name": "Equipe Sem Papel", "teamtype": 0, "_businessunitid_value": G(151),
+                 "_businessunitid_value" + FV: "Brasil"},
+                {"teamid": G(172), "name": "{acesso-registro}", "teamtype": 1, "_businessunitid_value": G(151)}]
     if p.startswith("fieldsecurityprofiles"):
         return []
     if p.startswith("systemusers"):
-        return [{"systemuserid": G(180 + i), "isdisabled": i == 0, "accessmode": 0, "applicationid": G(9) if i == 1 else None} for i in range(5)]
+        return [{"systemuserid": G(180 + i), "isdisabled": i == 0, "accessmode": 0, "applicationid": G(9) if i == 1 else None,
+                 "fullname": "App Integração Contoso" if i == 1 else f"Usuário Contoso {i}",
+                 "domainname": f"usuario{i}@contoso.example", "caltype": 0, "caltype" + FV: "Professional",
+                 "_businessunitid_value": G(151) if i >= 3 else G(150),
+                 "_businessunitid_value" + FV: "Brasil" if i >= 3 else "contoso"} for i in range(5)]
     if p.startswith("plugintracelogs"):
         if "exceptiondetails" in p:
             return [{"typename": "Contoso.Plugins.AccountPre"}] * 6
@@ -417,6 +452,46 @@ def check_dependencies(cfg, derived):
     assert "### Usado por" in note and "dependentes:" in note
 
 
+def check_security_pcf(cfg, snap, fnd):
+    """PCF, BUs, equipes e usuários na estrutura do vault."""
+    pcf = {p["name"]: p for p in json.loads((snap / "pcf.json").read_text())}
+    assert set(pcf) == {"contoso_Contoso.TierPicker", "contoso_Contoso.Unused"}, set(pcf)  # nativo fora
+    tp = pcf["contoso_Contoso.TierPicker"]
+    assert {(u["form"], u["field"]) for u in tp["usage"]} == {("Conta Principal", "contoso_tier")}  # contact fora do escopo
+    assert tp["usage"][0]["bound"] == ["contoso_revenue"], tp["usage"]  # parâmetro estático (theme) não conta
+    assert tp["manifest"]["external_domains"] == ["api.rating.contoso.example"] and "WebAPI" in tp["manifest"]["features"]
+    assert fnd["PCF-02"]["evidence"] == ["contoso_Contoso.Unused"], fnd["PCF-02"]
+    fu = {t["table"]: {f["logical"]: f for f in t["fields"]} for t in json.loads((snap / "field_usage.json").read_text())}
+    assert fu["account"]["contoso_revenue"]["pcf"] == ["Conta Principal: contoso_Contoso.TierPicker"]
+    assert fu["account"]["contoso_revenue"]["bucket"] == "em-uso", fu["account"]["contoso_revenue"]
+    sec = json.loads((snap / "security.json").read_text())
+    teams = {t["name"]: t for t in sec["teams"]}
+    assert teams["Todos Vendas"]["roles"] == ["Contoso Vendedor"] and teams["Equipe Sem Papel"]["roles"] == []
+    users = {u["name"]: u for u in json.loads((snap / "users.json").read_text())}
+    app = users["App Integração Contoso"]
+    assert app["kind"] == "aplicação" and app["roles"] == ["System Administrator"], app
+    assert users["Usuário Contoso 2"]["teams"] == ["Todos Vendas"] and users["Usuário Contoso 2"]["roles_via_team"] == ["Contoso Vendedor"]
+    assert fnd["SEG-03"]["evidence"] == ["Equipe Sem Papel (BU Brasil)"] and fnd["SEG-04"]["metric"] == 1
+    vd = cfg.vault_dir
+    for rel in ("Componentes PCF/contoso_Contoso.TierPicker.md", "Equipes/Todos Vendas.md", "Equipes/Equipe Sem Papel.md",
+                "Business Units/Brasil.md", "Business Units/contoso.md", "Usuários/App Integração Contoso.md",
+                "Bases/Segurança.base", "Bases/Componentes PCF.base"):
+        assert (vd / rel).exists(), rel
+    assert not (vd / "Equipes" / "{acesso-registro}.md").exists(), "equipe de acesso virou nota"
+    assert not (vd / "Usuários" / "Usuário Contoso 0.md").exists(), "usuário desativado virou nota"
+    bu = (vd / "Business Units" / "Brasil.md").read_text()
+    assert "Equipe Sem Papel" in bu and "Usuário Contoso 3" in bu and "Filha de" in bu
+    role = (vd / "Papéis" / "Contoso Vendedor.md").read_text()
+    assert "## Atribuído a" in role and "Todos Vendas" in role and "Usuário Contoso 2" not in role.split("## Atribuído a")[0]
+    dep = json.loads((cfg.derived_dir / json.loads((snap / "manifest.json").read_text())["run_id"] / "dependencies.json").read_text())
+    edges = {(e["from_label"], e["relation"], e["to_label"]) for e in dep["edges"]}
+    must = {("account / Conta Principal", "usa controle PCF", "contoso_Contoso.TierPicker"),
+            ("contoso_Contoso.TierPicker", "chama HTTP (PCF)", "api.rating.contoso.example"),
+            ("Todos Vendas", "pertence a", "contoso"), ("Brasil", "filha de", "contoso"),
+            ("Todos Vendas", "recebe papel", "Contoso Vendedor")}
+    assert must <= edges, must - edges
+
+
 def check_method_drift():
     """REPO-04 sem ilspycmd: heurística de métodos por classe (decompilado × repo)."""
     from dvinv.collectors.repos import methods
@@ -487,7 +562,7 @@ def main():
         fnd = {f["id"]: f for f in json.loads((v.derived_dir / "findings.json").read_text())}
         assert sum(1 for f in fnd.values() if f["id"] == "DEP-01") == 1
         assert not any("$webresource:" in e for f in fnd.values() for e in f.get("evidence") or []), "prefixo não removido"
-        expected = {"DEP-01", "DEP-03", "FLW-01", "FLD-01", "FLD-03", "JS-03", "JS-06", "STO-01", "AUD-01", "REPO-01", "REPO-02", "REPO-03", "SEC-01", "UI-01", "UI-02", "UI-03", "PLG-01", "PLG-02", "PLG-03", "PLG-04", "OPS-01", "OPS-02",
+        expected = {"PCF-01", "PCF-02", "SEG-03", "SEG-04", "DEP-01", "DEP-03", "FLW-01", "FLD-01", "FLD-03", "JS-03", "JS-06", "STO-01", "AUD-01", "REPO-01", "REPO-02", "REPO-03", "SEC-01", "UI-01", "UI-02", "UI-03", "PLG-01", "PLG-02", "PLG-03", "PLG-04", "OPS-01", "OPS-02",
                     "PRC-01", "PRC-02", "PRC-03", "SEG-02", "ALM-01", "ALM-02", "ALM-03"}
         assert expected <= set(fnd), f"faltam achados: {expected - set(fnd)}"
         assert fnd["SEC-01"]["metric"] == 3, fnd["SEC-01"]  # JS (sig=) + flow (code=) + config do step
@@ -512,6 +587,7 @@ def main():
         assert acc["bytes"] == 1000 * (date.today().year - 2008 + 1), acc  # partição por ano após estouro
         assert st["audit"]["by_table"][0]["table"] == "account" and st["audit"]["oldest"] == "2022-07-19"
         check_dependencies(cfg, v.derived_dir)
+        check_security_pcf(cfg, snap, fnd)
         for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios", "08 Matriz de Dependências"):
             assert (cfg.vault_dir / f"{sec}.md").exists(), sec
         flow = json.loads((snap / "processes.json").read_text())

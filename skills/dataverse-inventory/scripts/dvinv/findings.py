@@ -200,6 +200,53 @@ def compute(d):
                       "Equipes gigantes com papéis atribuídos degradam o motor de autorização (RetrieveMultiple). "
                       "Avaliar Modernized BU / Matrix Data Access.",
                       evidence=[f"{t['name']}: {t['members']}" for t in big_teams], metric=len(big_teams)))
+    owner_no_role = [t for t in sec.get("teams") or [] if t.get("type_code") == 0 and t.get("roles") == []
+                     and not t.get("default")]
+    if owner_no_role:
+        out.append(_f("SEG-03", "baixo", f"{len(owner_no_role)} equipe(s) proprietária(s) sem nenhum papel",
+                      "Equipe owner sem papel não concede acesso aos membros e não consegue ser dona de registros "
+                      "com privilégio. Resíduo ou configuração incompleta — confirmar.",
+                      refs=[("team", t["id"]) for t in owner_no_role],
+                      evidence=[f"{t['name']} (BU {t.get('bu')})" for t in owner_no_role], metric=len(owner_no_role)))
+    users = d.get("users")
+    if users:
+        admin_apps = [u for u in users if u["active"] and u["kind"] == "aplicação"
+                      and "System Administrator" in ((u.get("roles") or []) + (u.get("roles_via_team") or []))]
+        if admin_apps:
+            out.append(_f("SEG-04", "alto", f"{len(admin_apps)} usuário(s) de aplicação ativo(s) com System Administrator",
+                          "Service principal com acesso total ao ambiente: credencial vazada = ambiente comprometido. "
+                          "Aplicar menor privilégio (papel dedicado com só as tabelas da integração).",
+                          refs=[("user", u["id"]) for u in admin_apps],
+                          evidence=[f"{u['name']} (app {u.get('application_id')})" for u in admin_apps],
+                          metric=len(admin_apps)))
+        if all(u.get("roles") is not None for u in users):
+            assigned = {r for u in users if u["active"] for r in (u.get("roles") or [])} | \
+                       {r for t in sec.get("teams") or [] for r in (t.get("roles") or [])}
+            unassigned = [r for r in sec.get("roles") or [] if r.get("scope_reason") and r["name"] not in assigned]
+            if unassigned:
+                out.append(_f("SEG-05", "baixo", f"{len(unassigned)} papel(éis) do escopo sem usuário ativo nem equipe",
+                              "Ninguém recebe esses papéis (direto ou via equipe). Candidatos a limpeza, ou papéis "
+                              "atribuídos só por processo externo — confirmar.",
+                              refs=[("role", r["name"]) for r in unassigned],
+                              evidence=[r["name"] for r in unassigned], metric=len(unassigned)))
+
+    # 8b. Componentes PCF ----------------------------------------------------------------------
+    pcfs = d.get("pcf") or []
+    ext = [p for p in pcfs if (p.get("manifest") or {}).get("external_domains")]
+    if ext:
+        out.append(_f("PCF-01", "info", f"{len(ext)} componente(s) PCF declaram acesso a domínios externos",
+                      "O manifesto declara `external-service-usage`: o controle chama serviço fora do Dataverse "
+                      "(dado pode sair do ambiente; exige licença premium). Confirmar finalidade e dono do serviço.",
+                      refs=[("pcf", p["name"]) for p in ext],
+                      evidence=[f"{p['name']}: {', '.join(p['manifest']['external_domains'])}" for p in ext],
+                      metric=len(ext)))
+    unused_pcf = [p for p in pcfs if not p.get("usage") and p.get("managed") is False]
+    if unused_pcf:
+        out.append(_f("PCF-02", "baixo", f"{len(unused_pcf)} componente(s) PCF não gerenciado(s) sem uso em formulário",
+                      "Nenhum formulário ativo usa o controle. Pode estar configurado como controle padrão de "
+                      "coluna/tabela ou em view (não visível pela Web API) — confirmar antes de remover.",
+                      refs=[("pcf", p["name"]) for p in unused_pcf],
+                      evidence=[p["name"] for p in unused_pcf], metric=len(unused_pcf)))
 
     # 9. ALM ---------------------------------------------------------------------------------
     novalue = [e for e in alm.get("envvars") or [] if not e["has_value"] and not e["has_default"]]

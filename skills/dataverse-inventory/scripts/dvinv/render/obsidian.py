@@ -26,7 +26,7 @@ from .. import secrets
 from .. import snapshot as snapshot_mod
 from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
-from . import bases, canvas
+from . import bases, canvas, structure
 
 MANUAL = "%% dvinv:manual — o conteúdo abaixo desta linha é preservado nas próximas extrações %%"
 PRESERVE_PROPS = {"status", "responsavel", "decisao", "prazo", "revisado", "tags_extra"}
@@ -225,6 +225,7 @@ def _render_into(v, d):
     for r in sec.get("roles") or []:
         if r.get("scope_reason"):
             v.reserve("role", r["name"], "Papéis", r["name"])
+    structure.reserve(v, d)  # BUs, equipes, usuários (deep.users) e componentes PCF
     for kind, section in (("envvar", "Variáveis de ambiente"), ("connref", "Referências de conexão"),
                           ("endpoint", "Service endpoints")):
         src = (alm.get("envvars") if kind == "envvar" else alm.get("connrefs") if kind == "connref"
@@ -402,6 +403,12 @@ def _render_into(v, d):
         if fl:
             b += ["### Flows que leem/gravam esta tabela", "",
                   "\n".join(f"- {v.link('process', p['id'], p['name'])} ({p['category']})" for p in fl), ""]
+        pcf_here = [(p, x) for p in d.get("pcf") or [] for x in p.get("usage") or [] if x["entity"] == ln]
+        if pcf_here:
+            b += ["### Componentes PCF nos formulários", "",
+                  mdtable(["Controle", "Formulário", "Coluna"],
+                          [[v.link("pcf", p["name"], p["name"]), x["form"], x.get("field") or "(subgrid/dataset)"]
+                           for p, x in pcf_here])]
         if apis_by_table.get(ln):
             b += ["### Custom APIs vinculadas", "", "\n".join(f"- {v.link('customapi', a['unique'], a['unique'])}" for a in apis_by_table[ln]), ""]
         if ribbons_by_table.get(ln):
@@ -420,10 +427,10 @@ def _render_into(v, d):
                      "ficam como **inconclusivo**", *[f"> - {m}" for m in fu.get("missing_sources") or []], ""]
                     if fu.get("missing_sources") else []),
                   " · ".join(f"**{cnt[k]}** {BUCKETS[k].lower()}" for k in BUCKETS if cnt.get(k)), "",
-                  mdtable(["Coluna", "Preenchido", "%", "Forms", "Forms inativos", "Views", "Processos/flows", "Plugins",
-                           "JS", "Repo", "Classificação"],
+                  mdtable(["Coluna", "Preenchido", "%", "Forms", "Forms inativos", "Views", "PCF", "Processos/flows",
+                           "Plugins", "JS", "Repo", "Classificação"],
                           [[f"`{f['logical']}`", f.get("populated"), f.get("pct"), len(f["forms"]) + len(f["form_events"]),
-                            len(f.get("forms_inactive") or []), len(f["views"]), len(f["processes"]),
+                            len(f.get("forms_inactive") or []), len(f["views"]), len(f.get("pcf") or []), len(f["processes"]),
                             len(f["plugin_steps"]), len(f["javascript"]), f["repo_files"], f["bucket"]]
                            for f in fu["fields"]])]
         if ln in matrix:
@@ -625,8 +632,10 @@ def _render_into(v, d):
                   mdtable(["Tabela"] + acts, [[v.link("table", t, t, in_table=True)] + [p.get(a) for a in acts] for t, p in sorted(mine.items())])]
         else:
             b += ["> [!info] Privilégios não coletados — rode com `deep.role_privileges: true`.", ""]
+        b.append(structure.role_assignments(v, d, r["name"]))
         b.append(findings_block("role", r["name"]))
         v.write(v.paths[("role", r["name"])], props, "\n".join(b))
+    structure.write_notes(v, d, findings_block, sol_links)
 
     # ---- 7) achados ----
     for f in fnd:
@@ -650,7 +659,7 @@ def _render_into(v, d):
     write_storage(v, d)
     write_repos(v, d)
     write_dependencies(v, d, graph, dsum, node_link)
-    write_security(v, sec)
+    structure.write_security(v, d)
     write_environment(v, d, manifest)
     bases.write_all(v, fnd)
     canvas.write_map(v, d)
@@ -860,35 +869,6 @@ def write_dependencies(v, d, g, dsum, node_link):
     v.write(f"{v.folder}/Dependências.csv", None, "\ufeff" + buf.getvalue(), raw=True)
 
 
-def write_security(v, sec):
-    bus = sec.get("business_units") or []
-    children = defaultdict(list)
-    for b_ in bus:
-        children[b_.get("parent_id")].append(b_)
-
-    def tree(pid, depth):
-        lines = []
-        for b_ in sorted(children.get(pid, []), key=lambda x: x["name"]):
-            lines.append("  " * depth + f"- {b_['name']}{' (desativada)' if b_.get('disabled') else ''}")
-            if depth < 12:
-                lines += tree(b_["id"], depth + 1)
-        return lines
-
-    u = sec.get("users") or {}
-    roles = sec.get("roles") or []
-    b = ["# Segurança", "",
-         f"**{len(bus)}** business units · **{len(roles)}** papéis (cópia da BU raiz) · **{len(sec.get('teams') or [])}** equipes · "
-         f"**{u.get('active', '?')}** usuários ativos ({u.get('active_human', '?')} humanos, {u.get('application', '?')} de aplicação)", ""]
-    b += ["## Árvore de business units", ""] + tree(None, 0) + [""]
-    b += ["## Papéis", "", mdtable(["Papel", "Gerenciado", "No escopo"],
-          [[v.link("role", r["name"], r["name"], in_table=True), r.get("managed"), r.get("scope_reason")] for r in roles])]
-    b += ["## Equipes", "", mdtable(["Equipe", "Tipo", "BU", "Grupo Entra ID", "Membros"],
-          [[t["name"], t.get("type"), t.get("bu"), t.get("aad_group"), t.get("members")] for t in sec.get("teams") or []])]
-    b += ["## Perfis de segurança de campo", "", mdtable(["Perfil", "Gerenciado"],
-          [[f["name"], f.get("managed")] for f in sec.get("field_security_profiles") or []])]
-    v.write(f"{v.folder}/04 Segurança", {"tipo": "secao", "tags": v.tags("secao")}, "\n".join(b))
-
-
 def write_environment(v, d, manifest):
     env = d.get("environment") or {}
     b = ["# Ambiente", "", mdtable(["Item", "Valor"], [
@@ -964,6 +944,9 @@ def write_index(v, d, manifest, fnd):
          f"{len(apps.get('bots') or [])}", None],
         ["Papéis no escopo (BU raiz)", st.get("security", {}).get("roles_scope"), st.get("security", {}).get("roles_root_bu")],
         ["Usuários ativos", st.get("security", {}).get("users_active"), None],
+        ["Business units / equipes", f"{st.get('security', {}).get('business_units')} / {st.get('security', {}).get('teams')}",
+         None],
+        ["Componentes PCF", st.get("pcf", {}).get("scope"), st.get("pcf", {}).get("org_total")],
     ]
     env = d.get("environment") or {}
     b = [f"# Inventário Dataverse — {v.env}", "",

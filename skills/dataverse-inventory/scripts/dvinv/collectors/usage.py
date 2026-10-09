@@ -209,6 +209,9 @@ def collect_field_usage(ctx):
             for h in f.get("handlers") or []:
                 if h.get("field"):
                     use[h["field"]]["form_events"].add(f"{f['name']}:{h['event']}")
+            for p in f.get("pcf") or []:  # coluna do controle PCF e colunas passadas como parâmetro
+                for fld in ([p["field"]] if p.get("field") else []) + list(p.get("bound") or []):
+                    use[fld]["pcf"].add(f"{f['name']}: {p['control']}")
         for v in t_views:
             for fld in v.get("columns") or []:
                 use[fld]["views"].add(v["name"])
@@ -237,7 +240,7 @@ def collect_field_usage(ctx):
             fld = col["logical"]
             u = use.get(fld, {})
             pop = counts.get(fld)
-            ui = bool(u.get("forms") or u.get("views"))
+            ui = bool(u.get("forms") or u.get("views") or u.get("pcf"))
             weak = bool(u.get("forms_inactive"))
             logic = bool(u.get("form_events") or u.get("processes") or u.get("plugin_steps") or u.get("javascript")
                          or repo_hits.get(fld))
@@ -265,8 +268,8 @@ def collect_field_usage(ctx):
             rows.append({
                 "logical": fld, "display": col.get("display"), "type": col.get("type"),
                 "populated": pop, "pct": round(100 * pop / total, 2) if pop is not None and total else None,
-                **{k: sorted(u.get(k, [])) for k in ("forms", "forms_inactive", "form_events", "views", "processes",
-                                                     "plugin_steps", "javascript")},
+                **{k: sorted(u.get(k, [])) for k in ("forms", "forms_inactive", "form_events", "views", "pcf",
+                                                     "processes", "plugin_steps", "javascript")},
                 "repo_files": repo_hits.get(fld, 0), "bucket": bucket, "inconclusive_reasons": reasons,
             })
         rows.sort(key=lambda r: (list(BUCKETS).index(r["bucket"]), r["logical"]))

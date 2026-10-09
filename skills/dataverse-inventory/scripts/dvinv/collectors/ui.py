@@ -125,6 +125,54 @@ def parse_formxml(xml):
     return libs, handlers, fields
 
 
+# Controles de código (PCF) no formxml: <control uniqueid="{X}" datafieldname="campo"/> e
+# <controlDescription forControl="{X}"><customControl name="prefixo_Namespace.Controle" formFactor="0">
+#   <parameters><value type="...">campo</value><outro static="true">literal</outro></parameters>
+BUILTIN_CONTROLS = ("mscrmcontrols.",)  # controles nativos da plataforma, não são PCF do cliente
+CTRL_RE = re.compile(r"<control\b([^>]*)>", re.I)
+CDESC_RE = re.compile(r'<controlDescription\b[^>]*\bforControl="([^"]+)"[^>]*>(.*?)</controlDescription>', re.I | re.S)
+CUSTOM_RE = re.compile(r"<customControl\b([^>]*?)(?:/>|>(.*?)</customControl>)", re.I | re.S)
+PARAMS_RE = re.compile(r"<parameters>(.*?)</parameters>", re.I | re.S)
+PARAM_RE = re.compile(r"<([A-Za-z_][\w.]*)\b([^>]*)>([^<]*)</\1>")
+IDENT_RE = re.compile(r"[A-Za-z_]\w*")
+A_UNIQ, A_DFN, A_ID, A_FF = ATTR("uniqueid"), ATTR("datafieldname"), ATTR("id"), ATTR("formFactor")
+
+
+def parse_form_pcf(xml):
+    """PCF usados no formulário → [{control, field, control_id, form_factors, bound}] (sem controles nativos).
+
+    `field` é a coluna do controle (None em subgrid/dataset); `bound` são colunas passadas como
+    parâmetro não estático (o PCF lê/grava esses campos além do principal)."""
+    ctrl = {}
+    for m in CTRL_RE.finditer(xml or ""):
+        a = m.group(1)
+        u = A_UNIQ.search(a)
+        if u:
+            f, i = A_DFN.search(a), A_ID.search(a)
+            ctrl[u.group(1).lower()] = (i.group(1) if i else None, f.group(1).lower() if f else None)
+    found = {}
+    for m in CDESC_RE.finditer(xml or ""):
+        cid, field = ctrl.get(m.group(1).lower(), (None, None))
+        for c in CUSTOM_RE.finditer(m.group(2)):
+            nm = A_NAME.search(c.group(1))
+            name = nm.group(1) if nm else None
+            if not name or name.lower().startswith(BUILTIN_CONTROLS):
+                continue
+            bound = set()
+            for pm in PARAMS_RE.finditer(c.group(2) or ""):
+                for prm in PARAM_RE.finditer(pm.group(1)):
+                    val = prm.group(3).strip()
+                    if 'static="true"' not in prm.group(2).lower() and IDENT_RE.fullmatch(val):
+                        bound.add(val.lower())
+            rec = found.setdefault((name, field, cid), {"control": name, "field": field, "control_id": cid,
+                                                         "form_factors": [], "bound": set()})
+            ff = A_FF.search(c.group(1))
+            if ff and ff.group(1) not in rec["form_factors"]:
+                rec["form_factors"].append(ff.group(1))
+            rec["bound"] |= bound - ({field} if field else set())
+    return [dict(r, bound=sorted(r["bound"]), form_factors=sorted(r["form_factors"])) for r in found.values()]
+
+
 def collect_forms(ctx):
     c, scope, cfg = ctx.client, ctx.scope, ctx.cfg
     # systemform não tem modifiedon (a data é publishedon); fallback sem data para versões que diferirem.
@@ -141,6 +189,7 @@ def collect_forms(ctx):
             "type": fv(f, "type") or str(f.get("type")), "active": f.get("formactivationstate") == 1,
             "managed": f.get("ismanaged"), "default": f.get("isdefault"), "modified": day(f.get("publishedon")),
             "solutions": scope.solutions_of(f["formid"]), "libraries": [], "handlers": [], "fields": [],
+            "pcf": [],
         }
         out.append(rec)
     # formxml de forms com tabela (dashboards não têm eventos de campo), em lotes. Forms inativos só
@@ -157,6 +206,7 @@ def collect_forms(ctx):
             rec["fields"], rec["xml_read"] = fields, True
             if rec["active"]:
                 rec["libraries"], rec["handlers"] = libs, handlers
+                rec["pcf"] = parse_form_pcf(d.get("formxml") or "")
     ctx.stats["forms"] = {"org_total": len(forms), "scope": len(out)}
     ctx.data["forms"] = sorted(out, key=lambda x: (x["entity"] or "", x["name"] or ""))
 

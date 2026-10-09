@@ -80,11 +80,40 @@ def write_all(v, findings):
             ]),
         "Componentes": {
             "filters": {"and": [f'file.inFolder("{v.folder}")', {"or": [
-                'tipo == "plugin-assembly"', 'tipo == "customapi"', 'tipo == "app"', 'tipo == "solucao"', 'tipo == "papel"']}]},
+                'tipo == "plugin-assembly"', 'tipo == "customapi"', 'tipo == "app"', 'tipo == "solucao"', 'tipo == "papel"',
+                'tipo == "pcf"']}]},
             "views": [{"type": "table", "name": "Por tipo", "groupBy": {"property": "tipo", "direction": "ASC"},
                        "order": ["file.name", "subtipo", "versao", "gerenciado", "gerenciada", "dependentes",
                                  "dependencias", "modificado"]}],
         },
+        "Segurança": {
+            "filters": {"and": [f'file.inFolder("{v.folder}")', {"or": [
+                'tipo == "business-unit"', 'tipo == "equipe"', 'tipo == "usuario"']}]},
+            "properties": {"business_unit": {"displayName": "BU"}, "tipo_usuario": {"displayName": "Tipo de usuário"},
+                           "tipo_equipe": {"displayName": "Tipo de equipe"}, "usuarios_ativos": {"displayName": "Usuários ativos"}},
+            "views": [
+                {"type": "table", "name": "Business units", "filters": 'tipo == "business-unit"',
+                 "order": ["file.name", "pai", "filhas", "equipes", "usuarios_ativos", "desativada"],
+                 "summaries": {"usuarios_ativos": "Sum"}},
+                {"type": "table", "name": "Equipes", "filters": 'tipo == "equipe"',
+                 "groupBy": {"property": "business_unit", "direction": "ASC"},
+                 "order": ["file.name", "tipo_equipe", "grupo_entra", "membros", "papeis"]},
+                {"type": "table", "name": "Usuários por BU", "filters": 'tipo == "usuario"',
+                 "groupBy": {"property": "business_unit", "direction": "ASC"},
+                 "order": ["file.name", "tipo_usuario", "licenca", "modo_acesso", "papeis", "equipes"]},
+                {"type": "table", "name": "Usuários de aplicação", "filters": 'tipo_usuario == "aplicação"',
+                 "order": ["file.name", "business_unit", "papeis", "papeis_via_equipe"]},
+            ],
+        },
+        "Componentes PCF": _base(v, "pcf",
+            properties={"namespace": "Namespace", "versao": "Versão", "tipo_controle": "Tipo",
+                        "formularios": "Formulários", "dominios_externos": "Domínios externos"},
+            views=[
+                {"type": "table", "name": "Todos", "order": ["file.name", "namespace", "versao", "tipo_controle",
+                 "gerenciado", "formularios", "campos", "dominios_externos", "web_api"]},
+                {"type": "table", "name": "Sem uso em formulário", "filters": "formularios == 0",
+                 "order": ["file.name", "gerenciado", "modificado"]},
+            ]),
     }
     for name, data in files.items():
         v.write(f"{v.folder}/Bases/{name}.base", None,

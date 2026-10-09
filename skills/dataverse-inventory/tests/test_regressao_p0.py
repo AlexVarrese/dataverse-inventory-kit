@@ -592,9 +592,11 @@ class TestPerfilMetadataOnly(unittest.TestCase):
             self.assertEqual(sorted(m["profile_blocked"]), sorted(config_mod.PROFILES["metadata_only"]))
             paths = [q["path"] for q in m["queries"]]
             for bad in ("$select=content", "clientdata", "xaml", "plugintracelogs?", "annotations", "audits",
-                        "teammemberships", "fetchXml"):
+                        "teammemberships", "fetchXml", "systemuserrolescollection", "systemusers?$select=systemuserid,fullname"):
                 self.assertFalse([p for p in paths if bad in p], f"perfil metadata_only leu {bad}")
             self.assertFalse((ctx.snapshot_dir / "field_usage.json").exists())
+            self.assertFalse((ctx.snapshot_dir / "users.json").exists(), "lista nominal de usuários no metadata_only")
+            self.assertTrue((ctx.snapshot_dir / "pcf.json").exists(), "PCF (metadado de customização) fica permitido")
             env.render(cfg)
             amb = (cfg.vault_dir / "01 Ambiente.md").read_text()
             self.assertIn("| Perfil de coleta | metadata_only |", amb)

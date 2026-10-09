@@ -17,6 +17,7 @@ DEEP_DEFAULTS = {
     "ribbons": False,              # RetrieveEntityRibbon por tabela do escopo
     "plugin_trace": False,         # plugintracelogs dos últimos N dias
     "team_members": False,         # contagem de membros por equipe (FetchXML aggregate)
+    "users": False,                # lista nominal de usuários (nome, UPN, BU, papéis, equipes) — dado pessoal
     "plugin_binaries": False,      # .dll dos assemblies do escopo (para decompilar com ilspycmd)
     "process_definitions": False,  # xaml/clientdata de workflows, business rules e actions (campos referenciados)
     "field_usage": False,          # preenchimento real por campo + matriz de uso + candidatos a remoção
@@ -40,6 +41,7 @@ PROFILES = {
         "storage",               # agrega anexos/auditoria (lê tabelas de dados)
         "plugin_trace",          # logs de execução (podem conter dados de registros)
         "team_members",          # associações usuário × equipe (registros)
+        "users",                 # lista nominal de usuários (dado pessoal)
     },
 }
 PROFILE_ALIASES = {"padrão": "padrao", "default": "padrao", "metadata-only": "metadata_only"}

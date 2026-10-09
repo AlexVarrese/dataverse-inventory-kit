@@ -1,4 +1,5 @@
-"""Business units, papéis, equipes, perfis de segurança de campo e usuários.
+"""Business units, papéis, equipes (com papéis atribuídos), perfis de segurança de campo e contagem
+de usuários (total, por tipo e por BU). A lista nominal de usuários fica no coletor `users` (deep.users).
 
 Lições aplicadas:
 - Papéis são copiados para cada BU (N nomes × M BUs linhas na tabela roles) → só a cópia da BU raiz.
@@ -11,6 +12,7 @@ import re
 
 from ..util import fv
 
+TEAM_TYPE = {0: "Proprietária", 1: "Acesso", 2: "Grupo de segurança do Entra ID", 3: "Grupo do Office (Entra ID)"}
 PRV_RE = re.compile(r"^prv(Create|Read|Write|Delete|Append|AppendTo|Assign|Share)(.+)$")
 
 
@@ -34,11 +36,26 @@ def collect_security(ctx):
     out["roles"].sort(key=lambda r: r["name"].lower())
 
     teams = c.get_all("teams?$select=teamid,name,teamtype,isdefault,azureactivedirectoryobjectid,membershiptype,"
-                      "_businessunitid_value")
-    out["teams"] = [{"id": t["teamid"], "name": t["name"], "type": fv(t, "teamtype") or t.get("teamtype"),
+                      "_businessunitid_value,_administratorid_value")
+    out["teams"] = [{"id": t["teamid"], "name": t["name"], "type": fv(t, "teamtype") or TEAM_TYPE.get(t.get("teamtype"), t.get("teamtype")),
+                     "type_code": t.get("teamtype"),
                      "default": t.get("isdefault"), "bu": fv(t, "_businessunitid_value"),
+                     "bu_id": t.get("_businessunitid_value"), "admin": fv(t, "_administratorid_value"),
                      "aad_group": bool(t.get("azureactivedirectoryobjectid")),
-                     "membership": fv(t, "membershiptype"), "members": None} for t in teams]
+                     "membership": fv(t, "membershiptype"), "members": None, "roles": None} for t in teams]
+
+    # papéis atribuídos a equipes (configuração de segurança, não registro de negócio). Os papéis são
+    # cópias por BU: o nome identifica o papel.
+    role_name = {r["roleid"].lower(): r["name"] for r in roles_all}
+    try:
+        by_team = {}
+        for a in c.get_all("teamrolescollection?$select=teamid,roleid"):
+            by_team.setdefault((a.get("teamid") or "").lower(), set()).add(
+                role_name.get((a.get("roleid") or "").lower(), a.get("roleid")))
+        for t in out["teams"]:
+            t["roles"] = sorted(by_team.get(t["id"].lower(), set()))
+    except Exception as e:  # noqa: BLE001
+        ctx.gap("security", "papéis atribuídos a equipes (teamroles)", e)
 
     try:
         fsps = c.get_all("fieldsecurityprofiles?$select=fieldsecurityprofileid,name,ismanaged,description")
@@ -48,7 +65,7 @@ def collect_security(ctx):
         ctx.gap("security", "perfis de segurança de campo", e)
 
     try:
-        users = c.get_all("systemusers?$select=systemuserid,isdisabled,accessmode,applicationid")
+        users = c.get_all("systemusers?$select=systemuserid,isdisabled,accessmode,applicationid,_businessunitid_value")
         out["users"] = {
             "total": len(users),
             "active": sum(1 for u in users if not u.get("isdisabled")),
@@ -56,7 +73,12 @@ def collect_security(ctx):
                                 and u.get("accessmode") not in (1, 3, 4, 5)),
             "application": sum(1 for u in users if u.get("applicationid")),
             "disabled": sum(1 for u in users if u.get("isdisabled")),
+            "active_by_bu": {},
         }
+        for u in users:
+            if not u.get("isdisabled") and u.get("_businessunitid_value"):
+                k = u["_businessunitid_value"]
+                out["users"]["active_by_bu"][k] = out["users"]["active_by_bu"].get(k, 0) + 1
     except Exception as e:  # noqa: BLE001
         ctx.gap("security", "usuários", e)
 

@@ -15,7 +15,7 @@ import traceback
 from datetime import datetime, timezone
 
 from .. import secrets
-from . import alm, apps, code, environment, health, processes, repos, security, storage, tables, ui, usage
+from . import alm, apps, code, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
 from . import dependencies as deps
 
 # Ordem importa: solutions define o escopo por solução; tables define ctx.scope.tables,
@@ -28,6 +28,7 @@ REGISTRY = [
     ("optionsets", tables.collect_optionsets),
     ("webresources", ui.collect_webresources),
     ("forms", ui.collect_forms),
+    ("pcf", pcf.collect_pcf),                    # depois de forms: vínculos coluna → controle vêm do formxml
     ("views", ui.collect_views),
     ("ribbons", ui.collect_ribbons),
     ("apps", apps.collect_apps),
@@ -37,6 +38,7 @@ REGISTRY = [
     ("alm", alm.collect_alm),                    # antes de processes: flows citam variáveis/conexões
     ("processes", processes.collect_processes),
     ("security", security.collect_security),
+    ("users", users.collect_users),              # depois de security: papéis das equipes
     ("repos", repos.collect_repos),              # depois de webresources/plugins/tables
     ("field_usage", usage.collect_field_usage),  # depois de tudo que cita campos (forms, views, processos, repos)
     ("platform_dependencies", deps.collect_platform_dependencies),  # depois de tudo que tem id
@@ -48,11 +50,12 @@ REGISTRY = [
 # Coletores que usam dados de outros: --only inclui as dependências automaticamente.
 DEPENDS = {
     "forms": ["webresources"], "ribbons": ["webresources"], "relationships": [],
+    "pcf": ["forms"], "users": ["security"],
     "repos": ["webresources", "plugins"],
     "processes": ["alm", "customapis"],
     "field_usage": ["webresources", "forms", "views", "plugins", "processes", "repos"],
     "platform_dependencies": ["webresources", "forms", "views", "apps", "plugins", "customapis", "processes",
-                              "alm", "security", "optionsets", "relationships"],
+                              "alm", "security", "optionsets", "relationships", "pcf"],
 }
 
 
