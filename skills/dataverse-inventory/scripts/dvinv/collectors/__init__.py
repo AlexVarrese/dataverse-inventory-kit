@@ -74,7 +74,10 @@ class Context:
         self.gaps = []
 
     def gap(self, collector, what, err):
-        self.gaps.append({"collector": collector, "what": what, "error": str(err)[:400]})
+        """Registra lacuna. A mensagem é redigida AQUI (antes de truncar): erros da API e tracebacks
+        podem ecoar URLs com query string, headers ou trechos de configuração."""
+        self.gaps.append({"collector": collector, "what": secrets.redact(str(what)),
+                          "error": secrets.redact(str(err))[:400]})
 
 
 def run(ctx, only=None):
@@ -89,7 +92,7 @@ def run(ctx, only=None):
             fn(ctx)
         except Exception as e:  # noqa: BLE001 — qualquer falha vira gap, não aborta
             ctx.gap(name, "coletor inteiro", f"{e}\n{traceback.format_exc(limit=3)}")
-            print(f"[dvinv]   FALHOU: {e}", flush=True)
+            print(f"[dvinv]   FALHOU: {secrets.redact(str(e))[:300]}", flush=True)
         timings[name] = round(time.time() - t0, 1)
         for key in [name] + [k for k in ctx.data if k.startswith(f"_{name[:-1]}")]:
             if key in ctx.data:
@@ -111,7 +114,8 @@ def run(ctx, only=None):
         "gaps": ctx.gaps,
         "timings_s": timings,
         "throttled_429": getattr(ctx.client, "throttled", 0),
-        "queries": secrets.redact_tree(ctx.client.log),
+        "queries": ctx.client.log,
     }
+    manifest = secrets.redact_tree(manifest)  # lacunas e stats também (antes só as chamadas)
     save_json(ctx.cfg.raw_dir / "manifest.json", manifest)
     return manifest

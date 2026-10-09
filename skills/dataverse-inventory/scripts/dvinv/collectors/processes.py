@@ -10,10 +10,9 @@ Lições aplicadas:
 import json
 import re
 from collections import Counter
-from urllib.parse import urlparse
 
 from .. import secrets
-from ..util import day, field_refs, fv
+from ..util import day, field_refs, fv, url_host
 
 CATEGORY = {0: "Workflow", 1: "Dialog", 2: "Business Rule", 3: "Action", 4: "Business Process Flow",
             5: "Cloud Flow", 6: "Desktop Flow", 7: "AI Flow"}
@@ -54,7 +53,7 @@ def describe_action(a):
         return head + (f" — {ent}" if ent else "")
     if t == "Http":
         uri = inputs.get("uri") if isinstance(inputs, dict) else None
-        target = urlparse(uri).netloc if isinstance(uri, str) and uri.startswith("http") else "(URI dinâmica)"
+        target = url_host(uri) if isinstance(uri, str) and uri.startswith("http") else "(URI dinâmica)"
         return " ".join(x for x in ("HTTP", inputs.get("method"), target) if x)
     if t == "Workflow":
         return "child flow"
@@ -113,7 +112,7 @@ def parse_flow(clientdata):
             if a.get("type") == "Http":
                 uri = (a.get("inputs") or {}).get("uri") or ""
                 if isinstance(uri, str) and uri.startswith("http"):
-                    hosts.add(urlparse(uri).netloc)
+                    hosts.add(url_host(uri))
                 else:
                     hosts.add("(URI dinâmica)")
             if a.get("type") == "Workflow":

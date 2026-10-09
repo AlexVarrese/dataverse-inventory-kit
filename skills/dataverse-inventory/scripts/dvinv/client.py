@@ -13,20 +13,26 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
 
+from . import secrets
+
 # Sem quote(), espaços no $filter quebram com "URL can't contain control characters".
 _SAFE = ":/?&=$,()'@"
 
 
 class DataverseError(Exception):
+    """Erro da Web API. Mensagem e caminho são redigidos na origem: corpo de erro e URL podem ecoar
+    segredos (query string, headers) e essa mensagem vai para console, lacunas e manifesto."""
+
     def __init__(self, status, path, body):
         msg = body
         try:
             msg = json.loads(body).get("error", {}).get("message") or body
         except (ValueError, AttributeError):
             pass
-        super().__init__(f"HTTP {status}: {str(msg)[:300]} — em {path[:160]}")
+        msg = secrets.redact(str(msg))
+        super().__init__(secrets.redact(f"HTTP {status}: {msg[:300]} — em {secrets.redact(str(path))[:160]}"))
         self.status = status
-        self.message = str(msg)
+        self.message = msg
 
 
 class Client:

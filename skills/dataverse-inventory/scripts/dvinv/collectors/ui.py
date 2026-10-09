@@ -4,7 +4,7 @@ import re
 import zipfile
 
 from .. import secrets
-from ..util import day, field_refs, fv
+from ..util import day, field_refs, fv, url_host
 
 WR_TYPES = {1: "HTML", 2: "CSS", 3: "JScript", 4: "XML", 5: "PNG", 6: "JPG", 7: "GIF", 8: "XAP",
             9: "XSL", 10: "ICO", 11: "SVG", 12: "RESX", 13: "TS"}
@@ -29,8 +29,7 @@ THIRD_PARTY_RE = re.compile(r"jquery|json2|moment|lodash|underscore|toolkit|poly
 
 
 def analyze_js(name, text):
-    from urllib.parse import urlparse
-    hosts = sorted({urlparse(u).netloc for u in URL_RE.findall(text) if urlparse(u).netloc})
+    hosts = sorted({url_host(u) for u in URL_RE.findall(text) if url_host(u)})
     out = {k: bool(rx.search(text)) for k, rx in JS_CHECKS.items()}
     out.update({
         "lines": text.count("\n") + 1,

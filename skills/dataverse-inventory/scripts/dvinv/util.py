@@ -28,6 +28,16 @@ def enum_value(obj):
     return obj.get("Value") if isinstance(obj, dict) else obj
 
 
+def url_host(url):
+    """Host de uma URL sem credencial embutida (`https://user:senha@host:443/x` → `host:443`)."""
+    from urllib.parse import urlsplit
+    try:
+        netloc = urlsplit(url).netloc
+    except ValueError:
+        return ""
+    return netloc.rsplit("@", 1)[-1]
+
+
 def day(ts):
     return (ts or "")[:10] or None
 
