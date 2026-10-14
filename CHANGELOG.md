@@ -91,6 +91,14 @@ Validação real (ESAB-TEST, 2026-10-14)
   no índice); arestas internas de metadados ("Solution Internal") fora da matriz; GUID não duplicado no
   índice + VACUUM; Complex Control (sem RetrieveMultiple) fora do catálogo de nomes.
 
+Windows
+- Arquivos do vault e da comparação gravados sempre com LF (no Windows o Python gravaria CRLF e o diff contra um
+  vault gerado no Linux mostraria todos os arquivos).
+- Troca da pasta do vault com novas tentativas quando o Windows a mantém em uso (antivírus, Explorer, editor);
+  persistindo, mensagem clara e vault anterior intacto. `AGENTS.md`/`README.md` abertos num editor viram aviso.
+- Aviso de caminho longo (limite de 260 caracteres) e `scripts/validar-windows.ps1` (testes offline, check, render
+  duas vezes sem diff, CRLF, consultas `--vault`, `core.longpaths`). Testes P0 simulam os dois comportamentos.
+
 Execução por mais de um agente
 - `AGENTS.md` na raiz do vault com bloco gerado (`<!-- dvinv:inicio -->`…`<!-- dvinv:fim -->`): ambientes,
   `AGENT-INDEX.md`, config, comandos do índice e regras de execução; texto fora do bloco preservado.

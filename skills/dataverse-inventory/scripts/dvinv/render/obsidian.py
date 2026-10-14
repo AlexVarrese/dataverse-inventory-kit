@@ -115,7 +115,7 @@ class Vault:
         path.parent.mkdir(parents=True, exist_ok=True)
         body = body.replace("\r\n", "\n").replace("\r", "\n")  # LF sempre: código JS do Dataverse vem com CRLF
         if raw:
-            path.write_text(body, encoding="utf-8")
+            path.write_text(body, encoding="utf-8", newline="\n")  # LF também no Windows
             self.written.append(path)
             return
         manual = f"{MANUAL}\n\n## Notas do analista\n\n"
@@ -138,7 +138,7 @@ class Vault:
                 ident["id"] = self.guid_of[node]
         props = {"ambiente": self.env, **ident, **props, **self.dep_counts.get(rel, {})}
         fm = yaml.safe_dump(props, allow_unicode=True, sort_keys=False, width=1000).strip()
-        path.write_text(f"---\n{fm}\n---\n{body.rstrip()}\n\n{manual.rstrip()}\n", encoding="utf-8")
+        path.write_text(f"---\n{fm}\n---\n{body.rstrip()}\n\n{manual.rstrip()}\n", encoding="utf-8", newline="\n")
         self.written.append(path)
 
     def tags(self, kind):
@@ -181,12 +181,12 @@ def render(cfg, snapshot=None):
         old = None
         if final_dir.exists():
             old = final_dir.parent / f".{final_dir.name}.dvinv-old-{os.getpid()}"
-            os.rename(final_dir, old)
+            _rename_retry(final_dir, old)
         try:
-            os.rename(stage_dir, final_dir)
+            _rename_retry(stage_dir, final_dir)
         except OSError:
             if old:  # devolve o vault anterior
-                os.rename(old, final_dir)
+                _rename_retry(old, final_dir)
             raise
         if old:
             shutil.rmtree(old, ignore_errors=True)
@@ -202,8 +202,17 @@ def render(cfg, snapshot=None):
                  for w in v.written]
     v.root = Path(cfg.vault_root)
     # vault publicado em Git: o GitHub alerta acima de 50 MB por arquivo e recusa acima de 100 MB
+    files = [p for p in final_dir.rglob("*") if p.is_file()]
     v.size_warnings = [f"{p.relative_to(final_dir).as_posix()}: {p.stat().st_size / 1e6:.0f} MB"
-                       for p in final_dir.rglob("*") if p.is_file() and p.stat().st_size > GIT_FILE_WARN]
+                       for p in files if p.stat().st_size > GIT_FILE_WARN]
+    # Windows: limite de 260 caracteres por caminho. O caminho relativo à raiz do vault + o prefixo de um clone
+    # típico (C:\Users\<usuário>\source\repos\<repositório>\ ≈ 60) precisa caber.
+    longest = max(files, key=lambda p: len(p.relative_to(cfg.vault_root).as_posix()), default=None)
+    if longest is not None and len(longest.relative_to(cfg.vault_root).as_posix()) > WIN_REL_PATH_WARN:
+        v.size_warnings.append(
+            f"caminho longo para Windows ({len(longest.relative_to(cfg.vault_root).as_posix())} caracteres na raiz do "
+            f"vault: {longest.relative_to(cfg.vault_root).as_posix()[:80]}…) — no Windows, use pasta curta (ex. C:\\kb) "
+            "e `git config core.longpaths true`, ou ative LongPathsEnabled")
     return v
 
 
@@ -727,6 +736,22 @@ def _render_into(v, d):
 
 
 GIT_FILE_WARN = 50_000_000
+WIN_REL_PATH_WARN = 190
+
+
+def _rename_retry(src, dst, tries=6):
+    """os.rename com novas tentativas: no Windows a troca da pasta falha (WinError 5/32) enquanto o antivírus,
+    o Explorer ou um editor seguram um arquivo dela. Persistindo, explica o que fechar."""
+    import time
+    for i in range(tries):
+        try:
+            return os.rename(src, dst)
+        except PermissionError:
+            if i == tries - 1:
+                raise SystemExit(f"[dvinv] não foi possível renomear {src} → {dst}: pasta em uso (feche Obsidian, "
+                                 "Explorer, editores ou terminais abertos nela e rode o render de novo). O vault "
+                                 "anterior foi mantido.") from None
+            time.sleep(min(2 ** i, 10))
 GENERATED_FILES = {"Componentes.csv", "Dependências.csv", "Dependências ausentes.csv", "Equipes.csv"}
 ORPHANS_NOTE = "Notas fora do inventário atual"
 

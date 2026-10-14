@@ -83,7 +83,11 @@ def _atomic_write(path, text):
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except PermissionError:  # Windows: arquivo aberto num editor — não derruba o render
+        os.unlink(tmp)
+        raise
 
 
 GIT_BEGIN, GIT_END = "# dvinv:inicio — bloco gerado pelo dataverse-inventory-kit; escreva fora dele", "# dvinv:fim"
@@ -165,6 +169,14 @@ def update_root(vault_root, repo=False):
         raise secrets.SecretLeakError("AGENTS.md (bloco dvinv)", [(str(root / "AGENTS.md"), h) for h in hits])
     warnings = []
     agents = root / "AGENTS.md"
+    try:
+        return _update_files(root, envs, blk, agents, repo, warnings)
+    except PermissionError as e:
+        return warnings + [f"não foi possível atualizar {getattr(e, 'filename', '') or 'AGENTS.md/README'} (arquivo em "
+                           "uso no Windows?) — feche o editor e rode o render de novo; o vault já foi publicado"]
+
+
+def _update_files(root, envs, blk, agents, repo, warnings):
     if agents.exists():
         text = agents.read_text(encoding="utf-8")
         i, j = text.find(BEGIN), text.find(END)

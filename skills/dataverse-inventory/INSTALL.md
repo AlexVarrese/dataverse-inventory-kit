@@ -78,6 +78,20 @@ copiar em vez de criar link, `--copy`.
 4. Revise o diff e faça o commit — **o dvinv não commita nem faz push**. Snapshot bruto, derivados, `.env` e o
    cache SQLite ficam em `out/`, fora do repositório.
 
+**Validar no Windows (VDI) antes de usar em produção ou taguear uma versão:**
+
+```powershell
+cd <pasta-da-skill>\scripts
+.\validar-windows.ps1                                         # testes offline (pipeline + P0)
+.\validar-windows.ps1 -Config C:\kb\cliente\inventory.test.yaml   # + check, render 2x sem diff, consultas
+.\validar-windows.ps1 -Config ... -Extrair                      # + extração completa (demora)
+```
+
+Pontos que o script confere: troca atômica da pasta do vault (no Windows falha se Explorer/editor/antivírus
+segurar um arquivo — o kit tenta de novo e, persistindo, mantém o vault anterior e explica o que fechar), LF em
+todos os arquivos, segunda renderização idêntica, consultas `--vault` e `core.longpaths` no repositório. Use pasta
+de trabalho curta (ex. `C:\kb\…`): o render avisa se algum caminho do vault puder passar de 260 caracteres.
+
 Quem clona o repositório consulta sem instalar nada além do Python: `grep` nos CSVs ou
 `python3 <skill>/scripts/dvinv.py onde-usa <alvo> --vault Dataverse/<AMB>` (sem `inventory.yaml` nem credenciais).
 

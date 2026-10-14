@@ -76,7 +76,7 @@ def compare(raw_a, raw_b, vault_root, folder, root=None):
     fm = (f"---\ntipo: comparacao\nambiente_a: {na}\nambiente_b: {nb}\ndata_a: {ta}\ndata_b: {tb}\n"
           f"extraido_em: {date.today().isoformat()}\ntags:\n  - dataverse\n  - dataverse/comparacao\n---\n")
     tmp = path.with_name(f".tmp-{os.getpid()}-{path.name}")  # mesma extensão: a varredura reconhece
-    tmp.write_text(fm + "\n".join(lines) + "\n", encoding="utf-8")
+    tmp.write_text(fm + "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     try:
         secrets.assert_clean([tmp], "diff")
     except secrets.SecretLeakError:

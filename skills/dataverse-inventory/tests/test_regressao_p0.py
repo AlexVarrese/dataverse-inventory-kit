@@ -626,5 +626,37 @@ class TestPerfilMetadataOnly(unittest.TestCase):
             env.close()
 
 
+class TestWindows(unittest.TestCase):
+    """Comportamentos que só aparecem no Windows, simulados (validação real: scripts/validar-windows.ps1)."""
+
+    def test_troca_da_pasta_em_uso_tenta_de_novo_e_explica(self):
+        from unittest import mock
+        from dvinv.render import obsidian
+        calls = []
+
+        def busy(src, dst):
+            calls.append(1)
+            if len(calls) < 3:
+                raise PermissionError(32, "arquivo em uso")
+        with mock.patch.object(obsidian.os, "rename", busy), mock.patch("time.sleep"):
+            obsidian._rename_retry("a", "b")
+        self.assertEqual(len(calls), 3)
+        with mock.patch.object(obsidian.os, "rename", side_effect=PermissionError(5, "negado")), mock.patch("time.sleep"):
+            with self.assertRaises(SystemExit) as ctx:
+                obsidian._rename_retry("a", "b")
+        self.assertIn("pasta em uso", str(ctx.exception))
+
+    def test_vault_grava_sempre_lf(self):
+        import tempfile
+        from pathlib import Path as P
+        from dvinv.render.obsidian import Vault
+        d = P(tempfile.mkdtemp())
+        v = Vault(d, "Dataverse/X", "X")
+        v.write("Dataverse/X/n", {"tipo": "t"}, "linha1\r\nlinha2\r\n")
+        v.write("Dataverse/X/c.csv", None, "a;b\r\n1;2\r\n", raw=True)
+        for f in (d / "Dataverse/X/n.md", d / "Dataverse/X/c.csv"):
+            self.assertNotIn(b"\r", f.read_bytes(), f)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
