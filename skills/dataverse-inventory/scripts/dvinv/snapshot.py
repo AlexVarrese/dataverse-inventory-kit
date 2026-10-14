@@ -53,7 +53,14 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def _dump(data):
+# Coletas grandes (centenas de milhares de linhas em listas compactas): sem indentação, senão cada
+# número vira uma linha e o arquivo multiplica de tamanho.
+COMPACT = {"catalog", "platform_dependencies"}
+
+
+def _dump(data, compact=False):
+    if compact:
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     return json.dumps(data, indent=1, ensure_ascii=False)
 
 
@@ -74,7 +81,7 @@ class Staging:
     def write_json(self, name, data):
         """Grava <name>.json já redigido (redact_tree)."""
         path = self.dir / f"{name}.json"
-        path.write_text(_dump(secrets.redact_tree(data)), encoding="utf-8")
+        path.write_text(_dump(secrets.redact_tree(data), compact=name in COMPACT), encoding="utf-8")
         return path
 
     def publish(self, manifest):

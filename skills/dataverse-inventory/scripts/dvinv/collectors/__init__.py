@@ -15,7 +15,7 @@ import traceback
 from datetime import datetime, timezone
 
 from .. import secrets
-from . import alm, apps, code, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
+from . import alm, apps, catalog, code, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
 from . import dependencies as deps
 
 # Ordem importa: solutions define o escopo por solução; tables define ctx.scope.tables,
@@ -23,7 +23,9 @@ from . import dependencies as deps
 REGISTRY = [
     ("environment", environment.collect_environment),
     ("solutions", environment.collect_solutions),
+    ("catalog", catalog.collect_catalog),        # 100% dos componentes (todas as soluções), com tipo e nome
     ("tables", tables.collect_tables),
+    ("virtual_tables", tables.collect_virtual_tables),  # depois de tables: usa ctx.scope.tables
     ("relationships", tables.collect_relationships),
     ("optionsets", tables.collect_optionsets),
     ("webresources", ui.collect_webresources),
@@ -50,7 +52,7 @@ REGISTRY = [
 # Coletores que usam dados de outros: --only inclui as dependências automaticamente.
 DEPENDS = {
     "forms": ["webresources"], "ribbons": ["webresources"], "relationships": [],
-    "pcf": ["forms"], "users": ["security"],
+    "pcf": ["forms"], "users": ["security"], "virtual_tables": [],
     "repos": ["webresources", "plugins"],
     "processes": ["alm", "customapis"],
     "field_usage": ["webresources", "forms", "views", "plugins", "processes", "repos"],

@@ -1,13 +1,16 @@
 # Esquema do vault
 
-Toda nota gerada tem `ambiente`, `tipo`, `tags` (`dataverse`, `dataverse/<tipo>`, `ambiente/<slug>`)
-e `extraido_em` (Date). Links em properties são strings `"[[caminho|alias]]"`, como pede o Obsidian.
+Toda nota gerada tem `ambiente`, `tipo` e `tags` (`dataverse`, `dataverse/<tipo>`, `ambiente/<slug>`).
+Desde a 0.6 **não há data de extração por nota** (re-extrair sem mudança no ambiente não altera os
+arquivos e o diff do Git mostra só mudança real): a data e o `snapshot` ficam em `00 Índice`,
+`01 Ambiente` e `AGENT-INDEX`. Links em properties são strings `"[[caminho|alias]]"`, como pede o Obsidian.
 
 | `tipo` | Pasta | Properties principais |
 |---|---|---|
-| `indice` | `00 Índice.md` | — |
-| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências` | `url`, `versao`, `snapshot` (run_id) e `perfil` em `01 Ambiente` |
-| `tabela` | `Tabelas/` | `nome_logico`, `nome_exibicao`, `aliases`, `customizada`, `gerenciada`, `propriedade`, `registros`, `colunas_custom`, `colunas_total`, `relacionamentos`, `formularios`, `plugin_steps`, `processos`, `flows_que_tocam`, `achados`, `escopo`, `solucoes` |
+| `indice` | `00 Índice.md` | `snapshot`, `extraido_em` |
+| `indice-agente` | `AGENT-INDEX.md` | `snapshot` — entrada para agentes: mapa, comandos do índice, arquivos que não se lê inteiros |
+| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`, `09 Catálogo de Componentes` | `url`, `versao`, `snapshot` (run_id) e `perfil` em `01 Ambiente`; `componentes`, `tipos` no `09` |
+| `tabela` | `Tabelas/` | `nome_logico`, `nome_exibicao`, `aliases`, `customizada`, `gerenciada`, `propriedade`, `tipo_tabela` (Standard/Virtual/Elastic/Activity), `registros`, `colunas_custom`, `colunas_total`, `relacionamentos`, `formularios`, `plugin_steps`, `processos`, `flows_que_tocam`, `achados`, `escopo`, `solucoes` |
 | `plugin-assembly` | `Plugins/` | `versao`, `isolamento`, `origem`, `gerenciado`, `tipos`, `steps`, `modificado` |
 | `plugin-step` | `Plugin Steps/` | `assembly` (link), `classe`, `handler`, `mensagem`, `tabela` (link), `estagio`, `modo`, `ordem`, `ativo`, `filtering`, `imagens`, `impersonando` |
 | `processo` | `Processos/<Workflows\|Business Rules\|Actions\|BPFs\|Cloud Flows\|Desktop Flows>/` | `categoria`, `tabela` (link), `ativo`, `modo`, `gatilho`, `conectores`, `hosts_http`, `proprietario`, `proprietario_desativado`, `modificado`, `criado`, `modificado_por` |
@@ -26,6 +29,28 @@ e `extraido_em` (Date). Links em properties são strings `"[[caminho|alias]]"`, 
 Notas de componente que participam do grafo também recebem `dependencias` (quantos componentes ela usa)
 e `dependentes` (quantos a usam), e uma seção **Dependências** com *Depende de* / *Usado por* agrupados
 pela relação. ⚙︎ marca dependência registrada pela plataforma.
+
+## Raiz do vault: AGENTS.md e CLAUDE.md
+
+Carregados automaticamente pelo Copilot (`AGENTS.md`) e pelo Claude Code (`CLAUDE.md` → `@AGENTS.md`). O
+render reescreve só o bloco entre `<!-- dvinv:inicio … -->` e `<!-- dvinv:fim -->` (≤ 30 linhas: tabela de
+ambientes com URL, `AGENT-INDEX.md`, config e snapshot, e 5 regras de consulta/execução). Os ambientes vêm do
+frontmatter de cada `AGENT-INDEX.md` do vault. `CLAUDE.md` só é criado se não existir.
+
+## Arquivos tabulares (fora das notas)
+
+Listas que passariam de algumas centenas de linhas não ficam inteiras em nota (o editor do Obsidian
+e a janela de contexto de um agente sofrem com notas de vários MB):
+
+| Arquivo | Conteúdo |
+|---|---|
+| `Componentes.csv` | 100% dos componentes do ambiente (tipo, nome, pai, id, escopo, soluções, nota) |
+| `Dependências.csv` / `Matriz de Dependências.xlsx` | arestas do escopo (o conjunto completo está no índice SQLite) |
+| `Dependências ausentes.csv` | RetrieveMissingDependencies por solução, com nomes do catálogo |
+| `Equipes.csv` | todas as equipes estruturais; com mais de 1.000, só as que têm papel ou grupo do Entra viram nota |
+
+Web resource de biblioteca de terceiros ou com mais de 150 KB não tem o código na nota (fica no
+snapshot, `_raw/<run_id>/webresources.json`); a análise estática e as funções continuam na nota.
 
 ## Preservação entre extrações
 

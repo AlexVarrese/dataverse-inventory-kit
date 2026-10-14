@@ -66,6 +66,26 @@ copiar em vez de criar link, `--copy`.
 
 **Agentes sem suporte a skills:** use o [`PROMPT.md`](PROMPT.md).
 
+**Claude Code e GitHub Copilot no mesmo projeto (sem conflito):**
+
+- **Uma cópia só da skill.** O GitHub Copilot (VS Code, CLI e cloud agent) lê skills de `.github/skills/`,
+  `.claude/skills/` e `.agents/skills/` do projeto, e de `~/.copilot/skills/`, `~/.claude/skills/` e
+  `~/.agents/skills/`. Instale em `.claude/skills/dataverse-inventory/` (ou em `~/.claude/skills/`) e os
+  dois agentes usam o mesmo `SKILL.md` e as mesmas `references/*.md`. Duas cópias (ex. `.claude/` e
+  `.github/`) acabam divergindo de versão; o `npx skills add` resolve criando links para uma cópia canônica.
+- **Regras num lugar só, geradas pelo render.** Na raiz do vault (`output.vault_root`), o `render` mantém um
+  bloco curto no `AGENTS.md` (lido pelo Copilot) entre `<!-- dvinv:inicio … -->` e `<!-- dvinv:fim -->`: ambientes
+  inventariados, link do `AGENT-INDEX.md` e config de cada um, comandos do índice e as regras de execução.
+  Texto fora do bloco é do time e nunca é alterado. O `CLAUDE.md` é criado com `@AGENTS.md` só se não existir;
+  se já existir sem esse import, o render avisa e não mexe. Convenções do cliente (prefixos, quem autoriza
+  extração) vão no `AGENTS.md`, fora do bloco — assim Claude e Copilot leem a mesma instrução.
+- **Uma execução por ambiente.** `extract`/`render`/`all` criam a trava `out/<ambiente>/.dvinv.lock`: se o
+  Claude estiver extraindo e o Copilot pedir outra extração do mesmo ambiente, a segunda falha com aviso
+  em vez de publicar snapshots/vaults concorrentes. As consultas (`buscar`, `onde-usa`, `impacto`,
+  `depende`) só leem e podem rodar em paralelo.
+- **Mesma entrada para os dois.** O vault gerado tem `AGENT-INDEX.md` e o índice `inventario.sqlite`:
+  qualquer agente segue o mesmo roteiro de leitura econômica (`references/indice.md`).
+
 Depois de instalar, defina `SKILL` como a pasta onde a skill ficou (usada nos comandos abaixo):
 
 ```bash

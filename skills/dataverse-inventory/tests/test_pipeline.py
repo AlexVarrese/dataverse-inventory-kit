@@ -105,14 +105,59 @@ ENTITIES = [
      "PrimaryIdAttribute": "contoso_projectid",
      "DisplayName": {"UserLocalizedLabel": {"Label": "Projeto"}}, "Attributes": [attr("contoso_name", True, False), attr("contoso_accountid", True, False, "Lookup")]},
     {"MetadataId": G(4), "LogicalName": "contoso_virtual", "SchemaName": "contoso_Virtual", "EntitySetName": "contoso_virtuals",
-     "IsCustomEntity": True, "IsManaged": False, "TableType": "Virtual", "Attributes": [attr("contoso_vname", True, False)]},
+     "IsCustomEntity": True, "IsManaged": False, "TableType": "Virtual", "Attributes": [attr("contoso_vname", True, False)],
+     "DataProviderId": G(200), "DataSourceId": G(202), "ExternalName": "Projects", "ExternalCollectionName": "projects"},
+    {"MetadataId": G(5), "LogicalName": "msdyn_odatav4ds", "SchemaName": "msdyn_odatav4ds", "EntitySetName": "msdyn_odatav4dses",
+     "IsCustomEntity": False, "IsManaged": True, "PrimaryIdAttribute": "msdyn_odatav4dsid", "PrimaryNameAttribute": "msdyn_name",
+     "Attributes": []},
     {"MetadataId": G(3), "LogicalName": "contact", "SchemaName": "Contact", "IsCustomEntity": False, "IsManaged": True,
      "OwnershipType": "UserOwned", "Attributes": [attr("fullname", False)]},
 ]
 
 
+DEP_BULK_FAIL = False  # True: a leitura em lote da tabela dependency devolve 403 (testa o fallback)
+TIER_ID = lambda: G(abs(hash("contoso_tier")) % 10**9)  # noqa: E731  (id da coluna, como em attr())
+
+
+def dep(dt, did, rt, rid, kind):
+    return {"dependentcomponenttype": dt, "dependentcomponentobjectid": did, "requiredcomponenttype": rt,
+            "requiredcomponentobjectid": rid, "dependencytype": kind}
+
+
 def route(path):
     p = urllib.parse.unquote(path)
+    # --- catálogo (100%) e dependências em lote ---
+    if p.startswith("GlobalOptionSetDefinitions(Name='componenttype')"):
+        return {"Options": [{"Value": v, "Label": {"UserLocalizedLabel": {"Label": lbl}}} for v, lbl in
+                            ((1, "Entity"), (2, "Attribute"), (26, "Saved Query"), (29, "Workflow"), (62, "Site Map"),
+                             (66, "Custom Control"))]}
+    if p.startswith("solutioncomponentdefinitions"):
+        return [{"solutioncomponenttype": 10249, "name": "connectionreference", "primaryentityname": "connectionreference"}]
+    if p.startswith("solutioncomponents?$select=componenttype,objectid,_solutionid_value,rootcomponentbehavior"):
+        assert "$filter" not in p
+        rows = [(1, G(1), G(10)), (1, G(2), G(10)), (1, G(2), G(11)), (2, TIER_ID(), G(10)), (29, G(50), G(11)),
+                (29, G(50), G(10)), (26, G(70), G(10)), (26, G(300), G(10)), (62, G(86), G(10)), (10249, G(140), G(11)),
+                (171, G(301), G(10)), (66, G(190), G(11))]
+        return [{"componenttype": ct, "objectid": oid, "_solutionid_value": sid, "rootcomponentbehavior": 0}
+                for ct, oid, sid in rows]
+    if p.startswith("dependencies?$select="):
+        if DEP_BULK_FAIL:
+            raise DataverseError(403, p, "sem privilégio prvReadDependency")
+        return [dep(26, G(70), 1, G(1), 2), dep(62, G(86), 1, G(1), 2), dep(2, TIER_ID(), 1, G(1), 1),
+                dep(26, G(300), 1, G(3), 2),              # view de contact → contact: fora do escopo (só no índice)
+                dep(26, G(70), 66, G(190), 2)]            # PCF como controle de view (fora de formulário)
+    if p.startswith("RelationshipDefinitions?$select=MetadataId,SchemaName"):
+        return [{"MetadataId": G(20), "SchemaName": "contoso_account_project"}]
+    if p.startswith("sitemaps?"):
+        return [{"sitemapid": G(86), "sitemapname": "Contoso Sitemap"}]
+    if p.startswith("EntityDefinitions?") and "TableType eq 'Virtual'" in p:
+        return [e for e in ENTITIES if e.get("TableType") == "Virtual"]
+    if p.startswith("entitydataproviders"):
+        return [{"entitydataproviderid": G(200), "name": "Contoso OData Provider", "datasourcelogicalname": "msdyn_odatav4ds",
+                 "retrieveplugin": G(101), "retrievemultipleplugin": G(101), "ismanaged": False},
+                {"entitydataproviderid": G(201), "name": "Não usado", "datasourcelogicalname": None}]
+    if p.startswith("msdyn_odatav4dses?"):
+        return [{"msdyn_odatav4dsid": G(202), "msdyn_name": "ERP OData"}]
     # --- uso de campos ---
     if p.startswith("accounts?fetchXml="):
         assert "contoso_revenue" not in p, "coluna Money não pode ir para countcolumn"
@@ -263,11 +308,12 @@ def route(path):
         return [{"botid": G(81), "name": "Agente Contoso", "schemaname": "contoso_agent", "statecode": 0, "ismanaged": False}]
     if p.startswith("pluginassemblies"):
         return [{"pluginassemblyid": G(90), "name": "Contoso.Plugins", "version": "1.0.0.0", "isolationmode": 2, "sourcetype": 0,
-                 "ismanaged": False, "publickeytoken": "abc"},
+                 "ismanaged": False, "publickeytoken": "5ab6c1d2e3f40718"},
                 {"pluginassemblyid": G(91), "name": "Microsoft.Crm.ObjectModel", "ismanaged": True}]
     if p.startswith("plugintypes"):
         return [{"plugintypeid": G(100), "typename": "Contoso.Plugins.AccountPre", "_pluginassemblyid_value": G(90)},
-                {"plugintypeid": G(101), "typename": "Contoso.Plugins.ProjectRetrieve", "_pluginassemblyid_value": G(90)},
+                {"plugintypeid": G(101), "typename": "Contoso.Plugins.ProjectRetrieve", "_pluginassemblyid_value": G(90),
+                 "assemblyname": "Contoso.Plugins"},
                 {"plugintypeid": G(102), "typename": "Microsoft.Something", "_pluginassemblyid_value": G(91)}]
     if p.startswith("sdkmessageprocessingsteps"):
         base = {"ismanaged": False, "statecode": 0, "rank": 1, "_eventhandler_value" + LK: "plugintype"}
@@ -492,6 +538,61 @@ def check_security_pcf(cfg, snap, fnd):
     assert must <= edges, must - edges
 
 
+def check_catalog_index(cfg, snap, derived):
+    """0.6: catálogo de 100%, dependências em lote, índice SQLite, tabelas virtuais e notas enxutas."""
+    from dvinv import index as index_mod
+    cat = json.loads((snap / "catalog.json").read_text())
+    assert "\n" not in (snap / "catalog.json").read_text().strip(), "catalog.json deveria ser compacto"
+    assert cat["types"]["10249"]["name"] == "connectionreference" and cat["types"]["62"]["name"] == "Site Map"
+    assert cat["types"]["171"]["name"] is None, cat["types"]["171"]          # sem rótulo em nenhuma fonte
+    assert cat["names"][G(86)][1] == "Contoso Sitemap" and cat["names"][TIER_ID()][1] == "account.contoso_tier"
+    man = json.loads((snap / "manifest.json").read_text())
+    assert man["stats"]["catalog"]["components"] == 10 and man["stats"]["catalog"]["types_unnamed"] == 1, man["stats"]["catalog"]
+    assert any("sem fonte de nome" in g["what"] for g in man["gaps"])  # tipo 171 e 10249 sem tabela de origem no fake
+    pd = json.loads((snap / "platform_dependencies.json").read_text())
+    assert pd["format"] == "compacto/1" and len(pd["edges"]) == 5 and pd["source"].startswith("tabela dependency")
+
+    dep = json.loads((derived / "dependencies.json").read_text())
+    edges = {(e["from_label"], e["relation"], e["to_label"]) for e in dep["edges"]}
+    assert ("Contoso Sitemap" in str(edges)), "nome do catálogo não chegou ao grafo"
+    assert not any(e["to_label"] == "contact" for e in dep["edges"] if "plataforma" in e["source"]), "aresta fora do escopo na matriz"
+    assert ("projeto / Projetos ativos" not in str(edges))
+    assert ("contoso_project / Projetos ativos", "plataforma (Published)", "contoso_Contoso.TierPicker") in edges, \
+        "PCF usado fora de formulário (view) deveria aparecer pela tabela dependency"
+    assert ("contoso_virtual", "dados via provedor virtual", "Contoso OData Provider") in edges
+    assert ("Contoso OData Provider", "executa Retrieve", "Contoso.Plugins") in edges
+
+    db = derived / "inventario.sqlite"
+    assert db.exists()
+    con = index_mod.connect(db)
+    n_dep = con.execute("SELECT count(*) FROM dependencias WHERE fonte = 'plataforma'").fetchone()[0]
+    assert n_dep == 5, n_dep  # conjunto completo, inclusive a aresta fora do escopo
+    imp = index_mod.cmd_walk(con, "account", "impacto", 1, False, 50)
+    assert "Contoso Sitemap" in imp and "Projetos ativos" in imp and "Tabelas/account.md" in imp, imp
+    assert "account.contoso_tier" not in imp, "aresta interna (coluna → tabela) não deveria aparecer sem --internas"
+    assert "account.contoso_tier" in index_mod.cmd_walk(con, "account", "impacto", 1, True, 50)
+    ct = index_mod.cmd_walk(con, "contact", "impacto", 1, False, 50)
+    assert G(300) in ct, ct  # fora do escopo: sem nome, mas presente
+    assert "Contoso Sitemap" in index_mod.cmd_buscar(con, "sitemap")
+    two = index_mod.cmd_walk(con, "contoso_Contoso.TierPicker", "impacto", 2, False, 50)
+    assert "Projetos ativos" in two, two
+    assert "é ambíguo" in index_mod.cmd_walk(con, "Venda", "impacto", 1, False, 50)
+
+    vd = cfg.vault_dir
+    for rel in ("09 Catálogo de Componentes.md", "Componentes.csv", "AGENT-INDEX.md", "Dependências ausentes.csv", "Equipes.csv"):
+        assert (vd / rel).exists(), rel
+    csv_rows = (vd / "Componentes.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert len(csv_rows) == 11 and any("Contoso Sitemap" in r for r in csv_rows), csv_rows
+    acc = (vd / "Tabelas" / "account.md").read_text()
+    assert "extraido_em" not in acc, "data por nota volta a sujar o diff do Git"
+    assert "extraido_em" in (vd / "00 Índice.md").read_text()
+    vt = (vd / "Tabelas" / "contoso_virtual.md").read_text()
+    assert "## Tabela virtual" in vt and "Contoso OData Provider" in vt and "ERP OData" in vt, vt
+    assert "## Tabelas virtuais" in (vd / "03 Integrações.md").read_text()
+    ai = (vd / "AGENT-INDEX.md").read_text()
+    assert "dvinv.py impacto" in ai and "inventario.sqlite" in ai
+
+
 def check_method_drift():
     """REPO-04 sem ilspycmd: heurística de métodos por classe (decompilado × repo)."""
     from dvinv.collectors.repos import methods
@@ -588,6 +689,7 @@ def main():
         assert st["audit"]["by_table"][0]["table"] == "account" and st["audit"]["oldest"] == "2022-07-19"
         check_dependencies(cfg, v.derived_dir)
         check_security_pcf(cfg, snap, fnd)
+        check_catalog_index(cfg, snap, v.derived_dir)
         for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios", "08 Matriz de Dependências"):
             assert (cfg.vault_dir / f"{sec}.md").exists(), sec
         flow = json.loads((snap / "processes.json").read_text())
@@ -595,14 +697,30 @@ def main():
         cv = json.loads((cfg.vault_dir / "Mapa do Ambiente.canvas").read_text())
         assert any(e["label"] == "flow HTTP" for e in cv["edges"]), "aresta tabela→HTTP ausente no canvas"
 
+        # AGENTS.md (bloco dvinv) + CLAUDE.md na raiz do vault
+        from dvinv.render.agents import BEGIN, END
+        ag, cl = cfg.vault_root / "AGENTS.md", cfg.vault_root / "CLAUDE.md"
+        assert cl.read_text() == "@AGENTS.md\n", cl.read_text()
+        agt = ag.read_text()
+        assert agt.count(BEGIN) == 1 and agt.count(END) == 1 and "CONTOSO-PRD" in agt and "AGENT-INDEX.md" in agt, agt
+        assert "inventory.yaml" in agt and "https://contoso.crm.dynamics.com" in agt, agt
+        assert len(agt.split(BEGIN)[1].splitlines()) <= 30, "bloco lido em toda sessão: manter curto"
+        ag.write_text("# Projeto Contoso\n\nRegra do time: não citar o cliente.\n\n" + agt + "\nRodapé do time.\n")
+        cl.write_text("# Claude\nInstruções próprias.\n")
+
         # re-render preserva edição do analista
         achado = cfg.vault_dir / "Achados"
         note = next(achado.glob("SEC-01*.md"))
         txt = note.read_text().replace("status: aberto", "status: em análise") + "\nRotacionado em 06/10.\n"
         note.write_text(txt)
-        render(cfg)
+        v2 = render(cfg)
+        assert any("CLAUDE.md" in w and "@AGENTS.md" in w for w in v2.agent_warnings), v2.agent_warnings
         txt2 = note.read_text()
         assert "status: em análise" in txt2 and "Rotacionado em 06/10." in txt2 and txt2.count(MANUAL) == 1
+        agt2 = ag.read_text()
+        assert agt2.startswith("# Projeto Contoso") and "Regra do time" in agt2 and agt2.rstrip().endswith("Rodapé do time.")
+        assert agt2.count(BEGIN) == 1 and "CONTOSO-PRD" in agt2, agt2
+        assert cl.read_text() == "# Claude\nInstruções próprias.\n", "CLAUDE.md existente não pode ser alterado"
 
         # diff contra uma cópia alterada (outro snapshot: manifesto com o sha256 novo)
         b = tmp / "out" / "_raw_b" / "20990101T000000Z"
@@ -619,6 +737,16 @@ def main():
         dep_row = re.search(r"^\| Dependências \| (\d+) \|", out.read_text(), re.M)
         assert dep_row and int(dep_row.group(1)) > 0, "diff sem dependências recalculadas a partir do snapshot"
         assert not list(cfg.vault_root.glob(".dvinv-render-*")), "cópia de trabalho do render não foi removida"
+
+        # leitura em lote negada → fallback por componente do escopo, com lacuna declarada
+        global DEP_BULK_FAIL
+        DEP_BULK_FAIL = True
+        ctx2 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx2.client._bearer = lambda: "fake"
+        m2 = run(ctx2, ["platform_dependencies"])
+        DEP_BULK_FAIL = False
+        assert m2["stats"]["platform_dependencies"]["source"].startswith("RetrieveDependentComponents"), m2["stats"]
+        assert m2["stats"]["platform_dependencies"]["edges"] == 2 and any("lote" in g["what"] for g in m2["gaps"])
 
         print(f"OK — {len(md)} notas, {len(list(cfg.vault_dir.rglob('*.base')))} bases, "
               f"{len(fnd)} achados, {len(manifest['queries'])} chamadas simuladas, {len(manifest['gaps'])} lacunas")

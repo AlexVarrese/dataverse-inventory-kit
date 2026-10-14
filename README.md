@@ -15,7 +15,14 @@ skills, há um prompt equivalente.
 
 ## O que você recebe
 
-- **Uma nota por componente**: tabelas, colunas, formulários, views, web resources, plugins, Custom APIs,
+- **Catálogo de 100% dos componentes** do ambiente (todas as soluções, inclusive as gerenciadas), com
+  tipo e nome, em `Componentes.csv` e no índice — sem virar dezenas de milhares de notas.
+- **Índice SQLite para agentes de IA** com todas as dependências registradas pela plataforma (tabela
+  `dependency`) e as inferidas pelo kit: `dvinv buscar`, `onde-usa`, `impacto`, `depende` respondem
+  "o que é impactado se eu mudar X?" em poucas linhas, com o caminho da nota — sem ler o vault inteiro.
+  O vault traz um `AGENT-INDEX.md` com o roteiro de leitura econômica (Claude Code, Copilot, Hermes…).
+- **Tabelas virtuais**: provedor de dados, fonte e classes de plugin por operação.
+- **Uma nota por componente do escopo**: tabelas, colunas, formulários, views, web resources, plugins, Custom APIs,
   workflows, business rules, BPFs, cloud flows, apps, agentes Copilot Studio, papéis, soluções, variáveis
   de ambiente e conexões, com properties para Obsidian Bases.
 - **Matriz de dependências entre componentes**: quem depende de cada tabela (formulários, JS, plugins,

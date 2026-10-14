@@ -26,12 +26,15 @@ from .. import secrets
 from .. import snapshot as snapshot_mod
 from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
-from . import bases, canvas, structure
+from .. import index as index_mod
+from . import agents, bases, canvas, catalog, structure
 
 MANUAL = "%% dvinv:manual — o conteúdo abaixo desta linha é preservado nas próximas extrações %%"
 PRESERVE_PROPS = {"status", "responsavel", "decisao", "prazo", "revisado", "tags_extra"}
 BAD_CHARS = re.compile(r'[\\/:*?"<>|#^\[\]]+')
 
+CODE_IN_NOTE_MAX = 150_000  # código acima disso (ou de biblioteca de terceiros) fica só no snapshot
+LIST_MAX = 300              # listas longas nas notas de seção: o resto vai para CSV/índice
 SEV_CALLOUT = {"crítico": "danger", "alto": "warning", "médio": "caution", "baixo": "note", "info": "info"}
 CATEGORY_FOLDER = {
     "Workflow": "Workflows", "Dialog": "Dialogs", "Business Rule": "Business Rules", "Action": "Actions",
@@ -119,7 +122,9 @@ class Vault:
                     props[k] = old_props[k]
             if MANUAL in old_body:
                 manual = old_body[old_body.index(MANUAL):]
-        props = {"ambiente": self.env, **props, **self.dep_counts.get(rel, {}), "extraido_em": self.today}
+        # sem data de extração por nota: re-extrair sem mudança no ambiente não pode mudar 2 mil arquivos
+        # (a data fica no 00 Índice, no 01 Ambiente e no manifesto do snapshot)
+        props = {"ambiente": self.env, **props, **self.dep_counts.get(rel, {})}
         fm = yaml.safe_dump(props, allow_unicode=True, sort_keys=False, width=1000).strip()
         path.write_text(f"---\n{fm}\n---\n{body.rstrip()}\n\n{manual.rstrip()}\n", encoding="utf-8")
         self.written.append(path)
@@ -150,9 +155,12 @@ def render(cfg, snapshot=None):
             shutil.copytree(final_dir, stage_dir)  # preserva edições do analista e notas antigas
         v = Vault(stage_root, cfg.vault_folder, cfg.name)
         v.snapshot, v.run_id = snap, run_id
+        if getattr(cfg, "config_path", None):
+            v.config_rel = os.path.relpath(cfg.config_path, Path(cfg.vault_root).resolve()).replace(os.sep, "/")
         fnd, deps_json = _render_into(v, d)
         derived.write_json("findings", fnd)
         derived.write_json("dependencies", deps_json)
+        index_mod.build(derived.dir / index_mod.DB_NAME, d, v.graph, v, fnd)  # varre segredos do banco
         secrets.assert_clean(list(v.written) + derived.paths, f"render {run_id}")
         # publicação: troca a pasta do vault inteira (rename) e os derivados do run
         final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +177,7 @@ def render(cfg, snapshot=None):
         if old:
             shutil.rmtree(old, ignore_errors=True)
         v.derived_dir = derived.publish()
+        v.agent_warnings = agents.update_root(cfg.vault_root)  # AGENTS.md (bloco) + CLAUDE.md na raiz do vault
     except BaseException:
         derived.discard()
         raise
@@ -243,6 +252,7 @@ def _render_into(v, d):
 
     # ---- grafo de dependências (antes das notas: cada nota mostra 'depende de' / 'usado por') ----
     graph = deps_mod.build(d)
+    v.graph = graph
     dsum = deps_mod.summarize(graph, d)
     deps_json = deps_mod.to_json(graph, dsum)
     for n in graph.nodes:
@@ -338,6 +348,9 @@ def _render_into(v, d):
             apis_by_table[a["bound_entity"]].append(a)
 
     # ---- 2) tabelas ----
+    vtd = d.get("virtual_tables") or {}
+    virtual_by_table = {x["logical"]: x for x in vtd.get("tables") or []}
+    vprov = {x["id"].lower(): x for x in vtd.get("providers") or []}
     for t in tables:
         ln = t["logical"]
         custom_cols = [c for c in t["columns"] if c["custom"]]
@@ -349,6 +362,7 @@ def _render_into(v, d):
             "relacionamentos": len(rels_by_table.get(ln, [])), "formularios": len(forms_by_table.get(ln, [])),
             "plugin_steps": len(st), "processos": len(pr), "flows_que_tocam": len(fl),
             "achados": len(finding_refs.get(("table", ln), [])), "escopo": t.get("scope_reason"),
+            "tipo_tabela": t.get("table_type"),
             "solucoes": sol_links(t.get("solutions")), "tags": v.tags("tabela"),
         }
         b = [f"# {t.get('display') or ln} (`{ln}`)", ""]
@@ -356,6 +370,18 @@ def _render_into(v, d):
               f"> {'Tabela customizada' if t['custom'] else 'Tabela nativa customizada'} · propriedade **{t.get('ownership')}** · "
               f"{'**' + format(t['record_count'], ',').replace(',', '.') + '** registros' if t.get('record_count') is not None else 'registros não medidos'} · "
               f"**{len(custom_cols)}** colunas customizadas de {t.get('column_count')} · entity set `{t.get('entityset')}`", ""]
+        vt = virtual_by_table.get(ln)
+        if vt:
+            prov = vprov.get(vt.get("provider_id") or "") or {}
+            b += ["## Tabela virtual", "",
+                  mdtable(["Item", "Valor"], [
+                      ["Provedor de dados", vt.get("provider") or vt.get("provider_id")],
+                      ["Fonte de dados", f"{vt.get('datasource') or '—'} (tabela `{vt.get('datasource_table') or '—'}`)"],
+                      ["Nome externo", vt.get("external_name")], ["Coleção externa", vt.get("external_collection")]]),
+                  mdtable(["Operação", "Classe de plugin", "Assembly"],
+                          [[o["operation"], f"`{o.get('typename') or o['plugintype_id']}`",
+                            v.link("assembly", o.get("assembly"), o.get("assembly"), in_table=True) if o.get("assembly") else "—"]
+                           for o in prov.get("operations") or []]) if prov.get("operations") else ""]
         b += ["## Colunas customizadas", "",
               mdtable(["Coluna", "Nome de exibição", "Tipo", "Obrigatoriedade", "Auditoria", "Descrição"],
                       [[f"`{c['logical']}`", c.get("display"), c.get("type"), c.get("required"), c.get("audit"),
@@ -574,9 +600,12 @@ def _render_into(v, d):
             b += [f"## Funções ({len(w['functions'])})", "", ", ".join(f"`{x}`" for x in w["functions"]), ""]
         if w.get("content"):
             content = w["content"]
-            if len(content) > 300_000:
-                content = content[:300_000] + "\n/* … truncado pelo dvinv (300 KB) … */"
-            b += ["## Código-fonte (redigido)", "", f"```{fence.get(w['type'], '')}", content.replace("```", "``\u200b`"), "```", ""]
+            if (js or {}).get("third_party") or len(content) > CODE_IN_NOTE_MAX:
+                why = "biblioteca de terceiros" if (js or {}).get("third_party") else f"maior que {CODE_IN_NOTE_MAX // 1000} KB"
+                b += ["## Código-fonte", "", f"_Não incluído na nota ({why})._ Código redigido no snapshot: "
+                      f"`_raw/{getattr(v, 'run_id', '<run_id>')}/webresources.json` (busque por `\"name\": \"{w['name']}\"`).", ""]
+            else:
+                b += ["## Código-fonte (redigido)", "", f"```{fence.get(w['type'], '')}", content.replace("```", "``\u200b`"), "```", ""]
         b.append(findings_block("webresource", w["name"]))
         v.write(v.paths[("webresource", w["name"])], props, "\n".join(b))
 
@@ -663,7 +692,9 @@ def _render_into(v, d):
     write_environment(v, d, manifest)
     bases.write_all(v, fnd)
     canvas.write_map(v, d)
-    write_index(v, d, manifest, fnd)
+    has_catalog = catalog.write_catalog(v, d)
+    write_index(v, d, manifest, fnd, has_catalog)
+    catalog.write_agent_index(v, d, has_catalog)  # por último: lista as notas grandes já escritas
     return fnd, deps_json
 
 
@@ -692,6 +723,17 @@ def write_integrations(v, d, procs, apis):
           [[f"`{r['name']}`", r["connector"], r["connected"], r["active"]] for r in alm.get("connrefs") or []])]
     b += ["## Conectores customizados", "", mdtable(["Conector", "Tipo", "Gerenciado"],
           [[k["name"], k.get("kind"), k.get("managed")] for k in alm.get("connectors") or []])]
+    vt = d.get("virtual_tables") or {}
+    if vt.get("tables"):
+        b += ["## Tabelas virtuais", "",
+              "Dados lidos de fora do Dataverse em tempo de consulta (provedor de dados + fonte). Todas as da org; "
+              "as do escopo têm nota com as classes de plugin do provedor.", "",
+              mdtable(["Tabela", "Provedor", "Fonte de dados", "Nome externo", "Custom", "No escopo"],
+                      [[v.link("table", t["logical"], t["logical"], in_table=True), t.get("provider") or t.get("provider_id"),
+                        t.get("datasource") or t.get("datasource_table"), t.get("external_name"), t.get("custom"),
+                        "sim" if t.get("in_scope") else ""] for t in vt["tables"]])]
+        if vt.get("elastic"):
+            b += [f"Tabelas **elásticas** na org: {len(vt['elastic'])} (contagem; armazenamento NoSQL do Dataverse).", ""]
     v.write(f"{v.folder}/03 Integrações", {"tipo": "secao", "tags": v.tags("secao")}, "\n".join(b))
 
 
@@ -819,6 +861,10 @@ def write_dependencies(v, d, g, dsum, node_link):
     b += ["## Tipo × tipo", "", "Linhas dependem das colunas.", "",
           mdtable(["Depende ↓ / de →"] + [kinds.get(k, k) for k in dst_k],
                   [[kinds.get(a, a)] + [tt.get((a, c), "") for c in dst_k] for a in src_k])]
+    pst = ((d.get("manifest") or {}).get("stats") or {}).get("platform_dependencies") or {}
+    if pst.get("edges"):
+        b += [f"> [!info] Plataforma: {pst['edges']} dependências lidas ({pst.get('source')}); aqui entram só as que "
+              "apontam para componentes do escopo. O conjunto completo está no índice SQLite — `dvinv impacto <alvo>`.", ""]
     top_in = [n for n, c in dsum["fan_in"].most_common(25) if c]
     top_out = [n for n, c in dsum["fan_out"].most_common(25) if c]
     b += ["## Mais dependidos (maior impacto de mudança)", "",
@@ -831,15 +877,32 @@ def write_dependencies(v, d, g, dsum, node_link):
                       [[g.nodes[n]["label"], kinds.get(n[0], n[0]), ", ".join(node_link(s) for s, _, _ in g.into(n)[:20])]
                        for n, _ in dsum["external"]])]
     if dsum["unused"]:
+        unused = sorted(dsum["unused"])
         b += ["## Sem nenhum dependente encontrado", "",
               "Candidatos a limpeza — confirme chamadas de fora do Dataverse (integrações, apps externos, Power BI).", "",
-              mdtable(["Componente", "Tipo"], [[node_link(n), kinds.get(n[0], n[0])] for n in sorted(dsum["unused"])])]
+              mdtable(["Componente", "Tipo"], [[node_link(n), kinds.get(n[0], n[0])] for n in unused[:LIST_MAX]])]
+        if len(unused) > LIST_MAX:
+            b += [f"… +{len(unused) - LIST_MAX} — lista completa na aba *Componentes* do Excel (dependentes = 0).", ""]
     if dsum["missing"]:
+        cat_names = ((d.get("catalog") or {}).get("names") or {})
+
+        def nm(oid, lbl):
+            n = (cat_names.get(oid) or [None, None])[1]
+            return f"{n} ({lbl})" if n else f"{lbl} {oid}"
+
+        by_sol = Counter(m["solution"] for m in dsum["missing"])
         b += ["## Dependências ausentes nas soluções", "",
-              "Componentes exigidos que **não estão na solução** — a importação falha em ambiente que não os tenha.", "",
-              mdtable(["Solução", "Componente que exige", "Tipo", "Componente exigido", "Tipo"],
-                      [[m["solution"], m["dependent_id"], m.get("dependent_type_label") or m.get("dependent_type"),
-                        m["required_id"], m.get("required_type_label") or m.get("required_type")] for m in dsum["missing"]])]
+              "Componentes exigidos que **não estão na solução** — a importação falha em ambiente que não os tenha. "
+              f"Lista completa ({len(dsum['missing'])}) em [[{v.folder}/Dependências ausentes.csv|Dependências ausentes.csv]].", "",
+              mdtable(["Solução", "Dependências ausentes"],
+                      [[v.link("solution", s_, s_, in_table=True), n] for s_, n in by_sol.most_common(LIST_MAX)])]
+        catalog.write_csv(v, "Dependências ausentes.csv",
+                          [["Solução", "Componente que exige", "Tipo", "Id", "Componente exigido", "Tipo", "Id"]] +
+                          [[m["solution"], nm(m["dependent_id"], m.get("dependent_type_label") or m.get("dependent_type")),
+                            m.get("dependent_type_label") or m.get("dependent_type"), m["dependent_id"],
+                            nm(m["required_id"], m.get("required_type_label") or m.get("required_type")),
+                            m.get("required_type_label") or m.get("required_type"), m["required_id"]]
+                           for m in dsum["missing"]])
     v.write(f"{v.folder}/08 Matriz de Dependências", {"tipo": "secao", "tags": v.tags("secao")}, "\n".join(b))
 
     # ---- exportações: Excel e CSV ----
@@ -921,7 +984,7 @@ def write_environment(v, d, manifest):
                                         "tags": v.tags("secao")}, "\n".join(b))
 
 
-def write_index(v, d, manifest, fnd):
+def write_index(v, d, manifest, fnd, has_catalog=False):
     st = manifest.get("stats") or {}
     procs = d.get("processes") or []
     plugins = d.get("plugins") or {}
@@ -947,6 +1010,12 @@ def write_index(v, d, manifest, fnd):
         ["Business units / equipes", f"{st.get('security', {}).get('business_units')} / {st.get('security', {}).get('teams')}",
          None],
         ["Componentes PCF", st.get("pcf", {}).get("scope"), st.get("pcf", {}).get("org_total")],
+        ["Tabelas virtuais / provedores de dados", f"{st.get('virtual_tables', {}).get('scope', '—')} / "
+         f"{st.get('virtual_tables', {}).get('providers_used', '—')}", st.get("virtual_tables", {}).get("org_total")],
+        ["Tabelas elásticas", None, st.get("virtual_tables", {}).get("elastic_org_total")],
+        ["Catálogo (todos os componentes, todas as soluções)", f"{st.get('catalog', {}).get('types', '—')} tipos",
+         st.get("catalog", {}).get("components")],
+        ["Dependências registradas pela plataforma", None, st.get("platform_dependencies", {}).get("edges")],
     ]
     env = d.get("environment") or {}
     b = [f"# Inventário Dataverse — {v.env}", "",
@@ -965,8 +1034,11 @@ def write_index(v, d, manifest, fnd):
          *([f"- {v.link_path('07 Repositórios', 'Repositórios × ambiente')}"] if d.get("repos") else []),
          f"- {v.link_path('08 Matriz de Dependências', 'Matriz de dependências')} "
          f"([[{v.folder}/Matriz de Dependências.xlsx|Excel]])",
-         f"- {v.link_path('Mapa do Ambiente.canvas', 'Mapa do ambiente (canvas)')}", "",
+         *([f"- {v.link_path('09 Catálogo de Componentes', 'Catálogo de componentes (100%)')}"] if has_catalog else []),
+         f"- {v.link_path('Mapa do Ambiente.canvas', 'Mapa do ambiente (canvas)')}",
+         f"- {v.link_path('AGENT-INDEX', 'Índice para agentes de IA')}", "",
          "## Achados", "", f"![[{v.folder}/Bases/Achados.base]]", "",
          "## Tabelas", "", f"![[{v.folder}/Bases/Tabelas.base]]", "",
          "## Automação", "", f"![[{v.folder}/Bases/Automações.base]]", ""]
-    v.write(f"{v.folder}/00 Índice", {"tipo": "indice", "tags": v.tags("indice")}, "\n".join(b))
+    v.write(f"{v.folder}/00 Índice", {"tipo": "indice", "snapshot": manifest.get("run_id"),
+                                      "extraido_em": manifest.get("extracted_at"), "tags": v.tags("indice")}, "\n".join(b))

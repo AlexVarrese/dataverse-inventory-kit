@@ -211,3 +211,92 @@ def collect_optionsets(ctx):
         })
     ctx.stats["optionsets"] = {"org_total": len(sets), "scope": len(out)}
     ctx.data["optionsets"] = sorted(out, key=lambda x: x["name"])
+
+
+# Operações do provedor de dados virtual → coluna de plugin em entitydataprovider.
+PROVIDER_OPS = [("Retrieve", "retrieveplugin"), ("RetrieveMultiple", "retrievemultipleplugin"),
+                ("Create", "createplugin"), ("Update", "updateplugin"), ("Delete", "deleteplugin")]
+
+
+def collect_virtual_tables(ctx):
+    """Tabelas virtuais da org inteira (são poucas) + provedor de dados, plugins do provedor e fonte de dados.
+
+    Da fonte de dados (registro da tabela `datasourcelogicalname` do provedor) lê só id e nome: a
+    configuração pode ter URL e cabeçalhos de autenticação. Tabelas elásticas entram só na contagem.
+    """
+    c, scope = ctx.client, ctx.scope
+    ents = c.get_all("EntityDefinitions?$select=MetadataId,LogicalName,DisplayName,DataProviderId,DataSourceId,"
+                     "ExternalName,ExternalCollectionName,IsCustomEntity,IsManaged&$filter=TableType eq 'Virtual'")
+    providers = []
+    try:
+        sel = ",".join(["entitydataproviderid", "name", "datasourcelogicalname", "ismanaged"] + [f for _, f in PROVIDER_OPS])
+        providers = c.get_all(f"entitydataproviders?$select={sel}")
+    except Exception as e:  # noqa: BLE001
+        ctx.gap("virtual_tables", "provedores de dados (entitydataproviders)", e)
+    by_id = {(p.get("entitydataproviderid") or "").lower(): p for p in providers}
+
+    plugin_ids = {(p.get(f) or "").lower() for p in providers for _, f in PROVIDER_OPS if p.get(f)}
+    ptypes = {}
+    if plugin_ids:
+        try:
+            ptypes = c.get_many("plugintypes", "plugintypeid", sorted(plugin_ids), "typename,assemblyname")
+        except Exception as e:  # noqa: BLE001
+            ctx.gap("virtual_tables", "classes de plugin dos provedores", e)
+
+    used_ds = {(by_id.get((e.get("DataProviderId") or "").lower()) or {}).get("datasourcelogicalname")
+               for e in ents} - {None}
+    ds_names = {}
+    if used_ds:
+        meta = {}
+        try:
+            for m in c.get_all("EntityDefinitions?$select=LogicalName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute"):
+                meta[m["LogicalName"]] = m
+        except Exception as e:  # noqa: BLE001
+            ctx.gap("virtual_tables", "metadados das tabelas de fonte de dados", e)
+        for ds in sorted(used_ds):
+            m = meta.get(ds)
+            if not m or not m.get("EntitySetName"):
+                continue
+            sel = ",".join(x for x in (m["PrimaryIdAttribute"], m.get("PrimaryNameAttribute")) if x)
+            try:
+                for r in c.get_all(f"{m['EntitySetName']}?$select={sel}", max_rows=5000):
+                    ds_names[(r.get(m["PrimaryIdAttribute"]) or "").lower()] = {
+                        "table": ds, "name": r.get(m.get("PrimaryNameAttribute")) if m.get("PrimaryNameAttribute") else None}
+            except Exception as e:  # noqa: BLE001
+                ctx.gap("virtual_tables", f"registros da fonte de dados {ds} (só id e nome)", e)
+
+    def provider_rec(p):
+        ops = []
+        for op, f in PROVIDER_OPS:
+            pid = (p.get(f) or "").lower()
+            if pid:
+                t = ptypes.get(pid) or {}
+                ops.append({"operation": op, "plugintype_id": pid, "typename": t.get("typename"),
+                            "assembly": t.get("assemblyname")})
+        return {"id": p["entitydataproviderid"], "name": p.get("name"), "datasource_table": p.get("datasourcelogicalname"),
+                "managed": p.get("ismanaged"), "operations": ops}
+
+    tables = []
+    for e in sorted(ents, key=lambda x: x["LogicalName"]):
+        pid = (e.get("DataProviderId") or "").lower()
+        p = by_id.get(pid)
+        ds = ds_names.get((e.get("DataSourceId") or "").lower()) or {}
+        tables.append({
+            "id": e["MetadataId"], "logical": e["LogicalName"], "display": label(e.get("DisplayName")),
+            "custom": e.get("IsCustomEntity"), "managed": e.get("IsManaged"),
+            "external_name": e.get("ExternalName"), "external_collection": e.get("ExternalCollectionName"),
+            "provider_id": pid or None, "provider": p.get("name") if p else None,
+            "datasource_id": (e.get("DataSourceId") or "").lower() or None,
+            "datasource_table": (p or {}).get("datasourcelogicalname"), "datasource": ds.get("name"),
+            "in_scope": e["LogicalName"] in scope.tables or bool(scope.reason(e["LogicalName"], e.get("IsManaged"),
+                                                                              e["MetadataId"])),
+        })
+    used_p = {t["provider_id"] for t in tables}
+    elastic = [x["logical"] for x in ctx.data.get("_tables_index") or [] if x.get("table_type") == "Elastic"]
+    ctx.stats["virtual_tables"] = {"org_total": len(tables), "scope": sum(1 for t in tables if t["in_scope"]),
+                                   "providers": len(providers), "providers_used": len(used_p - {None}),
+                                   "elastic_org_total": len(elastic)}
+    ctx.data["virtual_tables"] = {"tables": tables,
+                                  "providers": [provider_rec(p) for p in providers
+                                                if (p.get("entitydataproviderid") or "").lower() in used_p],
+                                  "elastic": sorted(elastic)}

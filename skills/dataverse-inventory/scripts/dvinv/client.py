@@ -176,8 +176,8 @@ class Client:
             self.log.append({"path": path, "status": e.status, "ms": int((time.time() - t0) * 1000)})
             raise
 
-    def get_all(self, path):
-        """Segue @odata.nextLink até o fim."""
+    def get_all(self, path, max_rows=None):
+        """Segue @odata.nextLink até o fim (ou até max_rows linhas, se informado)."""
         t0 = time.time()
         url, out = self._url(path), []
         try:
@@ -185,6 +185,9 @@ class Client:
                 data = self._request(url)
                 out.extend(data.get("value", []))
                 url = data.get("@odata.nextLink")
+                if max_rows and len(out) >= max_rows:
+                    del out[max_rows:]
+                    break
                 if url:
                     self.check_url(url)
         except DataverseError as e:
@@ -193,6 +196,24 @@ class Client:
             raise
         self.log.append({"path": path, "status": 200, "rows": len(out), "ms": int((time.time() - t0) * 1000)})
         return out
+
+    def iter_all(self, path):
+        """Como get_all, mas entrega página a página (leituras de centenas de milhares de linhas)."""
+        t0, n = time.time(), 0
+        url = self._url(path)
+        try:
+            while url:
+                data = self._request(url)
+                rows = data.get("value", [])
+                n += len(rows)
+                yield from rows
+                url = data.get("@odata.nextLink")
+                if url:
+                    self.check_url(url)
+        except DataverseError as e:
+            self.log.append({"path": path, "status": e.status, "rows": n, "ms": int((time.time() - t0) * 1000)})
+            raise
+        self.log.append({"path": path, "status": 200, "rows": n, "ms": int((time.time() - t0) * 1000)})
 
     def get_many(self, entity_set, key, ids, select, batch=10):
         """Busca vários registros por id em lotes (`key eq a or key eq b …`) → {id_minúsculo: registro}.

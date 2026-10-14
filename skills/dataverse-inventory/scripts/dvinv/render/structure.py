@@ -10,6 +10,8 @@ from collections import Counter, defaultdict
 
 from ..dependencies import structural_teams
 
+TEAM_NOTES_MAX = 1000  # acima disso, só equipes com papel ou grupo do Entra viram nota (o resto: CSV + índice)
+TEAM_LIST_MAX = 300   # linhas de equipe no 04 Segurança
 USER_LIST_MAX = 300  # nas notas de BU/equipe/papel: além disso, só a contagem (a Base lista todos)
 
 
@@ -18,11 +20,21 @@ def _h():
     return mdtable
 
 
+def teams_with_notes(sec):
+    """Equipes que viram nota. Org com dezenas de milhares de equipes de proprietário (uma por registro/
+    usuário) geraria dezenas de milhares de notas sem análise: ficam as que carregam papel ou grupo do Entra."""
+    ts = structural_teams(sec)
+    if len(ts) <= TEAM_NOTES_MAX:
+        return ts
+    keep = [t for t in ts if t.get("roles") or t.get("aad_group")]
+    return sorted(keep, key=lambda t: -(t.get("members") or 0))[:TEAM_NOTES_MAX]
+
+
 def reserve(v, d):
     sec = d.get("security") or {}
     for b in sec.get("business_units") or []:
         v.reserve("bu", b["id"], "Business Units", b["name"])
-    for t in structural_teams(sec):
+    for t in teams_with_notes(sec):
         v.reserve("team", t["id"], "Equipes", t["name"])
     for u in d.get("users") or []:
         if u["active"]:
@@ -99,16 +111,18 @@ def write_notes(v, d, findings_block, sol_links):
         if kids:
             body += ["## BUs filhas", "", "\n".join(f"- {v.link('bu', k['id'], k['name'])}" for k in kids), ""]
         if ts:
-            body += ["## Equipes", "", mdtable(["Equipe", "Tipo", "Papéis", "Membros"],
+            body += [f"## Equipes ({len(ts)})", "", mdtable(["Equipe", "Tipo", "Papéis", "Membros"],
                      [[v.link("team", t["id"], t["name"]), t.get("type"), ", ".join(
-                         v.link("role", r, r) for r in t.get("roles") or []), t.get("members")] for t in ts])]
+                         v.link("role", r, r) for r in t.get("roles") or []), t.get("members")] for t in ts[:TEAM_LIST_MAX]])]
+            if len(ts) > TEAM_LIST_MAX:
+                body += [f"… +{len(ts) - TEAM_LIST_MAX} — ver [[{v.folder}/Equipes.csv|Equipes.csv]].", ""]
         if users:
             body += [f"## Usuários ativos ({len(us)})", "", _user_list(v, us), ""]
         body.append(findings_block("bu", b_["id"]))
         v.write(v.paths[("bu", b_["id"])], props, "\n".join(body))
 
     # ---- equipes ----
-    for t in structural_teams(sec):
+    for t in teams_with_notes(sec):
         us = users_by_team.get(t["name"], [])
         props = {"tipo": "equipe", "nome": t["name"], "tipo_equipe": t.get("type"),
                  "business_unit": v.link("bu", t.get("bu_id"), t.get("bu")) if t.get("bu_id") else t.get("bu"),
@@ -220,15 +234,23 @@ def write_security(v, d):
         [[v.link("role", r["name"], r["name"], in_table=True), r.get("managed"), r.get("scope_reason"),
           len(teams_by_role.get(r["name"], [])) if teams_known else None]
          + ([len(users_by_role.get(r["name"], []))] if users else []) for r in roles])]
+    st_teams = sorted(structural_teams(sec), key=lambda t: (not t.get("roles"), -(t.get("members") or 0), t["name"]))
+    from .catalog import write_csv
+    write_csv(v, "Equipes.csv", [["Equipe", "Tipo", "BU", "Grupo Entra ID", "Membros", "Papéis", "Id"]] + [
+        [t["name"], t.get("type"), t.get("bu"), t.get("aad_group"), t.get("members"), ", ".join(t.get("roles") or []), t["id"]]
+        for t in st_teams])
     b += ["## Equipes", "",
           *([f"> [!info] {len(access_teams)} equipe(s) de acesso (criadas por registro via access team template) "
              "ficam fora da lista e das notas.", ""] if access_teams else []),
+          f"Lista completa ({len(st_teams)}) em [[{v.folder}/Equipes.csv|Equipes.csv]]"
+          + (f"; abaixo, as {TEAM_LIST_MAX} primeiras (com papel e mais membros primeiro)." if len(st_teams) > TEAM_LIST_MAX else "."),
+          "",
           mdtable(["Equipe", "Tipo", "BU", "Grupo Entra ID", "Membros", "Papéis"],
                   [[v.link("team", t["id"], t["name"], in_table=True), t.get("type"),
                     v.link("bu", t.get("bu_id"), t.get("bu"), in_table=True) if t.get("bu_id") else t.get("bu"),
                     t.get("aad_group"), t.get("members"),
                     ", ".join(t.get("roles") or []) if t.get("roles") is not None else None]
-                   for t in structural_teams(sec)])]
+                   for t in st_teams[:TEAM_LIST_MAX]])]
     if users:
         kinds = Counter(x["kind"] for x in users)
         lic = Counter(x.get("license") or "—" for x in users)

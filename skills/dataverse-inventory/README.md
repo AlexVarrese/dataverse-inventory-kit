@@ -92,7 +92,7 @@ out/<AMBIENTE>/
       bin/  decompiled/         DLLs/decompilados de plugin (deep.plugin_binaries)
     .staging-<run_id>-*/        extração em andamento — ignorada; removida se a extração falhar
   _derived/                     saídas do render por snapshot (output.derived_dir)
-    20261009T203200Z/findings.json  dependencies.json
+    20261009T203200Z/findings.json  dependencies.json  inventario.sqlite (índice para agentes)
 ```
 
 - `extract` grava em `.staging-*` e só publica (rename atômico) no fim, depois de varrer segredos.

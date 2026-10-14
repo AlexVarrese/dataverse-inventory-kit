@@ -11,7 +11,9 @@ escopo) e depois os demais.
 |---|---|---|---|
 | environment | `RetrieveVersion()`, `WhoAmI()`, `organizations` | environment.json | — |
 | solutions | `solutions` (+publisher), `solutioncomponents` por solução | solutions.json | componentes só de soluções não gerenciadas + `scope.solutions` (Default/Active/Basic ignoradas) |
+| catalog | `GlobalOptionSetDefinitions(Name='componenttype')`, `solutioncomponentdefinitions`, `solutioncomponents` (todas as linhas, página a página), e por tipo uma leitura id + nome na tabela de origem (`EntityDefinitions` com Attributes/Keys, `RelationshipDefinitions`, `GlobalOptionSetDefinitions`, `savedqueries`, `systemforms`, `sitemaps`, `customcontrols`, `customcontrolresources`, …) | catalog.json (compacto) | **org inteira** — 100% dos componentes, inclusive soluções gerenciadas; tipos sem fonte de nome ficam sem nome (lacuna `limitação`). `msdyn_solutioncomponentsummary` não é usado: pagina devagar e estoura a URL (HTTP 414) |
 | tables | `EntityDefinitions` (+Attributes leves), depois `/Attributes` e `/Keys` por tabela, `RetrieveTotalRecordCount` | tables.json | prefixo, solução, custom não gerenciada, ou nativa com coluna customizada |
+| virtual_tables | `EntityDefinitions?$filter=TableType eq 'Virtual'` (provedor, fonte, nome externo), `entitydataproviders` (plugins por operação), `plugintypes`, registros da tabela de fonte de dados (**só id e nome** — a configuração pode ter URL e credencial) | virtual_tables.json | org inteira (são poucas); `in_scope` marca as do escopo. Elásticas: só contagem |
 | relationships | `RelationshipDefinitions/…OneToMany…` e `…ManyToMany…` (2 chamadas para a org inteira) | relationships.json | toca tabela do escopo **e** (custom ou envolve tabela custom) |
 | optionsets | `GlobalOptionSetDefinitions` | optionsets.json | custom + critério de escopo |
 | webresources | `webresourceset` (todos os nomes) + `webresourceset(id)?$select=content` | webresources.json, _webresource_names.json | prefixo/solução/não gerenciado |
@@ -30,7 +32,7 @@ escopo) e depois os demais.
 | health\* | `plugintracelogs` (todas e `exceptiondetails ne null`) | health.json | janela `plugin_trace_days` |
 | repos (`repos:`) | arquivos dos clones locais + `git rev-parse`/`log -1`; `ilspycmd` nas DLLs (se instalado) | repos.json, decompiled/ | web resources e classes do escopo |
 | field_usage\* | FetchXML `countcolumn` (≤ 50 mil registros) ou paginação `$select`; cruza forms, views (`savedqueries(id)` fetchxml/layoutxml), processos, steps, JS, repos | field_usage.json | colunas custom das tabelas do escopo ou `field_usage.tables` |
-| platform_dependencies\* | `RetrieveDependentComponents` por componente do escopo (tabelas, JS, processos, assemblies, classes, option sets, variáveis; colunas com `platform_dependencies_columns`) e `RetrieveMissingDependencies` por solução | platform_dependencies.json | componentes do escopo |
+| platform_dependencies | tabela `dependency` inteira (`dependencies?$select=…`, página a página — ESAB-TEST: 844 mil linhas em 3 min, sem 429); se negada, `RetrieveDependentComponents` por componente do escopo (comportamento até a 0.5). `RetrieveMissingDependencies` por solução não gerenciada/do escopo | platform_dependencies.json (compacto: nós + arestas) | org inteira no snapshot e no índice; a matriz do vault usa só as arestas cujo exigido está no escopo |
 | storage\* | `RetrieveTotalRecordCount` (todas), `annotations`/`activitymimeattachments`/`audits` com `$apply` groupby/aggregate | storage.json | org inteira |
 
 Além disso, com `deep.process_definitions` o coletor `processes` lê `workflows(id)?$select=xaml,clientdata`

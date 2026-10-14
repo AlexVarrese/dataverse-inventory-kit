@@ -6,8 +6,9 @@ Aresta = "A depende de B" (se B mudar ou sumir, A é afetado). Duas origens:
   conexão/variável/Custom API/child flow/host HTTP, formulário → biblioteca JS, botão → JS, JS →
   tabela/Custom API/host, Custom API → tabela/plugin, app → tabela, papel → tabela, tabela filha →
   tabela pai (lookup).
-- plataforma — RetrieveDependentComponents (deep.platform_dependencies): o que o Dataverse registra
-  e usa para bloquear exclusão.
+- plataforma — tabela `dependency` (deep.platform_dependencies): o que o Dataverse registra e usa
+  para bloquear exclusão. Na matriz entram só as arestas cujo componente exigido está no escopo; o conjunto
+  completo (centenas de milhares de arestas) vai para o índice SQLite (index.py).
 
 Saídas: _derived/<run_id>/dependencies.json (render; o diff recalcula), matriz por tabela, matriz tipo × tipo, fan-in/fan-out, órfãos.
 """
@@ -26,6 +27,7 @@ KIND_LABEL = {
     "connref": "Referência de conexão", "endpoint": "Service endpoint", "connector": "Conector (externo)",
     "host": "Host HTTP (externo)", "optionset": "Option set", "platform": "Outro (plataforma)",
     "pcf": "Componente PCF", "team": "Equipe", "bu": "Business unit",
+    "dataprovider": "Provedor de dados virtual",
 }
 # Processos são subdivididos por categoria na matriz por tabela.
 PROC_KIND = {"Workflow": "workflow", "Dialog": "workflow", "Business Rule": "businessrule", "Action": "action",
@@ -34,6 +36,10 @@ IMPACT_COLS = [("form", "Formulários"), ("webresource", "JS/web resources"), ("
                ("businessrule", "Business rules"), ("workflow", "Workflows"), ("action", "Actions"), ("bpf", "BPFs"),
                ("flow", "Cloud flows"), ("customapi", "Custom APIs"), ("app", "Apps"), ("role", "Papéis"),
                ("child_table", "Tabelas filhas"), ("platform", "Outros (plataforma)")]
+
+
+# dependency.dependencytype (rótulos da plataforma)
+DEP_TYPE = {0: "None", 1: "Solution Internal", 2: "Published", 4: "Unpublished", 8: "Shared"}
 
 
 class Graph:
@@ -246,6 +252,21 @@ def build(d):
         if r["kind"] == "1:N" and r["from"] in known_tables and r["to"] in known_tables:
             g.edge(("table", r["to"]), ("table", r["from"]), f"lookup {r.get('lookup')}")
 
+    # --- tabelas virtuais: tabela → provedor de dados → classe de plugin ---
+    asm_by_name = {a["name"]: a["name"] for a in plugins.get("assemblies") or []}
+    vt = d.get("virtual_tables") or {}
+    provs = {p["id"].lower(): p for p in vt.get("providers") or []}
+    for t in vt.get("tables") or []:
+        p = provs.get(t.get("provider_id") or "")
+        if not p or ("table", t["logical"]) not in g.nodes:
+            continue
+        pn = g.node("dataprovider", p["id"].lower(), p.get("name") or p["id"])
+        g.edge(("table", t["logical"]), pn, "dados via provedor virtual", detail=t.get("datasource"))
+        for op in p.get("operations") or []:
+            dst = (("assembly", asm_by_name[op["assembly"]]) if op.get("assembly") in asm_by_name
+                   else g.node("plugintype", op["plugintype_id"], op.get("typename") or op["plugintype_id"]))
+            g.edge(pn, dst, f"executa {op['operation']}")
+
     # --- dependências da plataforma ---
     id_index = {**{k: ("table", v) for k, v in table_ids.items()},
                 **{w["id"].lower(): ("webresource", w["name"]) for w in wrs},
@@ -255,7 +276,8 @@ def build(d):
                 **{e["id"].lower(): ("envvar", e["name"]) for e in alm.get("envvars") or []},
                 **{a["id"].lower(): ("customapi", a["unique"]) for a in apis},
                 **{a["id"].lower(): ("app", a["id"]) for k in ("modeldriven", "canvas", "bots") for a in apps.get(k) or []},
-                **{r["id"].lower(): ("role", r["name"]) for r in sec.get("roles") or [] if r.get("scope_reason")}}
+                **{r["id"].lower(): ("role", r["name"]) for r in sec.get("roles") or [] if r.get("scope_reason")},
+                **{p["id"].lower(): ("pcf", p["name"]) for p in d.get("pcf") or [] if p.get("id")}}
     for a in plugins.get("assemblies") or []:
         for t in a.get("types") or []:
             id_index[t["id"].lower()] = ("assembly", a["name"])  # classe → assembly (nota existente)
@@ -267,18 +289,43 @@ def build(d):
         if ("view", v["id"]) not in g.nodes:
             g.node("view", v["id"], f"{v['entity']} / {v['name']}", sub=v["entity"])
 
+    g.guid_index = {}  # nó do kit → GUID (o índice SQLite casa catálogo e kit por aqui)
+    for oid, node in id_index.items():
+        g.guid_index.setdefault(node, oid)  # setdefault: assembly fica com o próprio id, não o de uma classe
+    for oid, (t, c) in col_ids.items():
+        g.guid_index.setdefault(("column", f"{t}.{c}"), oid)
+
+    cat = d.get("catalog") or {}
+    cat_names, cat_types = cat.get("names") or {}, cat.get("types") or {}
+
+    def type_label(ct):
+        return (cat_types.get(str(ct)) or {}).get("name") or str(ct)
+
     def resolve(oid, ctype_label, ctype):
         if oid in id_index:
             return id_index[oid]
         if oid in col_ids:
             t, c = col_ids[oid]
             return g.node("column", f"{t}.{c}", f"{t}.{c}", sub=t)
-        return g.node("platform", oid, f"{ctype_label or ctype} {oid[:8]}", sub=ctype_label or str(ctype))
+        nm = (cat_names.get(oid) or [None, None])[1]
+        lbl = ctype_label or type_label(ctype)
+        return g.node("platform", oid, f"{lbl} {nm}" if nm else f"{lbl} {oid[:8]}", sub=lbl)
 
-    for e in (d.get("platform_dependencies") or {}).get("edges") or []:
-        src = resolve(e["dependent_id"], e.get("dependent_type_label"), e.get("dependent_type"))
-        dst = resolve(e["required_id"], e.get("required_type_label"), e.get("required_type"))
-        g.edge(src, dst, f"plataforma ({e.get('dependency_type')})", source="plataforma")
+    pd = d.get("platform_dependencies") or {}
+    if pd.get("format") == "compacto/1":
+        nodes = pd.get("nodes") or []
+        in_scope = set(id_index) | set(col_ids)
+        for a, b, dt in pd.get("edges") or []:
+            (ca, ia), (cb, ib) = nodes[a], nodes[b]
+            if ib not in in_scope:  # mesma semântica de antes (quem depende do escopo); o resto só no índice
+                continue
+            g.edge(resolve(ia, None, ca), resolve(ib, None, cb), f"plataforma ({DEP_TYPE.get(dt, dt)})",
+                   source="plataforma")
+    else:  # snapshots até a 0.5.0: lista de dicionários (RetrieveDependentComponents)
+        for e in pd.get("edges") or []:
+            src = resolve(e["dependent_id"], e.get("dependent_type_label"), e.get("dependent_type"))
+            dst = resolve(e["required_id"], e.get("required_type_label"), e.get("required_type"))
+            g.edge(src, dst, f"plataforma ({e.get('dependency_type')})", source="plataforma")
     return g
 
 

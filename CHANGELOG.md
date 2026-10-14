@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.6.0 — não lançado
+
+Inventário de **100% dos componentes** e camada de consulta para agentes de IA (impacto de evolutivas e
+rastreamento de problemas sem ler o vault inteiro). Construído sobre a 0.5.0 (ainda sem tag).
+
+Catálogo de 100% (coletor `catalog`, ligado por padrão)
+- Lê todas as linhas de `solutioncomponent` (todas as soluções, inclusive as gerenciadas da Microsoft). No
+  ESAB-TEST: 225 mil linhas, 121 mil componentes, 299 tipos.
+- Nome de cada tipo: opção global `componenttype` + `solutioncomponentdefinitions` (tipos novos, ex.
+  10249 → connectionreference) + tabela fixa para 69/80/172/181/183. Nome de cada componente: uma leitura
+  id + nome por tipo na tabela de origem (metadados via EntityDefinitions/RelationshipDefinitions).
+- Vault: `09 Catálogo de Componentes.md` (por tipo) e `Componentes.csv` (um por linha). Fora do escopo,
+  componente não vira nota — fica no CSV e no índice.
+
+Dependências da plataforma em lote (`deep.platform_dependencies`, agora ligado por padrão)
+- Lê a tabela `dependency` inteira em vez de `RetrieveDependentComponents` por componente (ESAB-TEST:
+  844 mil arestas em ~3 min, sem throttling). Se a leitura em lote for negada, volta ao método antigo e
+  declara a lacuna. Snapshot em formato compacto (nós + arestas).
+- A matriz do vault mantém a semântica anterior (quem depende de componentes do escopo); o conjunto
+  completo vai para o índice. Revela PCF usado fora de formulário (controle padrão de coluna/view).
+- `RetrieveMissingDependencies` em paralelo (`parallel`, padrão 4): eram ~780 chamadas sequenciais no
+  ESAB-TEST (6,5 min num dia normal; mais de 40 min com o servidor lento).
+
+Índice SQLite para agentes (`_derived/<run_id>/inventario.sqlite`)
+- Componentes (kit + catálogo), soluções, dependências (plataforma + inferidas), achados.
+- Novos comandos só-leitura: `buscar`, `onde-usa`, `impacto` (CTE recursiva, `--profundidade`),
+  `depende`. Saída compacta com o caminho da nota. Arestas internas de metadados (coluna → tabela) só
+  com `--internas`. Texto do banco passa pela varredura de segredos antes de publicar (fail-closed).
+- `AGENT-INDEX.md` gerado no vault: roteiro de leitura econômica, mapa de pastas e lista de arquivos
+  grandes que não devem ser lidos inteiros. `references/indice.md` documenta comandos e esquema.
+
+Tabelas virtuais (coletor `virtual_tables`)
+- Todas as tabelas virtuais da org com provedor de dados, fonte (só id e nome do registro), nome
+  externo e as classes de plugin do provedor por operação; seção na nota da tabela e em `03 Integrações`;
+  no grafo, tabela → provedor → assembly/classe. Tabelas elásticas entram na contagem.
+
+Vault enxuto
+- Sem `extraido_em` por nota: re-extrair sem mudança no ambiente não altera os arquivos (diff do Git
+  limpo). A data fica em `00 Índice`, `01 Ambiente` e `AGENT-INDEX`.
+- `08 Matriz`: "sem dependentes" limitado a 300 linhas; dependências ausentes resumidas por solução, lista
+  completa em `Dependências ausentes.csv` (com nomes do catálogo). No ESAB-TEST a nota tinha 10,8 MB.
+- `04 Segurança` e notas de BU: até 300 equipes listadas, todas em `Equipes.csv`. Com mais de 1.000
+  equipes estruturais, só as que têm papel ou grupo do Entra viram nota.
+- Web resource de terceiros ou acima de 150 KB não tem o código na nota (fica no snapshot).
+
+Correção (falso positivo desde a 0.5.0)
+- A varredura final de segredos abortava a publicação de qualquer snapshot com assembly de plugin
+  assinado: `"publickeytoken": "<16 hex>"` casava com a regra de nome terminado em `token`. Agora a
+  varredura aplica a mesma exceção que a redação já tinha (`NOT_SENSITIVE_KEYS`), **só** para o nome exato e
+  o formato fixo do .NET (16 hexadecimais); outro valor nesse campo ou outro `…token` continua barrando.
+  Achado na validação real (ESAB-TEST, 6 assemblies); a org fictícia dos testes usava token de 3 caracteres.
+
+Execução por mais de um agente
+- `AGENTS.md` na raiz do vault com bloco gerado (`<!-- dvinv:inicio -->`…`<!-- dvinv:fim -->`): ambientes,
+  `AGENT-INDEX.md`, config, comandos do índice e regras de execução; texto fora do bloco preservado.
+  `CLAUDE.md` criado com `@AGENTS.md` só se não existir (senão, aviso). Mesma instrução para Claude e Copilot.
+- Trava `out/<ambiente>/.dvinv.lock` em `extract`/`render`/`all` (Claude Code e Copilot no mesmo
+  projeto não publicam snapshots concorrentes). `INSTALL.md` explica a instalação única da skill para os dois.
+
 ## 0.5.0 — não lançado
 
 Correções de segurança e confiabilidade. **Muda a estrutura de `out/`** (ver README da skill, "Estrutura de saída").

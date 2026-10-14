@@ -22,7 +22,10 @@ DEEP_DEFAULTS = {
     "process_definitions": False,  # xaml/clientdata de workflows, business rules e actions (campos referenciados)
     "field_usage": False,          # preenchimento real por campo + matriz de uso + candidatos a remoção
     "storage": False,              # anexos (annotation/activitymimeattachment), auditoria, maiores tabelas
-    "platform_dependencies": False,          # RetrieveDependentComponents + RetrieveMissingDependencies
+    "catalog": True,               # 100% dos componentes (solutioncomponent de todas as soluções) + nome do tipo
+    "catalog_names": True,         # nome de cada componente (uma leitura id+nome por tipo; só metadados)
+    "catalog_max_rows_per_type": 200_000,  # teto de linhas lidas por tipo para dar nome
+    "platform_dependencies": True,           # tabela dependency em lote (fallback: RetrieveDependentComponents)
     "platform_dependencies_columns": False,  # idem para cada coluna custom (1 chamada por coluna — pesado)
 }
 
@@ -76,6 +79,7 @@ class Config:
     derived_dir: Path = Path("out/_derived")
     env_file: Path | None = None
     tenant_id: str | None = None
+    config_path: Path | None = None  # o próprio inventory.yaml (citado no AGENTS.md gerado)
 
     @property
     def profile_blocked(self):
@@ -136,7 +140,7 @@ def load(path, overrides=None):
     deep = dict(DEEP_DEFAULTS)
     deep.update(data.get("deep", {}) or {})
     if overrides.get("deep_all"):
-        deep = {k: True for k in deep}
+        deep = {k: (True if isinstance(v, bool) else v) for k, v in deep.items()}
     if deep.get("field_usage"):  # a matriz precisa dos campos citados em workflows/BRs e nos formulários
         deep["process_definitions"] = True
         deep["form_events"] = True
@@ -180,6 +184,7 @@ def load(path, overrides=None):
         profile=profile,
         env_file=env_file,
         tenant_id=auth.get("tenant_id") or os.environ.get("TENANT_ID"),
+        config_path=path.resolve(),
     )
     if not (cfg.prefixes or cfg.solutions or cfg.include_unmanaged or cfg.scope_all):
         raise SystemExit("Defina scope.prefixes, scope.solutions, scope.include_unmanaged ou scope.all")

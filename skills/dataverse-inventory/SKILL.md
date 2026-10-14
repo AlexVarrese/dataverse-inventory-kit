@@ -1,7 +1,12 @@
 ---
 name: dataverse-inventory
-description: Inventaria ambientes Dataverse/D365 num vault Obsidian.
-version: 0.4.0
+description: >-
+  Inventário read-only de 100% dos componentes de um ambiente Dataverse / Dynamics 365 / Power Platform
+  num vault Obsidian, com índice SQLite para análise de impacto. Use para levantamento ou assessment de
+  ambiente, documentar customizações, gap TEST × PRD, e para responder "o que é impactado se eu mudar X?",
+  "onde este campo/JS/plugin é usado?" ou rastrear um problema até os componentes envolvidos (tabelas,
+  colunas, formulários, JS, plugins, workflows, business rules, flows, PCF, tabelas virtuais, apps, segurança).
+version: 0.6.0
 author: Alex Giovani Varrese (alexvarrese)
 license: MIT
 platforms: [linux, macos, windows]
@@ -13,12 +18,15 @@ metadata:
 
 # Inventário de ambiente Dataverse → Obsidian
 
-Levantamento **read-only** e repetível de tudo que um cliente customizou num ambiente Dataverse /
-Dynamics 365 / Power Platform: tabelas, colunas, relacionamentos, formulários, views, web resources,
+Levantamento **read-only** e repetível em três camadas: (1) **catálogo de 100% dos componentes** do
+ambiente (todas as soluções, inclusive as gerenciadas da Microsoft, com tipo e nome), (2) **nota com
+análise** para o que o cliente customizou e (3) **índice SQLite** com todas as dependências registradas
+pela plataforma + as inferidas pelo kit, para análise de impacto barata. O que entra na camada 2: tabelas, colunas, relacionamentos, formulários, views, web resources,
 ribbons, plugins (assemblies, classes, steps, imagens), Custom APIs, service endpoints, workflows,
 business rules, actions, BPFs, cloud/desktop flows, apps model-driven, canvas, agentes Copilot
-Studio, variáveis de ambiente, referências de conexão, conectores, soluções, segurança (BUs, papéis,
-privilégios, equipes, usuários) e saúde de execução (plugin trace). O resultado é um vault Obsidian
+Studio, componentes PCF, tabelas virtuais (provedor de dados, fonte e classes de plugin), variáveis de
+ambiente, referências de conexão, conectores, soluções, segurança (BUs, papéis, privilégios, equipes,
+usuários) e saúde de execução (plugin trace). O resultado é um vault Obsidian
 com uma nota por componente, Bases, um Canvas do ambiente e achados automáticos rastreáveis.
 
 ## Quando usar
@@ -56,6 +64,7 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
 - `references/collectors.md` — o que cada coletor lê e as armadilhas da Web API já resolvidas.
 - `references/vault-schema.md` — estrutura do vault e properties de cada tipo de nota.
 - `references/findings.md` — regras dos achados automáticos e como validá-los.
+- `references/indice.md` — índice SQLite: comandos `buscar`/`onde-usa`/`impacto`/`depende` e esquema.
 - `PROMPT.md` — prompt equivalente para agentes sem suporte a skills.
 
 ## Procedimento
@@ -98,17 +107,24 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    Se o cliente só autoriza leitura de metadados, use `--profile metadata_only` (ou `profile: metadata_only`
    no YAML): conteúdo de web resources/flows/processos, binários, uso de campos, storage, plugin trace e
    membros de equipe ficam desligados mesmo com `--deep`.
-   A **matriz de dependências** (componente × componente) é gerada sempre a partir do que foi
-   coletado; `deep.platform_dependencies` acrescenta o que o próprio Dataverse registra
-   (RetrieveDependentComponents) e as dependências ausentes de cada solução (RetrieveMissingDependencies).
+   O **catálogo** (`catalog`, ligado por padrão) lê todas as linhas de `solutioncomponent` e dá nome a
+   cada tipo e componente (só id + nome, nunca conteúdo). As **dependências da plataforma**
+   (`deep.platform_dependencies`, ligado por padrão) vêm da tabela `dependency` lida em lote — todas as
+   do ambiente; se a leitura em lote for negada, o kit cai para RetrieveDependentComponents por
+   componente do escopo e declara a lacuna. A matriz no vault mostra só o que aponta para o escopo; o
+   conjunto completo vai para o índice.
 6. **Renderizar:** `python3 <skill>/scripts/dvinv.py render -c inventory.yaml` (último snapshot íntegro;
-   `--snapshot <run_id>` para outro). Achados e dependências vão para `_derived/<run_id>/`. Re-renderizar é
+   `--snapshot <run_id>` para outro). Achados, dependências e o índice `inventario.sqlite` vão para
+   `_derived/<run_id>/`; o vault ganha `AGENT-INDEX.md` (entrada para agentes), `09 Catálogo de
+   Componentes.md` e `Componentes.csv`. Na raiz do vault, o bloco `dvinv` do `AGENTS.md` é atualizado e o
+   `CLAUDE.md` (`@AGENTS.md`) é criado se faltar — nunca altere o texto do time fora do bloco. Re-renderizar é
    seguro: o conteúdo abaixo do marcador `%% dvinv:manual … %%` e as properties `status`,
    `responsavel`, `decisao`, `prazo` e `revisado` são preservados.
 7. **Camada de análise (o seu trabalho, não do script).**
-   - Leia `00 Índice.md`, `01 Ambiente.md` (lacunas!) e cada nota em `Achados/`.
-   - Para análise de impacto ("o que quebra se eu mudar X?"), use `08 Matriz de Dependências.md`, a seção
-     **Dependências** (depende de / usado por) de cada nota e `Matriz de Dependências.xlsx` para o cliente.
+   - Comece por `AGENT-INDEX.md`; depois `00 Índice.md`, `01 Ambiente.md` (lacunas!) e as notas em `Achados/`.
+   - Impacto e rastreamento ("o que quebra se eu mudar X?", "onde este campo é usado?"): **use o índice**
+     (`references/indice.md`) — `dvinv.py onde-usa <alvo>`, `impacto <alvo>`, `depende <alvo>`, `buscar <texto>` —
+     e abra só as notas que o resultado indicar. Não leia `08 Matriz de Dependências.md` nem os CSVs inteiros.
    - Valide cada achado antes de afirmá-lo: abra o JS, consulte via MCP, `dv-metadata` (schema) ou
      `dv-query` (dados), use `dv-solution` para exportar a solução quando precisar do XML, e cruze com o
      repositório de código quando houver. Vários achados são **candidatos** (ver `references/findings.md`).
@@ -123,6 +139,10 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    já validados, lacunas e próximos passos. Sem números digitados à mão nem score decorativo.
 
 ## Regras
+
+- Uma execução por ambiente de cada vez: `extract`/`render`/`all` criam a trava `<out>/<ambiente>/.dvinv.lock`.
+  Se dois agentes (ex. Claude Code e GitHub Copilot) estiverem no mesmo projeto, o segundo recebe erro e
+  deve esperar — não apague a trava de uma execução em andamento.
 
 - Read-only por design: o cliente HTTP só tem GET. Não use este pacote como pretexto para escrever no ambiente.
 - Segredos encontrados (SAS `sig=`, `code=`/`api_key=`/`access_token=` em URL, headers
