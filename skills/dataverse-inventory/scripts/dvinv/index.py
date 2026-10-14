@@ -1,13 +1,13 @@
-"""Índice SQLite do inventário — a camada que a IA consulta para impacto e rastreamento.
+"""Cache SQLite opcional do inventário (`render --sqlite` ou `output.sqlite: true`), para SQL ad hoc.
 
-O vault (Markdown) é para leitura humana e contexto; perguntas estruturais ("quem depende de X?",
-"onde a coluna Y é usada?") custam milhares de tokens se respondidas lendo notas. Aqui viram uma
-consulta que devolve poucas linhas, com o caminho da nota de cada resultado.
+O produto é o vault: as consultas de impacto (`dvinv onde-usa/impacto/depende/buscar`) leem
+Componentes.csv e Dependências.csv do próprio vault (consulta.py) e funcionam em qualquer clone do
+repositório. Este banco acrescenta o que não vai para o vault — TODAS as arestas da plataforma, inclusive
+nativo → nativo e as internas de metadados — para análises em SQL na máquina de quem extraiu.
 
-Gerado no render, junto com findings.json/dependencies.json: `_derived/<run_id>/inventario.sqlite`.
-Fica FORA do vault (binário, regenerável a partir do snapshot, não deve ir para o Git) e tem a mesma
-sensibilidade do vault. Antes de publicar, todo texto do banco passa pela varredura de segredos
-(fail-closed, como os demais arquivos gerados).
+Fica em `_derived/<run_id>/inventario.sqlite`, FORA do vault (binário de centenas de MB, regenerável,
+não deve ir para o Git) e tem a mesma sensibilidade do vault. Antes de publicar, todo texto do banco passa
+pela varredura de segredos (fail-closed, como os demais arquivos gerados).
 
 Tabelas:
   tipos(ct, nome, fonte, tabela)
@@ -24,7 +24,6 @@ import sqlite3
 from pathlib import Path
 
 from . import secrets
-from . import snapshot as snapshot_mod
 
 DB_NAME = "inventario.sqlite"
 SCHEMA_VERSION = "1"
@@ -79,7 +78,7 @@ class _Builder:
 
 def build(path, d, graph, v, fnd):
     """Grava o índice em `path`. d = snapshot carregado; graph = dependencies.build(d); v = Vault (caminhos)."""
-    from .dependencies import DEP_TYPE, KIND_LABEL
+    from .dependencies import DEP_TYPE, KIND_LABEL, structural_teams
 
     path = Path(path)
     if path.exists():
@@ -136,8 +135,9 @@ def build(path, d, graph, v, fnd):
                 b.comp(chave, guid=oid, ct=ct, tipo=tipo_de(ct))
             return b.ids[chave]
         nm = names.get(oid) or [ct, None, None]
-        return b.comp(chave, guid=oid, ct=ct if ct is not None else nm[0], tipo=tipo_de(ct if ct is not None else nm[0]),
-                      nome=nm[1], pai=nm[2])
+        # chave = GUID: não grava o GUID de novo (eram ~600 mil linhas com o valor duplicado e indexado duas vezes)
+        return b.comp(chave, guid=oid if chave != oid else None, ct=ct if ct is not None else nm[0],
+                      tipo=tipo_de(ct if ct is not None else nm[0]), nome=nm[1], pai=nm[2])
 
     scope_sols = set()
     for s in d.get("solutions") or []:
@@ -178,6 +178,17 @@ def build(path, d, graph, v, fnd):
                        nome=node.get("label"))
         fonte = "inferida" if "inferida" in e["source"] else "plataforma"
         dep_rows.append((b.ids[ks], b.ids[kt], rel, fonte, 0, e.get("detail") if isinstance(e.get("detail"), str) else None))
+    # equipes fora do grafo (org com dezenas de milhares de equipes de proprietário): todas entram no índice
+    for t in structural_teams((d.get("security") or {})):
+        k = f"team:{t['id']}"
+        if k in b.ids:
+            continue
+        tid = b.comp(k, tipo=KIND_LABEL["team"], nome=t.get("name"), no_escopo=True)
+        for rn in t.get("roles") or []:
+            if f"role:{rn}" in b.ids:
+                dep_rows.append((tid, b.ids[f"role:{rn}"], "recebe papel", "inferida", 0, None))
+        if t.get("bu_id") and f"bu:{t['bu_id']}" in b.ids:
+            dep_rows.append((tid, b.ids[f"bu:{t['bu_id']}"], "pertence a", "inferida", 0, None))
     con.executemany("INSERT INTO dependencias VALUES (?,?,?,?,?,?)", dep_rows)
 
     # 4) achados → componente
@@ -188,6 +199,7 @@ def build(path, d, graph, v, fnd):
                         (f["id"], f.get("severity"), f.get("title"), f.get("rule"), b.ids.get(f"{kind}:{key}")))
     con.executescript(INDEXES)
     con.commit()
+    con.execute("VACUUM")
     con.close()
     assert_clean_db(path)
     return path
@@ -218,125 +230,9 @@ def assert_clean_db(path):
 
 
 # ---------------------------------------------------------------------------------------------
-# consultas (CLI: buscar, onde-usa, impacto, depende)
-
-def locate(cfg, explicit=None):
-    """Índice do último render (ou o caminho/run_id informado)."""
-    if explicit:
-        p = Path(explicit)
-        if p.is_file():
-            return p
-        p = Path(cfg.derived_dir) / explicit / DB_NAME
-        if p.is_file():
-            return p
-        raise SystemExit(f"índice não encontrado: {explicit}")
-    root = Path(cfg.derived_dir)
-    runs = sorted((x for x in root.iterdir() if x.is_dir() and snapshot_mod.RUN_ID_RE.match(x.name)),
-                  key=lambda x: x.name) if root.exists() else []
-    for r in reversed(runs):
-        if (r / DB_NAME).is_file():
-            return r / DB_NAME
-    raise SystemExit(f"nenhum índice em {root} — rode 'render' (dvinv 0.6+)")
-
+# leitura (SQL ad hoc). As consultas do dia a dia (`onde-usa`, `impacto`…) leem os CSVs do vault: consulta.py
 
 def connect(path):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     return con
-
-
-def find(con, termo, limit=20):
-    """Resolve o termo: chave exata, GUID, nome exato, `tabela.coluna`, ou trecho do nome."""
-    t = termo.strip()
-    for sql, arg in (("chave = ?", t), ("guid = ?", t.lower()), ("chave = ?", f"column:{t}"),
-                     ("chave = ?", f"table:{t}"), ("nome = ? COLLATE NOCASE", t)):
-        rows = con.execute(f"SELECT * FROM componentes WHERE {sql} ORDER BY no_escopo DESC LIMIT ?", (arg, limit)).fetchall()
-        if rows:
-            return rows
-    return con.execute("SELECT * FROM componentes WHERE nome LIKE ? OR chave LIKE ? ORDER BY no_escopo DESC, "
-                       "length(nome) LIMIT ?", (f"%{t}%", f"%{t}%", limit)).fetchall()
-
-
-def _walk(con, start, direction, depth, internas, limit):
-    near, far = ("origem", "destino") if direction == "impacto" else ("destino", "origem")
-    filt = "" if internas else "AND d.interna = 0"
-    sql = f"""
-    WITH RECURSIVE w(id, nivel) AS (
-        SELECT d.{near}, 1 FROM dependencias d WHERE d.{far} = :s {filt}
-        UNION
-        SELECT d.{near}, w.nivel + 1 FROM dependencias d JOIN w ON d.{far} = w.id
-        WHERE w.nivel < :p {filt}
-    )
-    SELECT c.*, MIN(w.nivel) AS nivel FROM w JOIN componentes c ON c.id = w.id
-    WHERE c.id != :s GROUP BY c.id ORDER BY nivel, c.no_escopo DESC, c.tipo, c.nome
-    """
-    rows = con.execute(sql, {"s": start, "p": depth}).fetchall()
-    rel = {}
-    if rows:
-        ids = [r["id"] for r in rows[:limit]]
-        q = ",".join("?" * len(ids))
-        # relação só da ligação direta com o alvo (nível 1); níveis seguintes chegam por outro componente
-        for r in con.execute(f"SELECT {near} AS id, relacao FROM dependencias WHERE {far} = ? AND {near} IN ({q})",
-                             [start, *ids]):
-            rel.setdefault(r["id"], set()).add(f"{r['relacao']}")
-    return rows, rel
-
-
-def _fmt_comp(r):
-    nome = r["nome"] or r["chave"]
-    return f"{nome} [{r['tipo'] or '?'}]" + (" ·escopo" if r["no_escopo"] else "")
-
-
-def _choose(con, termo, out):
-    rows = find(con, termo)
-    if not rows:
-        out.append(f"nada encontrado para '{termo}' — tente `buscar`")
-        return None
-    exact = [r for r in rows if r["chave"] in (termo, f"column:{termo}", f"table:{termo}") or r["guid"] == termo.lower()
-             or (r["nome"] or "").lower() == termo.lower()]
-    if len(exact) == 1 or len(rows) == 1:
-        return (exact or rows)[0]
-    out.append(f"'{termo}' é ambíguo — use a chave:")
-    out += [f"  {r['chave']}  {_fmt_comp(r)}" for r in rows]
-    return None
-
-
-def cmd_buscar(con, termo, limit=30):
-    out = []
-    for r in find(con, termo, limit):
-        n_in = con.execute("SELECT count(*) FROM dependencias WHERE destino = ? AND interna = 0", (r["id"],)).fetchone()[0]
-        n_out = con.execute("SELECT count(*) FROM dependencias WHERE origem = ? AND interna = 0", (r["id"],)).fetchone()[0]
-        out.append(f"{r['chave']} | {_fmt_comp(r)} | dependentes {n_in} · depende de {n_out}"
-                   + (f" | {r['nota']}" if r["nota"] else ""))
-    return "\n".join(out) or f"nada encontrado para '{termo}'"
-
-
-def cmd_walk(con, termo, direction, depth=1, internas=False, limit=150):
-    out = []
-    alvo = _choose(con, termo, out)
-    if alvo is None:
-        return "\n".join(out)
-    rows, rel = _walk(con, alvo["id"], direction, depth, internas, limit)
-    verbo = "dependem de" if direction == "impacto" else "é exigido por"
-    head = (f"# {'Impacto' if direction == 'impacto' else 'Dependências'} — {_fmt_comp(alvo)} ({alvo['chave']})"
-            + (f"\nnota: {alvo['nota']}" if alvo["nota"] else ""))
-    if not rows:
-        return head + f"\nnenhum componente {verbo} este (profundidade {depth}"\
-                      f"{', sem arestas internas' if not internas else ''})"
-    resumo = {}
-    for r in rows:
-        k = (r["nivel"], r["tipo"] or "?")
-        resumo[k] = resumo.get(k, 0) + 1
-    out = [head, f"{len(rows)} componente(s) — {'quem depende' if direction == 'impacto' else 'do que depende'} "
-                 f"(profundidade {depth}; {'com' if internas else 'sem'} arestas internas de metadados)", "",
-           "nível | tipo | qtde"] + [f"{n} | {t} | {q}" for (n, t), q in sorted(resumo.items(), key=lambda x: (x[0][0], -x[1]))]
-    out += ["", "nível | componente | relação | nota"]
-    for r in rows[:limit]:
-        how = ", ".join(sorted(rel.get(r["id"], []))) or "(indireto)"
-        out.append(f"{r['nivel']} | {_fmt_comp(r)} | {how[:120]} | {r['nota'] or '—'}")
-    if len(rows) > limit:
-        out.append(f"… +{len(rows) - limit} (use --limite; os do escopo vêm primeiro)")
-    ach = con.execute("SELECT id, severidade, titulo FROM achados WHERE componente = ?", (alvo["id"],)).fetchall()
-    if ach:
-        out += ["", "achados do alvo:"] + [f"  {a['id']} ({a['severidade']}) {a['titulo']}" for a in ach]
-    return "\n".join(out)

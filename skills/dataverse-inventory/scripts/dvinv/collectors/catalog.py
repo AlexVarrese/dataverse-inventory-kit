@@ -40,7 +40,6 @@ CLASSIC = {
     61: ("webresourceset", "webresourceid", "name", None),
     62: ("sitemaps", "sitemapid", "sitemapname", None),
     63: ("connectionroles", "connectionroleid", "name", None),
-    64: ("complexcontrols", "complexcontrolid", "name", None),
     65: ("hierarchyrules", "hierarchyruleid", "name", "primaryentitylogicalname"),
     66: ("customcontrols", "customcontrolid", "name", None),
     68: ("customcontroldefaultconfigs", "customcontroldefaultconfigid", "primaryentitytypecode", None),

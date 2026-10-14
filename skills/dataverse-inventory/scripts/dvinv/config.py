@@ -80,6 +80,9 @@ class Config:
     env_file: Path | None = None
     tenant_id: str | None = None
     config_path: Path | None = None  # o próprio inventory.yaml (citado no AGENTS.md gerado)
+    sqlite: bool = False             # cache SQLite em _derived/ (SQL ad hoc); o vault não depende dele
+    xlsx: bool = True                # Matriz de Dependências.xlsx no vault (binário: desligue se o vault vai para Git)
+    repo: bool = False               # vault_root é um repositório de conhecimento: README/.gitignore/.gitattributes
 
     @property
     def profile_blocked(self):
@@ -185,6 +188,9 @@ def load(path, overrides=None):
         env_file=env_file,
         tenant_id=auth.get("tenant_id") or os.environ.get("TENANT_ID"),
         config_path=path.resolve(),
+        sqlite=bool(overrides.get("sqlite") or out.get("sqlite", False)),
+        xlsx=bool(out.get("xlsx", not out.get("repo", False))),  # em modo repositório, sem planilha por padrão
+        repo=bool(out.get("repo", False)),
     )
     if not (cfg.prefixes or cfg.solutions or cfg.include_unmanaged or cfg.scope_all):
         raise SystemExit("Defina scope.prefixes, scope.solutions, scope.include_unmanaged ou scope.all")

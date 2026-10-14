@@ -2,7 +2,7 @@
 name: dataverse-inventory
 description: >-
   Inventário read-only de 100% dos componentes de um ambiente Dataverse / Dynamics 365 / Power Platform
-  num vault Obsidian, com índice SQLite para análise de impacto. Use para levantamento ou assessment de
+  num vault Obsidian publicável em repositório, com índice textual (CSV) para análise de impacto. Use para levantamento ou assessment de
   ambiente, documentar customizações, gap TEST × PRD, e para responder "o que é impactado se eu mudar X?",
   "onde este campo/JS/plugin é usado?" ou rastrear um problema até os componentes envolvidos (tabelas,
   colunas, formulários, JS, plugins, workflows, business rules, flows, PCF, site maps, SLAs, tabelas virtuais,
@@ -21,8 +21,9 @@ metadata:
 
 Levantamento **read-only** e repetível em três camadas: (1) **catálogo de 100% dos componentes** do
 ambiente (todas as soluções, inclusive as gerenciadas da Microsoft, com tipo e nome), (2) **nota com
-análise** para o que o cliente customizou e (3) **índice SQLite** com todas as dependências registradas
-pela plataforma + as inferidas pelo kit, para análise de impacto barata. O que entra na camada 2: tabelas, colunas, relacionamentos, formulários, views, web resources,
+análise** para o que o cliente customizou e (3) **índice textual** no próprio vault (`Componentes.csv` +
+`Dependências.csv`, com chave e GUID) para análise de impacto barata — o vault é o produto e pode ser
+publicado num repositório para o time consultar. O que entra na camada 2: tabelas, colunas, relacionamentos, formulários, views, web resources,
 ribbons, plugins (assemblies, classes, steps, imagens), Custom APIs, service endpoints, workflows,
 business rules, actions, BPFs, cloud/desktop flows, apps model-driven, canvas, agentes Copilot
 Studio, site maps (navegação de cada app), SLAs (itens, KPIs, campos das condições, horário comercial),
@@ -66,7 +67,7 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
 - `references/collectors.md` — o que cada coletor lê e as armadilhas da Web API já resolvidas.
 - `references/vault-schema.md` — estrutura do vault e properties de cada tipo de nota.
 - `references/findings.md` — regras dos achados automáticos e como validá-los.
-- `references/indice.md` — índice SQLite: comandos `buscar`/`onde-usa`/`impacto`/`depende` e esquema.
+- `references/indice.md` — consultas de impacto: grep nos CSVs do vault e `buscar`/`onde-usa`/`impacto`/`depende`.
 - `PROMPT.md` — prompt equivalente para agentes sem suporte a skills.
 
 ## Procedimento
@@ -116,17 +117,19 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    componente do escopo e declara a lacuna. A matriz no vault mostra só o que aponta para o escopo; o
    conjunto completo vai para o índice.
 6. **Renderizar:** `python3 <skill>/scripts/dvinv.py render -c inventory.yaml` (último snapshot íntegro;
-   `--snapshot <run_id>` para outro). Achados, dependências e o índice `inventario.sqlite` vão para
-   `_derived/<run_id>/`; o vault ganha `AGENT-INDEX.md` (entrada para agentes), `09 Catálogo de
-   Componentes.md` e `Componentes.csv`. Na raiz do vault, o bloco `dvinv` do `AGENTS.md` é atualizado e o
+   `--snapshot <run_id>` para outro). Achados e dependências vão para `_derived/<run_id>/` (com `--sqlite`,
+   também o cache `inventario.sqlite`); o vault ganha `AGENT-INDEX.md` (entrada para agentes), `09 Catálogo de
+   Componentes.md`, `Componentes.csv` e `Dependências.csv`. Notas de extrações anteriores sem curadoria são
+   removidas; com curadoria, ficam listadas em `Notas fora do inventário atual.md`. Na raiz do vault, o bloco `dvinv` do `AGENTS.md` é atualizado e o
    `CLAUDE.md` (`@AGENTS.md`) é criado se faltar — nunca altere o texto do time fora do bloco. Re-renderizar é
    seguro: o conteúdo abaixo do marcador `%% dvinv:manual … %%` e as properties `status`,
    `responsavel`, `decisao`, `prazo` e `revisado` são preservados.
 7. **Camada de análise (o seu trabalho, não do script).**
    - Comece por `AGENT-INDEX.md`; depois `00 Índice.md`, `01 Ambiente.md` (lacunas!) e as notas em `Achados/`.
-   - Impacto e rastreamento ("o que quebra se eu mudar X?", "onde este campo é usado?"): **use o índice**
-     (`references/indice.md`) — `dvinv.py onde-usa <alvo>`, `impacto <alvo>`, `depende <alvo>`, `buscar <texto>` —
-     e abra só as notas que o resultado indicar. Não leia `08 Matriz de Dependências.md` nem os CSVs inteiros.
+   - Impacto e rastreamento ("o que quebra se eu mudar X?", "onde este campo é usado?"): **use os CSVs do
+     vault** (`references/indice.md`) — `grep ";<chave>;" Dependências.csv` ou `dvinv.py onde-usa|impacto|depende|buscar
+     <alvo> --vault <pasta do ambiente>` — e abra só as notas que o resultado indicar. Não leia
+     `08 Matriz de Dependências.md` nem os CSVs inteiros.
    - Valide cada achado antes de afirmá-lo: abra o JS, consulte via MCP, `dv-metadata` (schema) ou
      `dv-query` (dados), use `dv-solution` para exportar a solução quando precisar do XML, e cruze com o
      repositório de código quando houver. Vários achados são **candidatos** (ver `references/findings.md`).

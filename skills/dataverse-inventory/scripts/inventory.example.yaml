@@ -66,3 +66,8 @@ output:
   # derived_dir: out/CLIENTE-PRD/_derived # achados/dependências por snapshot (padrão: irmão de raw_dir)
   vault_root: ./vault                     # raiz do vault Obsidian (pode ser um vault já existente)
   vault_folder: Dataverse/CLIENTE-PRD     # pasta dentro do vault
+  # Vault publicado como repositório de conhecimento (um por unidade de negócio; vários ambientes dentro):
+  # vault_root: ../<programa>-<unidade>-knowledge   # a pasta do repositório (clone do remoto)
+  # repo: true          # README/.gitignore/.gitattributes com bloco dvinv + resumo do `git status` no fim do render
+  # xlsx: false         # padrão em modo repositório: sem a planilha binária (o CSV tem tudo)
+  # sqlite: false       # cache SQLite com todas as arestas da plataforma, em derived_dir (nunca no vault)

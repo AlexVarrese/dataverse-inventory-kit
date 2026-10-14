@@ -17,10 +17,10 @@ skills, há um prompt equivalente.
 
 - **Catálogo de 100% dos componentes** do ambiente (todas as soluções, inclusive as gerenciadas), com
   tipo e nome, em `Componentes.csv` e no índice — sem virar dezenas de milhares de notas.
-- **Índice SQLite para agentes de IA** com todas as dependências registradas pela plataforma (tabela
-  `dependency`) e as inferidas pelo kit: `dvinv buscar`, `onde-usa`, `impacto`, `depende` respondem
-  "o que é impactado se eu mudar X?" em poucas linhas, com o caminho da nota — sem ler o vault inteiro.
-  O vault traz um `AGENT-INDEX.md` com o roteiro de leitura econômica (Claude Code, Copilot, Hermes…).
+- **Vault publicável em repositório, consultável por qualquer agente**: `Dependências.csv` e `Componentes.csv`
+  (chave e GUID do Dataverse) respondem "o que é impactado se eu mudar X?" com um grep ou com
+  `dvinv onde-usa|impacto|depende|buscar --vault <pasta>`, em poucas linhas e com o caminho da nota — sem ler
+  o vault inteiro e sem binário. `AGENT-INDEX.md` e o bloco no `AGENTS.md` orientam Claude Code, Copilot e Hermes.
 - **Tabelas virtuais**: provedor de dados, fonte e classes de plugin por operação.
 - **Site maps e SLAs**: navegação de cada app (área → grupo → subárea → destino) e SLAs com itens, KPIs
   e as colunas usadas nas condições — entram na análise de impacto.

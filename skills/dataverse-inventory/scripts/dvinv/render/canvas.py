@@ -86,5 +86,7 @@ def write_map(v, d):
             for h in p.get("http_hosts") or []:
                 edge(("table", t), ("integ", f"HTTP {h}"), "flow HTTP")
 
+    edges.sort(key=lambda e: (e['fromNode'], e['toNode'], e['id']))  # ordem estável: diff do Git limpo
+
     body = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False, indent=1)
     v.write(f"{v.folder}/Mapa do Ambiente.canvas", None, body, raw=True)

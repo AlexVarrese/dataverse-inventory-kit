@@ -66,8 +66,9 @@ def block(envs):
         *rows,
         "",
         "1. Antes de responder sobre componentes, impacto ou problemas, abra o `AGENT-INDEX.md` do ambiente.",
-        "2. Impacto e rastreamento pelo índice, não lendo notas: "
-        "`python3 <skill>/scripts/dvinv.py onde-usa|impacto|depende|buscar <alvo> -c <config>`. "
+        "2. Impacto e rastreamento pelos CSVs da pasta do ambiente, não lendo notas: "
+        "`grep \";<chave>;\" Dependências.csv`, `grep -i <nome> Componentes.csv` ou "
+        "`python3 <skill>/scripts/dvinv.py onde-usa|impacto|depende|buscar <alvo> --vault <pasta>`. "
         "Não leia inteiros a Matriz de Dependências nem os CSVs.",
         "3. Reprocessar (`extract`/`render`/`all`) só a pedido explícito do usuário, com o config da tabela. "
         "Não crie outro `inventory*.yaml` nem mude a URL de um existente. Uma execução por ambiente "
@@ -85,8 +86,75 @@ def _atomic_write(path, text):
     os.replace(tmp, path)
 
 
-def update_root(vault_root):
-    """Atualiza AGENTS.md (bloco) e cria CLAUDE.md se faltar. Devolve avisos para o usuário."""
+GIT_BEGIN, GIT_END = "# dvinv:inicio — bloco gerado pelo dataverse-inventory-kit; escreva fora dele", "# dvinv:fim"
+
+GITIGNORE = """# estado local do Obsidian (cada pessoa tem o seu)
+.obsidian/workspace*.json
+.obsidian/cache
+.trash/
+# cópias de trabalho do render (removidas no fim; sobram só se o processo for interrompido)
+.dvinv-render-*/
+.*.dvinv-old-*/
+# nunca versionar credenciais
+.env
+.env.*"""
+
+GITATTRIBUTES = """*.md text eol=lf
+*.csv text eol=lf linguist-generated=true
+*.base text eol=lf
+*.canvas text eol=lf linguist-generated=true
+*.xlsx binary"""
+
+
+def _managed(path, begin, end, body, header=""):
+    """Escreve/atualiza só o trecho entre begin/end; o resto do arquivo é do time. → aviso ou None."""
+    blk = f"{begin}\n{body}\n{end}"
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        i, j = text.find(begin), text.find(end)
+        if i >= 0 and j > i:
+            new = text[:i] + blk + text[j + len(end):]
+        elif i >= 0 or j >= 0:
+            return f"{path}: marcador dvinv incompleto — bloco não atualizado (corrija à mão)"
+        else:
+            new = text.rstrip() + "\n\n" + blk + "\n"
+    else:
+        new = (header + blk + "\n") if header else blk + "\n"
+    if not path.exists() or new != path.read_text(encoding="utf-8"):
+        _atomic_write(path, new)
+    return None
+
+
+def readme_block(root, envs):
+    rows = [f"| {e['ambiente']} | {e.get('url') or '—'} | {e.get('snapshot') or '—'} | "
+            f"[AGENT-INDEX]({e['path'].replace(' ', '%20')}) |" for e in envs]
+    return "\n".join([
+        f"## Inventário Dataverse ({len(envs)} ambiente(s))",
+        "",
+        "Vault Obsidian gerado pelo `dataverse-inventory-kit` (`dvinv`), **somente leitura** do ambiente. Cada pasta",
+        "`Dataverse/<ambiente>/` traz uma nota por componente customizado, achados automáticos, Bases e o índice",
+        "textual de impacto (`Componentes.csv`, `Dependências.csv`).",
+        "",
+        "| Ambiente | URL | Snapshot (UTC) | Entrada |",
+        "|---|---|---|---|",
+        *rows,
+        "",
+        "**Como consultar**",
+        "",
+        "- Obsidian: abra esta pasta como vault; comece por `Dataverse/<ambiente>/00 Índice.md`.",
+        "- Onde um campo/componente é usado: `grep \";column:<tabela>.<coluna>;\" Dataverse/<ambiente>/Dependências.csv`",
+        "  ou `python3 <skill>/scripts/dvinv.py onde-usa <tabela>.<coluna> --vault Dataverse/<ambiente>`.",
+        "- Agentes (Copilot, Claude): seguem o `AGENTS.md` desta pasta.",
+        "",
+        "**Não está neste repositório**: snapshot bruto da extração (código completo de web resources, definições de",
+        "flows), credenciais e o cache SQLite — ficam na máquina/pipeline que extraiu. Atualizações chegam por um novo",
+        "`render`; revise o diff antes do commit (componentes novos, alterados e removidos do ambiente).",
+    ])
+
+
+def update_root(vault_root, repo=False):
+    """Atualiza AGENTS.md (bloco) e cria CLAUDE.md se faltar; em modo repositório, também README.md,
+    .gitignore e .gitattributes (só os blocos dvinv). Devolve avisos para o usuário."""
     root = Path(vault_root)
     envs = environments(root)
     if not envs:
@@ -111,6 +179,15 @@ def update_root(vault_root):
         new = "# Instruções para agentes\n\n" + blk + "\n"
     if not agents.exists() or new != agents.read_text(encoding="utf-8"):
         _atomic_write(agents, new)
+    if repo:
+        title = f"# {root.resolve().name}\n\n"
+        for path, begin, end, body, header in (
+                (root / "README.md", BEGIN, END, readme_block(root, envs), title),
+                (root / ".gitignore", GIT_BEGIN, GIT_END, GITIGNORE, ""),
+                (root / ".gitattributes", GIT_BEGIN, GIT_END, GITATTRIBUTES, "")):
+            w = _managed(path, begin, end, body, header)
+            if w:
+                warnings.append(w)
     claude = root / "CLAUDE.md"
     if not claude.exists():
         _atomic_write(claude, IMPORT + "\n")

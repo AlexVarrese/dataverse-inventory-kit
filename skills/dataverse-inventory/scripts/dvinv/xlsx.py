@@ -60,7 +60,14 @@ def write(path, sheets):
         while n in names:
             n = n[:28] + f"_{len(names)}"
         names.append(n)
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        class _Z:  # data fixa nas entradas: mesma planilha → mesmos bytes (sem diff falso no Git)
+            @staticmethod
+            def writestr(name, data):
+                zi = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                zf.writestr(zi, data)
+        z = _Z()
         z.writestr("[Content_Types].xml",
                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'

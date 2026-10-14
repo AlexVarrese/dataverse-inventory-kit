@@ -22,8 +22,8 @@ Se o servidor MCP do Dataverse estiver disponível, use-o só para consultas pon
    `dvinv.py render -c inventory.yaml`.
 4. Leia `AGENT-INDEX.md`, `00 Índice.md`, `01 Ambiente.md` (lacunas) e as notas de `Achados/`. Para
    perguntas de impacto ("o que quebra se eu mudar X?", "onde o campo Y é usado?"), consulte o índice —
-   `dvinv.py onde-usa <alvo>`, `dvinv.py impacto <alvo> --profundidade 2`, `dvinv.py depende <alvo>`,
-   `dvinv.py buscar <texto>` (todos com `-c inventory.yaml`) — e abra só as notas que o resultado indicar.
+   `grep ";<chave>;" Dependências.csv` / `grep -i <nome> Componentes.csv` na pasta do ambiente, ou
+   `dvinv.py onde-usa|impacto|depende|buscar <alvo> --vault <pasta do ambiente>` — e abra só as notas indicadas.
    Nunca leia inteiros `08 Matriz de Dependências.md`, `Componentes.csv` ou `Dependências.csv`.
 5. Valide cada achado crítico e alto com evidência primária (código do web resource, consulta
    MCP/Web API, repositório). Para cada um, registre **abaixo do marcador `%% dvinv:manual … %%`**

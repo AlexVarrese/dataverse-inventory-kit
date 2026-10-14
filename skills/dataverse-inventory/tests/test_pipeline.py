@@ -597,27 +597,49 @@ def check_catalog_index(cfg, snap, derived):
     assert ("contoso_virtual", "dados via provedor virtual", "Contoso OData Provider") in edges
     assert ("Contoso OData Provider", "executa Retrieve", "Contoso.Plugins") in edges
 
+    # cache SQLite (opcional, `--sqlite`): conjunto completo, inclusive nativo → nativo e internas
     db = derived / "inventario.sqlite"
     assert db.exists()
     con = index_mod.connect(db)
-    n_dep = con.execute("SELECT count(*) FROM dependencias WHERE fonte = 'plataforma'").fetchone()[0]
-    assert n_dep == 5, n_dep  # conjunto completo, inclusive a aresta fora do escopo
-    imp = index_mod.cmd_walk(con, "account", "impacto", 1, False, 50)
+    assert con.execute("SELECT count(*) FROM dependencias WHERE fonte = 'plataforma'").fetchone()[0] == 5
+    assert con.execute("SELECT count(*) FROM dependencias WHERE interna = 1").fetchone()[0] == 1
+
+    # consultas sobre o próprio vault (CSV) — o que o time usa num clone do repositório
+    from dvinv import consulta
+    inv = consulta.Inventario(cfg.vault_dir)
+    imp = consulta.cmd_walk(inv, "account", "impacto", 1, 50)
     assert "contoso_Vendas" in imp and "Projetos ativos" in imp and "Tabelas/account.md" in imp, imp
-    assert "account.contoso_tier" not in imp, "aresta interna (coluna → tabela) não deveria aparecer sem --internas"
-    assert "account.contoso_tier" in index_mod.cmd_walk(con, "account", "impacto", 1, True, 50)
-    ct = index_mod.cmd_walk(con, "contact", "impacto", 1, False, 50)
-    assert G(300) in ct, ct  # fora do escopo: sem nome, mas presente
-    assert "contoso_Vendas" in index_mod.cmd_buscar(con, "vendas")
-    two = index_mod.cmd_walk(con, "contoso_Contoso.TierPicker", "impacto", 2, False, 50)
+    assert "account.contoso_tier" not in imp, "aresta interna (coluna → tabela) não vai para o vault"
+    assert G(300) not in (cfg.vault_dir / "Dependências.csv").read_text(), "nativo → nativo não vai para o vault"
+    assert "contoso_Vendas" in consulta.cmd_buscar(inv, "vendas")
+    assert "Contoso Sitemap" in consulta.cmd_buscar(inv, G(86)) or "contoso_Vendas" in consulta.cmd_buscar(inv, G(86))
+    two = consulta.cmd_walk(inv, "contoso_Contoso.TierPicker", "impacto", 2, 50)
     assert "Projetos ativos" in two, two
-    assert "é ambíguo" in index_mod.cmd_walk(con, "Venda", "impacto", 1, False, 50)
+    assert "é ambíguo" in consulta.cmd_walk(inv, "Venda", "impacto", 1, 50)
+    dep_txt = (cfg.vault_dir / "Dependências.csv").read_text(encoding="utf-8-sig")
+    assert dep_txt.splitlines()[0].startswith("Origem;Origem id;Origem tipo;Origem nome;Relação;Fonte;Destino;Destino id")
+    assert "\r\n" not in dep_txt and any(l.startswith(f"view:{G(70)};") and ";table:account;" in l for l in dep_txt.splitlines())
+    # a mesma consulta pela CLI, sem inventory.yaml (clone do repositório do vault)
+    import contextlib
+    from dvinv import cli as cli_mod
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cli_mod.main(["onde-usa", "account.contoso_tier", "--vault", str(cfg.vault_dir)])
+    got = buf.getvalue()
+    for must in ("Validar tier", "AccountPre: Update of account", "contoso_/js/account.js", "Conta Principal",
+                 "evento onchange", "controle PCF"):
+        assert must in got, (must, got)  # business rule, filtering attribute, JS, evento e PCF no formulário
+    # frontmatter com chave e GUID: grep por um id de log/chamado acha a nota
+    acc_fm = (cfg.vault_dir / "Tabelas" / "account.md").read_text()
+    assert "chave: table:account" in acc_fm and f"id: {G(1)}" in acc_fm, acc_fm[:400]
+    assert f"id: {G(50)}" in next((cfg.vault_dir / "Processos").rglob("Contoso - Sync*.md")).read_text()
 
     vd = cfg.vault_dir
     for rel in ("09 Catálogo de Componentes.md", "Componentes.csv", "AGENT-INDEX.md", "Dependências ausentes.csv", "Equipes.csv"):
         assert (vd / rel).exists(), rel
     csv_rows = (vd / "Componentes.csv").read_text(encoding="utf-8-sig").splitlines()
     assert len(csv_rows) == 11 and any("Contoso Sitemap" in r for r in csv_rows), csv_rows
+    assert csv_rows[0].startswith("Chave;Tipo;") and any(r.startswith("table:account;") for r in csv_rows), csv_rows[:3]
     acc = (vd / "Tabelas" / "account.md").read_text()
     assert "extraido_em" not in acc, "data por nota volta a sujar o diff do Git"
     assert "extraido_em" in (vd / "00 Índice.md").read_text()
@@ -625,12 +647,11 @@ def check_catalog_index(cfg, snap, derived):
     assert "## Tabela virtual" in vt and "Contoso OData Provider" in vt and "ERP OData" in vt, vt
     assert "## Tabelas virtuais" in (vd / "03 Integrações.md").read_text()
     ai = (vd / "AGENT-INDEX.md").read_text()
-    assert "dvinv.py impacto" in ai and "inventario.sqlite" in ai
+    assert "dvinv.py impacto" in ai and "--vault" in ai and "Dependências.csv" in ai
 
 
 def check_navigation_sla(cfg, snap, derived):
     """Site maps (inclusive os de app, que exigem isappaware eq true) e SLAs com itens, KPI e condições."""
-    from dvinv import index as index_mod
     sm = json.loads((snap / "sitemaps.json").read_text())
     assert [x["name"] for x in sm] == ["contoso_Vendas"], sm  # clássico gerenciado fora do escopo
     s0 = sm[0]
@@ -660,10 +681,11 @@ def check_navigation_sla(cfg, snap, derived):
             ("Contoso SLA Projeto", "KPI", "contoso_project.contoso_resolvebykpiid"),
             ("Contoso SLA Projeto", "dispara ação", "Atualiza projeto")}
     assert must <= edges, must - edges
-    con = index_mod.connect(derived / "inventario.sqlite")
-    out = index_mod.cmd_walk(con, "contoso_project.contoso_name", "impacto", 1, False, 50)
+    from dvinv import consulta
+    inv = consulta.Inventario(cfg.vault_dir)
+    out = consulta.cmd_walk(inv, "contoso_project.contoso_name", "impacto", 1, 50)
     assert "Contoso SLA Projeto" in out and "SLAs/Contoso SLA Projeto.md" in out, out
-    assert "contoso_Vendas" in index_mod.cmd_walk(con, "account", "impacto", 1, False, 80)
+    assert "contoso_Vendas" in consulta.cmd_walk(inv, "account", "impacto", 1, 80)
     vd = cfg.vault_dir
     smn = (vd / "Site Maps" / "contoso_Vendas.md").read_text()
     assert "## Navegação" in smn and "Portal ERP" in smn and "URLs externas" in smn and "Contoso Vendas" in smn, smn
@@ -709,7 +731,7 @@ def main():
             "scope": {"prefixes": ["contoso_"], "solutions": ["ContosoCore", "NaoExiste"]},
             "output": {"raw_dir": "out/_raw", "vault_root": "vault", "vault_folder": "Dataverse/CONTOSO-PRD"},
         }))
-        cfg = config_mod.load(tmp / "inventory.yaml", {"deep_all": True})
+        cfg = config_mod.load(tmp / "inventory.yaml", {"deep_all": True, "sqlite": True})
         cfg.deep["plugin_binaries"] = False
         ctx = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
         ctx.client._bearer = lambda: "fake"
@@ -778,6 +800,25 @@ def main():
         cv = json.loads((cfg.vault_dir / "Mapa do Ambiente.canvas").read_text())
         assert any(e["label"] == "flow HTTP" for e in cv["edges"]), "aresta tabela→HTTP ausente no canvas"
 
+        # render determinístico: dois processos com sementes de hash diferentes geram arquivos idênticos
+        # (vault publicado em Git — re-render sem mudança no ambiente não pode gerar diff)
+        import hashlib
+        import os
+        import subprocess
+
+        def vault_digest():
+            return {p.relative_to(cfg.vault_root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in sorted(cfg.vault_root.rglob("*")) if p.is_file()}
+        code = ("import sys; sys.path.insert(0, %r); from dvinv import config; from dvinv.render.obsidian import render; "
+                "render(config.load(%r))") % (str(ROOT / "scripts"), str(tmp / "inventory.yaml"))
+        digests = []
+        for seed in ("1", "2"):
+            subprocess.run([sys.executable, "-c", code], check=True, capture_output=True,
+                           env=dict(os.environ, PYTHONHASHSEED=seed))
+            digests.append(vault_digest())
+        diff = sorted(k for k in set(digests[0]) | set(digests[1]) if digests[0].get(k) != digests[1].get(k))
+        assert not diff, f"render não determinístico: {diff[:10]}"
+
         # AGENTS.md (bloco dvinv) + CLAUDE.md na raiz do vault
         from dvinv.render.agents import BEGIN, END
         ag, cl = cfg.vault_root / "AGENTS.md", cfg.vault_root / "CLAUDE.md"
@@ -789,12 +830,33 @@ def main():
         ag.write_text("# Projeto Contoso\n\nRegra do time: não citar o cliente.\n\n" + agt + "\nRodapé do time.\n")
         cl.write_text("# Claude\nInstruções próprias.\n")
 
+        # notas de extrações anteriores: sem curadoria somem; com curadoria ficam e são listadas; nota do time fica
+        (cfg.vault_dir / "Tabelas" / "old_sem_curadoria.md").write_text(f"---\ntipo: tabela\n---\n# x\n\n{MANUAL}\n\n## Notas do analista\n")
+        (cfg.vault_dir / "Tabelas" / "old_com_curadoria.md").write_text(f"---\ntipo: tabela\n---\n# y\n\n{MANUAL}\n\n## Notas do analista\n\nDecisão: manter.\n")
+        (cfg.vault_dir / "Tabelas" / "nota do time.md").write_text("# Nossa análise\n")
+
         # re-render preserva edição do analista
         achado = cfg.vault_dir / "Achados"
         note = next(achado.glob("SEC-01*.md"))
         txt = note.read_text().replace("status: aberto", "status: em análise") + "\nRotacionado em 06/10.\n"
         note.write_text(txt)
+        cfg.xlsx = False
+        cfg.repo = True  # modo repositório de conhecimento (um por unidade/avenida)
+        (cfg.vault_root / "README.md").write_text("# Base de conhecimento\n\nTexto do time.\n")
         v2 = render(cfg)
+        rd = (cfg.vault_root / "README.md").read_text()
+        assert rd.startswith("# Base de conhecimento") and "Texto do time." in rd and "CONTOSO-PRD" in rd, rd
+        assert "Não está neste repositório" in rd and rd.count("dvinv:inicio") == 1
+        gi, ga = (cfg.vault_root / ".gitignore").read_text(), (cfg.vault_root / ".gitattributes").read_text()
+        assert ".obsidian/workspace*.json" in gi and ".env" in gi and "*.csv text eol=lf" in ga, (gi, ga)
+        from dvinv.cli import git_summary
+        assert "não é um repositório" in git_summary(cfg.vault_root) or "mudança" in git_summary(cfg.vault_root)
+        assert not (cfg.vault_dir / "Tabelas" / "old_sem_curadoria.md").exists() and "Tabelas/old_sem_curadoria.md" in v2.pruned
+        assert (cfg.vault_dir / "Tabelas" / "old_com_curadoria.md").exists() and v2.orphans_kept == ["Tabelas/old_com_curadoria.md"]
+        assert "old_com_curadoria" in (cfg.vault_dir / "Notas fora do inventário atual.md").read_text()
+        assert (cfg.vault_dir / "Tabelas" / "nota do time.md").exists(), "nota sem marcador do dvinv não pode ser apagada"
+        assert not (cfg.vault_dir / "Matriz de Dependências.xlsx").exists(), "xlsx desligado: planilha antiga removida"
+        assert "Matriz de Dependências.xlsx" not in (cfg.vault_dir / "00 Índice.md").read_text()
         assert any("CLAUDE.md" in w and "@AGENTS.md" in w for w in v2.agent_warnings), v2.agent_warnings
         txt2 = note.read_text()
         assert "status: em análise" in txt2 and "Rotacionado em 06/10." in txt2 and txt2.count(MANUAL) == 1

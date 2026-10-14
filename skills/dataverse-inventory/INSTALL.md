@@ -66,6 +66,21 @@ copiar em vez de criar link, `--copy`.
 
 **Agentes sem suporte a skills:** use o [`PROMPT.md`](PROMPT.md).
 
+**Publicar o vault como repositório de conhecimento (um por unidade de negócio):**
+
+1. Crie o repositório no remoto da organização (ex. Azure DevOps do cliente) com o padrão de nome do programa
+   (ex. `<programa>-<unidade>-knowledge`) e clone-o ao lado da pasta do cliente.
+2. No `inventory.<amb>.yaml` de cada ambiente da unidade: `output.vault_root: ../<repositório>`,
+   `output.vault_folder: Dataverse/<AMB>` e `output.repo: true`. Todos os ambientes da unidade (DEV/TEST/PRD)
+   apontam para o mesmo repositório; as comparações (`diff`) ficam em `Dataverse/Comparações/`.
+3. `dvinv all` (ou `render`). O kit mantém os blocos `dvinv` do `README.md`, `.gitignore`, `.gitattributes` e
+   `AGENTS.md` (o texto do time fora deles é preservado) e mostra no fim `N novo(s), M alterado(s), K removido(s)`.
+4. Revise o diff e faça o commit — **o dvinv não commita nem faz push**. Snapshot bruto, derivados, `.env` e o
+   cache SQLite ficam em `out/`, fora do repositório.
+
+Quem clona o repositório consulta sem instalar nada além do Python: `grep` nos CSVs ou
+`python3 <skill>/scripts/dvinv.py onde-usa <alvo> --vault Dataverse/<AMB>` (sem `inventory.yaml` nem credenciais).
+
 **Claude Code e GitHub Copilot no mesmo projeto (sem conflito):**
 
 - **Uma cópia só da skill.** O GitHub Copilot (VS Code, CLI e cloud agent) lê skills de `.github/skills/`,
@@ -83,8 +98,8 @@ copiar em vez de criar link, `--copy`.
   Claude estiver extraindo e o Copilot pedir outra extração do mesmo ambiente, a segunda falha com aviso
   em vez de publicar snapshots/vaults concorrentes. As consultas (`buscar`, `onde-usa`, `impacto`,
   `depende`) só leem e podem rodar em paralelo.
-- **Mesma entrada para os dois.** O vault gerado tem `AGENT-INDEX.md` e o índice `inventario.sqlite`:
-  qualquer agente segue o mesmo roteiro de leitura econômica (`references/indice.md`).
+- **Mesma entrada para os dois.** O vault gerado tem `AGENT-INDEX.md`, `Componentes.csv` e `Dependências.csv`:
+  qualquer agente — até sem a skill — segue o mesmo roteiro (grep nos CSVs; `references/indice.md`).
 
 Depois de instalar, defina `SKILL` como a pasta onde a skill ficou (usada nos comandos abaixo):
 

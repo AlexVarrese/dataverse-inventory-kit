@@ -21,7 +21,7 @@ def _mdtable():
 
 def write_csv(v, name, rows):
     buf = io.StringIO()
-    csv.writer(buf, delimiter=";").writerows(rows)
+    csv.writer(buf, delimiter=";", lineterminator="\n").writerows(rows)  # LF: diff igual em Windows e Linux
     v.write(f"{v.folder}/{name}", None, "﻿" + buf.getvalue(), raw=True)
 
 
@@ -45,7 +45,8 @@ def write_catalog(v, d):
         return (types.get(str(ct)) or {}).get("name") or f"tipo {ct}"
 
     by_type, in_scope, managed_only, with_note = Counter(), Counter(), Counter(), Counter()
-    rows = [["Tipo", "Código do tipo", "Nome", "Pai", "Id", "No escopo", "Só em soluções gerenciadas",
+    from ..dependencies import canonical_key
+    rows = [["Chave", "Tipo", "Código do tipo", "Nome", "Pai", "Id", "No escopo", "Só em soluções gerenciadas",
              "Soluções", "Nota"]]
     for oid, rec in per.items():
         ct = rec["ct"]
@@ -58,9 +59,10 @@ def write_catalog(v, d):
         in_scope[ct] += scoped
         managed_only[ct] += only_managed
         with_note[ct] += bool(rel)
-        rows.append([tname(ct), ct, nm[1] or "", nm[2] or "", oid, "sim" if scoped else "", "sim" if only_managed else "",
+        chave = canonical_key(node, names) if node else canonical_key(("platform", oid), names)
+        rows.append([chave, tname(ct), ct, nm[1] or "", nm[2] or "", oid, "sim" if scoped else "", "sim" if only_managed else "",
                      ", ".join(sorted({s["uniquename"] for s in rec["sols"]})[:15]), (rel.split("#")[0] + ".md") if rel else ""])
-    rows[1:] = sorted(rows[1:], key=lambda r: (r[0], r[2].lower(), r[4]))
+    rows[1:] = sorted(rows[1:], key=lambda r: (r[1], r[3].lower(), r[5]))
     write_csv(v, "Componentes.csv", rows)
 
     st = (d.get("manifest") or {}).get("stats", {}).get("catalog") or {}
@@ -93,31 +95,40 @@ def write_agent_index(v, d, has_catalog):
                  key=lambda x: -x[1])
     run_id = getattr(v, "run_id", None)
     b = [f"# Índice para agentes — {v.env}", "",
-         "Entrada compacta para agentes de IA. **Leia este arquivo primeiro** e abra só o que a pergunta exigir.", "",
-         "## Regra de leitura econômica", "",
-         "1. Pergunta estrutural (impacto, onde é usado, do que depende, existe X?) → **consulte o índice**, não leia notas:",
-         "   - `python3 <skill>/scripts/dvinv.py buscar <texto> -c inventory.yaml` — encontra o componente e mostra a chave",
-         "   - `python3 <skill>/scripts/dvinv.py onde-usa <tabela.coluna | nome | chave> -c inventory.yaml` — dependentes diretos",
-         "   - `python3 <skill>/scripts/dvinv.py impacto <alvo> --profundidade 2 -c inventory.yaml` — cadeia de impacto",
-         "   - `python3 <skill>/scripts/dvinv.py depende <alvo> -c inventory.yaml` — do que o componente precisa",
-         "2. Depois, abra **só as notas** que o resultado indicar (coluna `nota`).",
-         "3. Números e escopo: `00 Índice.md`; lacunas da coleta: `01 Ambiente.md` (seção *Lacunas declaradas*).",
-         "4. Nunca carregue de uma vez os arquivos da lista *Não ler inteiro*; use busca por termo (grep) dentro deles.",
-         "5. Abaixo do marcador `%% dvinv:manual %%` de cada nota está a curadoria humana: é a fonte de decisões e "
-         "validações — não sobrescreva.", "",
+         "Entrada compacta para agentes de IA (Claude, Copilot, Hermes…) e para quem consulta o repositório. "
+         "**Leia este arquivo primeiro** e abra só o que a pergunta exigir. Caminhos abaixo são relativos a esta pasta.", "",
+         "## 1. Pergunta estrutural → índice textual (não leia notas)", "",
+         "Impacto, onde é usado, do que depende, existe X? Os CSVs desta pasta respondem com poucas linhas:", "",
+         "| Pergunta | grep (qualquer agente/terminal) | dvinv (mais legível, faz vários níveis) |",
+         "|---|---|---|",
+         "| Existe? Qual a chave/GUID? | `grep -i \"esab_campo\" Componentes.csv` | `dvinv.py buscar esab_campo --vault .` |",
+         "| Quem depende de X? | `grep \";column:account.esab_campo;\" Dependências.csv` | `dvinv.py onde-usa account.esab_campo --vault .` |",
+         "| Impacto em cadeia | repetir o grep para cada origem | `dvinv.py impacto account.esab_campo --profundidade 2 --vault .` |",
+         "| Do que X depende? | `grep \"^webresource:esab_/js/x.js;\" Dependências.csv` | `dvinv.py depende esab_/js/x.js --vault .` |",
+         "| Achei um GUID num log/trace | `grep -rl \"id: <guid>\" --include=*.md .` | `dvinv.py buscar <guid> --vault .` |", "",
+         "Chave = `<tipo>:<nome>` para o que tem nota (`table:account`, `column:account.x`, `webresource:…`, "
+         "`process:<guid>`); fora do escopo, `table:`/`column:` pelo nome lógico e o resto pelo GUID. "
+         "`dvinv.py` = `<skill>/scripts/dvinv.py` (skill `dataverse-inventory`).", "",
+         "## 2. Depois, só as notas indicadas", "",
+         "- A coluna `Nota` (CSV) ou `nota` (dvinv) dá o caminho. Cada nota tem `chave` e `id` (GUID) no frontmatter "
+         "e a seção **Dependências** (depende de / usado por).",
+         "- Números e escopo: `00 Índice.md`; lacunas da coleta: `01 Ambiente.md` (*Lacunas declaradas*).",
+         "- Abaixo do marcador `%% dvinv:manual %%` de cada nota está a curadoria humana — fonte de decisões; não sobrescreva.",
+         "- Ausência de aresta não prova ausência de uso (integrações externas, Power BI, código fora do Dataverse).", "",
          "## Mapa do vault", "",
          mdtable(["Pasta", "Notas", "Conteúdo"],
                  [[f"`{k}/`", n, "uma nota por componente do escopo"] for k, n in sorted(folders.items())]),
          "Notas de seção: `00 Índice`, `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, "
          "`06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`"
-         + (", `09 Catálogo de Componentes`" if has_catalog else "") + ". Properties: campo `tipo:` em todo frontmatter "
-         "(ex. `grep -rl '^tipo: tabela' .`).", "",
-         "## Fontes fora do vault", "",
-         f"- Índice SQLite: `_derived/{run_id or '<run_id>'}/inventario.sqlite` (o `dvinv` acha o mais recente sozinho).",
-         f"- Snapshot bruto: `_raw/{run_id or '<run_id>'}/*.json` — inclui código de web resources e definições de "
-         "flows/processos, quando coletados. Use grep, não leitura integral.",
-         *(["- `Componentes.csv`: 1 linha por componente do ambiente (100%)."] if has_catalog else []),
-         "- `Dependências.csv` / `Matriz de Dependências.xlsx`: arestas do escopo (o conjunto completo está no índice).", ""]
+         + (", `09 Catálogo de Componentes`" if has_catalog else "") + ". Filtrar por tipo: "
+         "`grep -rl '^tipo: tabela' .`", "",
+         "## Arquivos tabulares", "",
+         *(["- `Componentes.csv`: 1 linha por componente do ambiente (100%, todas as soluções), com chave, GUID e nota."]
+           if has_catalog else []),
+         "- `Dependências.csv`: 1 linha por aresta que toca o escopo (chave, GUID, tipo, nome e nota das duas pontas).",
+         "- `Equipes.csv`: todas as equipes com BU e papéis (inclusive as que não viraram nota).",
+         f"- Fora do repositório, na máquina que extraiu: snapshot `_raw/{run_id or '<run_id>'}/*.json` (código de web "
+         "resources, definições de flows) e, se ligado, o cache SQLite com todas as arestas da plataforma.", ""]
     if big:
         b += ["## Não ler inteiro", "", mdtable(["Arquivo", "Tamanho"],
               [[f"`{p.relative_to(v.root / v.folder).as_posix()}`", f"{s // 1024} KB"] for p, s in big[:30]])]

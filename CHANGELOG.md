@@ -23,7 +23,26 @@ Dependências da plataforma em lote (`deep.platform_dependencies`, agora ligado 
 - `RetrieveMissingDependencies` em paralelo (`parallel`, padrão 4): eram ~780 chamadas sequenciais no
   ESAB-TEST (6,5 min num dia normal; mais de 40 min com o servidor lento).
 
-Índice SQLite para agentes (`_derived/<run_id>/inventario.sqlite`)
+O vault é o produto (consulta sem binário, em qualquer clone do repositório)
+- `Dependências.csv` vira índice textual: chave, GUID, tipo, nome e nota das duas pontas, arestas que tocam o
+  escopo nos dois sentidos (sem as internas de metadados), ordem estável e LF. `Componentes.csv` ganha `Chave`.
+- Uso de campos no grafo para todas as tabelas do escopo: evento de formulário, controle PCF, filtering
+  attribute e imagem de plugin, campos de workflow/flow e `getAttribute` em JS → `onde-usa tabela.coluna`.
+- `buscar`/`onde-usa`/`impacto`/`depende` leem os CSVs do vault (`consulta.py`); `--vault <pasta>` dispensa
+  `inventory.yaml` e credenciais. O SQLite virou cache opcional (`render --sqlite` / `output.sqlite`).
+- `chave` e `id` (GUID) no frontmatter de toda nota de componente; `AGENT-INDEX` e `AGENTS.md` com receitas de grep.
+- Notas órfãs de extrações anteriores: removidas sem curadoria; com curadoria, listadas em
+  `Notas fora do inventário atual.md`. Aviso de arquivo > 50 MB; `output.xlsx: false` para não versionar a planilha.
+
+Vault como repositório de conhecimento (`output.repo: true`)
+- Um repositório por unidade de negócio (ex. `<programa>-<unidade>-knowledge`), com os ambientes em
+  `Dataverse/<AMB>/`. O render mantém blocos `dvinv` no `README.md`, `.gitignore` e `.gitattributes` (texto do
+  time preservado), desliga a planilha `.xlsx` por padrão e mostra o resumo do `git status`. Não commita.
+- Render determinístico: listas de dependências, canvas e planilha em ordem estável, LF em tudo (código JS do
+  Dataverse vem com CRLF) e data fixa nas entradas do `.xlsx`. Validado no ESAB-TEST: render → commit → render =
+  "nenhuma mudança"; teste com duas sementes de hash diferentes exige arquivos idênticos.
+
+Índice SQLite (desde então opcional — ver acima)
 - Componentes (kit + catálogo), soluções, dependências (plataforma + inferidas), achados.
 - Novos comandos só-leitura: `buscar`, `onde-usa`, `impacto` (CTE recursiva, `--profundidade`),
   `depende`. Saída compacta com o caminho da nota. Arestas internas de metadados (coluna → tabela) só
@@ -63,6 +82,14 @@ Correção (falso positivo desde a 0.5.0)
   varredura aplica a mesma exceção que a redação já tinha (`NOT_SENSITIVE_KEYS`), **só** para o nome exato e
   o formato fixo do .NET (16 hexadecimais); outro valor nesse campo ou outro `…token` continua barrando.
   Achado na validação real (ESAB-TEST, 6 assemblies); a org fictícia dos testes usava token de 3 caracteres.
+
+Validação real (ESAB-TEST, 2026-10-14)
+- Extração completa em 29 min de coleta + 8 min de render (sem 429); 120.942 componentes em 299 tipos (109 mil
+  com nome), 844 mil dependências da plataforma, 72 mil equipes. Markdown do vault: 41 MB → 10,5 MB; maior
+  nota 230 KB (antes 10,8 MB). Consultas ao índice: < 1 s e 170 a 5.600 tokens por resposta.
+- Ajustes saídos da validação: equipes fora do corte de notas não entram no grafo nem na nota do papel (só
+  no índice); arestas internas de metadados ("Solution Internal") fora da matriz; GUID não duplicado no
+  índice + VACUUM; Complex Control (sem RetrieveMultiple) fora do catálogo de nomes.
 
 Execução por mais de um agente
 - `AGENTS.md` na raiz do vault com bloco gerado (`<!-- dvinv:inicio -->`…`<!-- dvinv:fim -->`): ambientes,

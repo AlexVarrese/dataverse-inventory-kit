@@ -83,6 +83,7 @@ class Vault:
         self.taken = set()
         self.written = []
         self.dep_counts = {}   # caminho da nota -> {"dependencias": n, "dependentes": n}
+        self.guid_of = {}      # (kind, key) -> GUID do Dataverse (frontmatter `id`)
         self.today = date.today()
 
     # ---------- caminhos e links ----------
@@ -94,6 +95,8 @@ class Vault:
             n += 1
         self.taken.add(rel.lower())
         self.paths[(kind, key)] = rel
+        self.node_of = getattr(self, "node_of", {})
+        self.node_of[rel] = (kind, key)
         return rel
 
     def link(self, kind, key, alias=None, in_table=False):
@@ -110,6 +113,7 @@ class Vault:
     def write(self, rel, props, body, raw=False):
         path = self.root / (rel if raw else rel + ".md")
         path.parent.mkdir(parents=True, exist_ok=True)
+        body = body.replace("\r\n", "\n").replace("\r", "\n")  # LF sempre: código JS do Dataverse vem com CRLF
         if raw:
             path.write_text(body, encoding="utf-8")
             self.written.append(path)
@@ -124,7 +128,15 @@ class Vault:
                 manual = old_body[old_body.index(MANUAL):]
         # sem data de extração por nota: re-extrair sem mudança no ambiente não pode mudar 2 mil arquivos
         # (a data fica no 00 Índice, no 01 Ambiente e no manifesto do snapshot)
-        props = {"ambiente": self.env, **props, **self.dep_counts.get(rel, {})}
+        # `chave` (a mesma dos CSVs e do `dvinv onde-usa`) e `id` (GUID do Dataverse): permitem achar a nota
+        # a partir de um log, chamado ou trace com grep, sem ler o vault
+        ident = {}
+        node = getattr(self, "node_of", {}).get(rel)
+        if node:
+            ident["chave"] = f"{node[0]}:{node[1]}"
+            if self.guid_of.get(node):
+                ident["id"] = self.guid_of[node]
+        props = {"ambiente": self.env, **ident, **props, **self.dep_counts.get(rel, {})}
         fm = yaml.safe_dump(props, allow_unicode=True, sort_keys=False, width=1000).strip()
         path.write_text(f"---\n{fm}\n---\n{body.rstrip()}\n\n{manual.rstrip()}\n", encoding="utf-8")
         self.written.append(path)
@@ -155,12 +167,14 @@ def render(cfg, snapshot=None):
             shutil.copytree(final_dir, stage_dir)  # preserva edições do analista e notas antigas
         v = Vault(stage_root, cfg.vault_folder, cfg.name)
         v.snapshot, v.run_id = snap, run_id
+        v.xlsx = getattr(cfg, "xlsx", True)
         if getattr(cfg, "config_path", None):
             v.config_rel = os.path.relpath(cfg.config_path, Path(cfg.vault_root).resolve()).replace(os.sep, "/")
         fnd, deps_json = _render_into(v, d)
         derived.write_json("findings", fnd)
         derived.write_json("dependencies", deps_json)
-        index_mod.build(derived.dir / index_mod.DB_NAME, d, v.graph, v, fnd)  # varre segredos do banco
+        if getattr(cfg, "sqlite", False):  # cache opcional para SQL ad hoc (varre segredos do banco)
+            index_mod.build(derived.dir / index_mod.DB_NAME, d, v.graph, v, fnd)
         secrets.assert_clean(list(v.written) + derived.paths, f"render {run_id}")
         # publicação: troca a pasta do vault inteira (rename) e os derivados do run
         final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -177,7 +191,8 @@ def render(cfg, snapshot=None):
         if old:
             shutil.rmtree(old, ignore_errors=True)
         v.derived_dir = derived.publish()
-        v.agent_warnings = agents.update_root(cfg.vault_root)  # AGENTS.md (bloco) + CLAUDE.md na raiz do vault
+        # AGENTS.md (bloco) + CLAUDE.md na raiz do vault; em modo repositório, README/.gitignore/.gitattributes
+        v.agent_warnings = agents.update_root(cfg.vault_root, repo=getattr(cfg, "repo", False))
     except BaseException:
         derived.discard()
         raise
@@ -186,6 +201,9 @@ def render(cfg, snapshot=None):
     v.written = [final_dir / Path(w).relative_to(stage_dir) if str(w).startswith(str(stage_dir)) else w
                  for w in v.written]
     v.root = Path(cfg.vault_root)
+    # vault publicado em Git: o GitHub alerta acima de 50 MB por arquivo e recusa acima de 100 MB
+    v.size_warnings = [f"{p.relative_to(final_dir).as_posix()}: {p.stat().st_size / 1e6:.0f} MB"
+                       for p in final_dir.rglob("*") if p.is_file() and p.stat().st_size > GIT_FILE_WARN]
     return v
 
 
@@ -254,6 +272,12 @@ def _render_into(v, d):
     # ---- grafo de dependências (antes das notas: cada nota mostra 'depende de' / 'usado por') ----
     graph = deps_mod.build(d)
     v.graph = graph
+    v.guid_of.update(getattr(graph, "guid_index", {}) or {})
+    for s in sols:  # soluções não são nós do grafo, mas a nota leva o GUID
+        v.guid_of[("solution", s["uniquename"])] = s["id"].lower()
+    for n in list(v.paths):  # nós cuja chave já é o GUID (processos, steps, BUs, equipes, site maps, SLAs…)
+        if n not in v.guid_of and re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", str(n[1]).lower()):
+            v.guid_of[n] = str(n[1]).lower()
     dsum = deps_mod.summarize(graph, d)
     deps_json = deps_mod.to_json(graph, dsum)
     for n in graph.nodes:
@@ -285,12 +309,13 @@ def _render_into(v, d):
             for other, rel, e in items:
                 by_rel[rel].append((other, e))
             for rel, lst in sorted(by_rel.items()):
+                lst = sorted(lst, key=lambda oe: (str(graph.nodes[oe[0]]["label"]).lower(), str(oe[0])))  # estável
                 shown = ", ".join(node_link(o) + (" ⚙︎" if "plataforma" in e["source"] else "") for o, e in lst[:150])
                 more = f" … +{len(lst) - 150}" if len(lst) > 150 else ""
                 lines.append(f"- **{rel}:** {shown}{more}")
             lines.append("")
         if any("plataforma" in e["source"] for _, _, e in out + inn):
-            lines.append("⚙︎ = registrada pela plataforma (RetrieveDependentComponents)\n")
+            lines.append("⚙︎ = registrada pela plataforma (tabela dependency)\n")
         return "\n".join(lines) + "\n"
 
     def findings_block(kind, key):
@@ -696,8 +721,59 @@ def _render_into(v, d):
     canvas.write_map(v, d)
     has_catalog = catalog.write_catalog(v, d)
     write_index(v, d, manifest, fnd, has_catalog)
-    catalog.write_agent_index(v, d, has_catalog)  # por último: lista as notas grandes já escritas
+    catalog.write_agent_index(v, d, has_catalog)  # lista as notas grandes já escritas
+    prune_orphans(v)                               # por último: tudo que esta extração escreveu já está em v.written
     return fnd, deps_json
+
+
+GIT_FILE_WARN = 50_000_000
+GENERATED_FILES = {"Componentes.csv", "Dependências.csv", "Dependências ausentes.csv", "Equipes.csv"}
+ORPHANS_NOTE = "Notas fora do inventário atual"
+
+
+def _has_curation(text):
+    """Algo escrito pelo analista abaixo do marcador (além do cabeçalho padrão)?"""
+    if MANUAL not in text:
+        return True  # sem marcador: não é nota gerada pelo dvinv — nunca apagar
+    tail = text.split(MANUAL, 1)[1].replace("## Notas do analista", "")
+    return bool(tail.strip())
+
+
+def prune_orphans(v):
+    """Remove da cópia de trabalho as notas geradas por extrações anteriores que não existem nesta (componente
+    removido do ambiente ou fora do novo corte) e não têm curadoria. Com curadoria: mantém e lista em
+    `Notas fora do inventário atual.md`. Num vault publicado em Git, nota velha engana o time e a IA."""
+    base = v.root / v.folder
+    written = {Path(p).resolve() for p in v.written}
+    v.pruned, v.orphans_kept = [], []
+    for p in sorted(base.rglob("*")):
+        if not p.is_file() or p.resolve() in written or any(x.startswith(".") for x in p.relative_to(base).parts):
+            continue
+        rel = p.relative_to(base).as_posix()
+        if p.suffix == ".md":
+            if p.stem == ORPHANS_NOTE:
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if MANUAL not in text:
+                continue  # nota do time (sem marcador do dvinv): não é nossa
+            if _has_curation(text):
+                v.orphans_kept.append(rel)
+            else:
+                p.unlink()
+                v.pruned.append(rel)
+        elif p.name in GENERATED_FILES and "/" not in rel:
+            p.unlink()
+            v.pruned.append(rel)
+    note = f"{v.folder}/{ORPHANS_NOTE}"
+    if v.orphans_kept:
+        v.write(note, {"tipo": "secao", "notas": len(v.orphans_kept), "tags": v.tags("secao")}, "\n".join([
+            f"# {ORPHANS_NOTE}", "",
+            "Notas de extrações anteriores cujo componente **não aparece nesta extração** (removido do ambiente ou fora "
+            "do escopo/corte atual), mantidas porque têm curadoria abaixo do marcador manual. Revise, mova a análise "
+            "para onde fizer sentido e apague a nota.", "",
+            "\n".join(f"- [[{v.folder}/{r[:-3]}|{r[:-3]}]]" for r in v.orphans_kept)]))
+    else:
+        (v.root / f"{note}.md").unlink(missing_ok=True)
 
 
 def write_integrations(v, d, procs, apis):
@@ -846,8 +922,9 @@ def write_dependencies(v, d, g, dsum, node_link):
          "**A → B** significa *A depende de B*: se B mudar ou for removido, A é afetado. Use a matriz por tabela "
          "para dimensionar impacto de mudança e as listas de órfãos para limpeza.", "",
          f"**{len(g.nodes)}** componentes · **{len(g.edges)}** dependências ({n_inf} inferidas pelo kit, "
-         f"{n_plat} registradas pela plataforma) · exportação: [[{v.folder}/Matriz de Dependências.xlsx|Excel]] · "
-         f"[[{v.folder}/Dependências.csv|CSV]]", ""]
+         f"{n_plat} registradas pela plataforma) · exportação: "
+         + (f"[[{v.folder}/Matriz de Dependências.xlsx|Excel]] · " if getattr(v, "xlsx", True) else "")
+         + f"[[{v.folder}/Dependências.csv|CSV]] (uma linha por aresta, com chave e GUID das duas pontas)", ""]
     if not plat_on:
         b += ["> [!info] Dependências da plataforma não coletadas",
               "> Ligue `deep.platform_dependencies` para incluir o que o Dataverse registra (ex. view → coluna, "
@@ -910,28 +987,46 @@ def write_dependencies(v, d, g, dsum, node_link):
     # ---- exportações: Excel e CSV ----
     rows_edges = [["Componente", "Tipo", "Depende de", "Tipo (destino)", "Relação", "Origem"]] + sorted(
         [[g.nodes[s]["label"], kinds.get(g.nodes[s]["kind"]), g.nodes[t]["label"], kinds.get(g.nodes[t]["kind"]), r, e["source"]]
-         for (s, t, r), e in g.edges.items()], key=lambda x: (x[1] or "", x[0], x[2]))
+         for (s, t, r), e in g.edges.items()], key=lambda x: tuple(str(c) for c in (x[1] or "", x[0], x[2], x[4], x[3])))
     rows_tables = [["Tabela"] + [c for _, c in cols] + ["Total dependentes", "Depende de"]] + [
         [r["table"]] + [r[k] for k, _ in cols] + [r["total"], r["depends_on"]] for r in dsum["per_table"]]
     rows_tt = [["Depende ↓ / de →"] + [kinds.get(k, k) for k in dst_k]] + [
         [kinds.get(a, a)] + [tt.get((a, c), 0) for c in dst_k] for a in src_k]
     rows_nodes = [["Componente", "Tipo", "Dependentes (fan-in)", "Dependências (fan-out)"]] + sorted(
         [[nd["label"], kinds.get(nd["kind"]), dsum["fan_in"][k], dsum["fan_out"][k]] for k, nd in g.nodes.items()],
-        key=lambda x: (-x[2], x[0]))
+        key=lambda x: (-x[2], str(x[0]), str(x[1]), x[3]))
     sheets = [("Matriz por tabela", rows_tables), ("Arestas", rows_edges), ("Tipo x tipo", rows_tt), ("Componentes", rows_nodes)]
     if dsum["missing"]:
         sheets.append(("Ausentes na solução", [["Solução", "Exige (id)", "Tipo", "Exigido (id)", "Tipo"]] + [
             [m["solution"], m["dependent_id"], m.get("dependent_type_label"), m["required_id"], m.get("required_type_label")]
             for m in dsum["missing"]]))
-    path = v.root / v.folder / "Matriz de Dependências.xlsx"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    xlsx.write(path, sheets)
-    v.written.append(path)
-    import csv
-    import io
-    buf = io.StringIO()
-    csv.writer(buf, delimiter=";").writerows(rows_edges)
-    v.write(f"{v.folder}/Dependências.csv", None, "\ufeff" + buf.getvalue(), raw=True)
+    if not getattr(v, "xlsx", True):  # desligado: não deixa a planilha de uma extração anterior no vault
+        (v.root / v.folder / "Matriz de Dependências.xlsx").unlink(missing_ok=True)
+    else:
+        path = v.root / v.folder / "Matriz de Dependências.xlsx"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        xlsx.write(path, sheets)
+        v.written.append(path)
+    # Dependências.csv = índice textual do vault (grep/Copilot/Claude/`dvinv onde-usa` leem daqui): chave, GUID,
+    # tipo, nome e nota das duas pontas; ordem estável para o diff do Git mostrar só mudança real
+    cat_names = ((d.get("catalog") or {}).get("names")) or {}
+
+    def info(n):
+        nd = g.nodes[n]
+        rel = v.paths.get(n)
+        return [deps_mod.canonical_key(n, cat_names), deps_mod.guid_of(g, n) or "",
+                nd.get("sub") if n[0] == "platform" else kinds.get(n[0], n[0]), nd["label"],
+                (rel.split("#")[0] + ".md") if rel else "", "" if n[0] == "platform" else "sim"]
+
+    rows = []
+    for (s, t, r), e in g.edges.items():
+        a, b_ = info(s), info(t)
+        rows.append([a[0], a[1], a[2], a[3], r, e["source"], b_[0], b_[1], b_[2], b_[3], a[4], b_[4], a[5], b_[5]])
+    rows.sort(key=lambda x: (x[0], x[4], x[6]))
+    catalog.write_csv(v, "Dependências.csv",
+                      [["Origem", "Origem id", "Origem tipo", "Origem nome", "Relação", "Fonte", "Destino", "Destino id",
+                        "Destino tipo", "Destino nome", "Nota origem", "Nota destino", "Origem no escopo",
+                        "Destino no escopo"]] + rows)
 
 
 def write_environment(v, d, manifest):
@@ -1038,8 +1133,8 @@ def write_index(v, d, manifest, fnd, has_catalog=False):
          *([f"- {v.link_path('05 Uso de Campos', 'Uso de campos')}"] if d.get("field_usage") else []),
          *([f"- {v.link_path('06 Armazenamento e Auditoria', 'Armazenamento e auditoria')}"] if d.get("storage") else []),
          *([f"- {v.link_path('07 Repositórios', 'Repositórios × ambiente')}"] if d.get("repos") else []),
-         f"- {v.link_path('08 Matriz de Dependências', 'Matriz de dependências')} "
-         f"([[{v.folder}/Matriz de Dependências.xlsx|Excel]])",
+         f"- {v.link_path('08 Matriz de Dependências', 'Matriz de dependências')}"
+         + (f" ([[{v.folder}/Matriz de Dependências.xlsx|Excel]])" if getattr(v, "xlsx", True) else ""),
          *([f"- {v.link_path('09 Catálogo de Componentes', 'Catálogo de componentes (100%)')}"] if has_catalog else []),
          f"- {v.link_path('Mapa do Ambiente.canvas', 'Mapa do ambiente (canvas)')}",
          f"- {v.link_path('AGENT-INDEX', 'Índice para agentes de IA')}", "",

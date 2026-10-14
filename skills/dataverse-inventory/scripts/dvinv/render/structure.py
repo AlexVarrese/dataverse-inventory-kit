@@ -8,9 +8,8 @@
 
 from collections import Counter, defaultdict
 
-from ..dependencies import structural_teams
+from ..dependencies import structural_teams, teams_with_notes
 
-TEAM_NOTES_MAX = 1000  # acima disso, só equipes com papel ou grupo do Entra viram nota (o resto: CSV + índice)
 TEAM_LIST_MAX = 300   # linhas de equipe no 04 Segurança
 USER_LIST_MAX = 300  # nas notas de BU/equipe/papel: além disso, só a contagem (a Base lista todos)
 
@@ -19,15 +18,6 @@ def _h():
     from .obsidian import mdtable  # import tardio: obsidian importa este módulo
     return mdtable
 
-
-def teams_with_notes(sec):
-    """Equipes que viram nota. Org com dezenas de milhares de equipes de proprietário (uma por registro/
-    usuário) geraria dezenas de milhares de notas sem análise: ficam as que carregam papel ou grupo do Entra."""
-    ts = structural_teams(sec)
-    if len(ts) <= TEAM_NOTES_MAX:
-        return ts
-    keep = [t for t in ts if t.get("roles") or t.get("aad_group")]
-    return sorted(keep, key=lambda t: -(t.get("members") or 0))[:TEAM_NOTES_MAX]
 
 
 def reserve(v, d):
@@ -77,7 +67,10 @@ def role_assignments(v, d, role_name):
     else:
         b += [f"**{len(teams)}** equipe(s)", "",
               mdtable(["Equipe", "Tipo", "BU"], [[v.link("team", t["id"], t["name"]), t.get("type"), t.get("bu")]
-                                                for t in teams]) if teams else ""]
+                                                for t in teams[:TEAM_LIST_MAX]]) if teams else ""]
+        if len(teams) > TEAM_LIST_MAX:
+            b += [f"… +{len(teams) - TEAM_LIST_MAX} — ver [[{v.folder}/Equipes.csv|Equipes.csv]] ou `dvinv onde-usa "
+                  f"\"{role_name}\"`.", ""]
     if d.get("users") is None:
         b += ["> [!info] Usuários com o papel: ligue `deep.users` (lista nominal — dado pessoal).", ""]
     else:

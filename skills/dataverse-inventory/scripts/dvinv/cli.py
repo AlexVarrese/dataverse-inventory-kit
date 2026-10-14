@@ -6,7 +6,8 @@
   all      extract + render do snapshot recém-criado
   diff     compara dois snapshots (mesmo ambiente em datas diferentes, ou ambientes) → nota de comparação
 
-Consultas ao índice SQLite do último render (_derived/<run_id>/inventario.sqlite) — para agentes de IA:
+Consultas ao vault (Componentes.csv + Dependências.csv da pasta do ambiente) — funcionam em qualquer clone
+do repositório do vault com --vault <pasta>, sem inventory.yaml nem credenciais:
   buscar <texto>       encontra componentes (chave, tipo, escopo, nº de dependentes, nota)
   onde-usa <alvo>      quem depende diretamente do alvo (ex. account.esab_campo, account, nome de JS)
   impacto <alvo>       cadeia de quem depende do alvo (--profundidade, padrão 2)
@@ -57,6 +58,27 @@ def run_lock(cfg):
         path.unlink(missing_ok=True)
 
 
+def git_summary(root):
+    """Resumo só-leitura do que o render mudou no repositório do vault (git status). Não faz commit."""
+    import subprocess
+    root = Path(root)
+    try:
+        out = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all", "--", "."],
+                             capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"git indisponível ({e.__class__.__name__}) — revise as mudanças antes do commit"
+    if out.returncode != 0:
+        return "pasta ainda não é um repositório Git — `git init` (ou clone do remoto) antes do primeiro commit"
+    lines = [ln for ln in out.stdout.splitlines() if ln.strip()]
+    if not lines:
+        return "nenhuma mudança desde o último commit"
+    novos = sum(1 for ln in lines if ln.startswith("??") or ln[:2].strip() == "A")
+    removidos = sum(1 for ln in lines if "D" in ln[:2])
+    alterados = len(lines) - novos - removidos
+    return (f"{novos} novo(s), {alterados} alterado(s), {removidos} removido(s) — revise com `git -C {root} diff "
+            f"--stat` e faça o commit (o dvinv não commita)")
+
+
 def _client(cfg):
     cred, method = build_credential(cfg.auth_method, cfg.tenant_id, getattr(cfg, "devicecode_cache", False))
     print(f"[dvinv] autenticação: {method}", flush=True)
@@ -91,9 +113,17 @@ def cmd_render(cfg, snapshot=None):
     v = render(cfg, snapshot)
     print(f"[dvinv] snapshot: {v.snapshot}")
     print(f"[dvinv] vault: {len(v.written)} arquivo(s) em {cfg.vault_dir}")
-    print(f"[dvinv] derivados: {v.derived_dir} (índice para agentes: inventario.sqlite)")
+    print(f"[dvinv] derivados: {v.derived_dir}" + (" (+ cache inventario.sqlite)" if getattr(cfg, "sqlite", False) else ""))
     print(f"[dvinv] abrir: {cfg.vault_dir / '00 Índice.md'}")
     print(f"[dvinv] instruções para agentes: {cfg.vault_root / 'AGENTS.md'} (bloco dvinv) · CLAUDE.md")
+    if getattr(v, "pruned", None):
+        print(f"[dvinv] {len(v.pruned)} nota(s)/arquivo(s) de extrações anteriores removidos (sem curadoria)")
+    if getattr(v, "orphans_kept", None):
+        print(f"[dvinv] {len(v.orphans_kept)} nota(s) antigas com curadoria mantidas — ver 'Notas fora do inventário atual.md'")
+    if getattr(cfg, "repo", False):
+        print(f"[dvinv] repositório: {git_summary(cfg.vault_root)}")
+    for w in getattr(v, "size_warnings", None) or []:
+        print(f"[dvinv] aviso: arquivo grande para Git (> 50 MB): {w}")
     for w in getattr(v, "agent_warnings", None) or []:
         print(f"[dvinv] aviso: {w}")
 
@@ -112,10 +142,10 @@ def main(argv=None):
     ap.add_argument("--a", help="diff: snapshot A (diretório, raiz _raw → último íntegro, ou run_id)")
     ap.add_argument("--b", help="diff: snapshot B")
     ap.add_argument("--profundidade", type=int, help="impacto/depende: níveis (padrão 2 / 1)")
-    ap.add_argument("--internas", action="store_true",
-                    help="impacto/depende: inclui arestas internas de metadados (coluna → tabela etc.)")
     ap.add_argument("--limite", type=int, default=150, help="consultas: máximo de linhas listadas")
-    ap.add_argument("--indice", help="consultas: caminho do inventario.sqlite ou run_id (padrão: o mais recente)")
+    ap.add_argument("--vault", help="consultas: pasta do ambiente no vault (ex. vault/Dataverse/PRD); dispensa -c")
+    ap.add_argument("--sqlite", action="store_true",
+                    help="render/all: gera também o cache SQLite com todas as arestas (SQL ad hoc; fora do vault)")
     args = ap.parse_args(argv)
 
     if args.command == "collectors":
@@ -125,25 +155,27 @@ def main(argv=None):
         print("[dvinv] --no-snapshot é obsoleto: cada extração já é um snapshot próprio (opção ignorada)",
               file=sys.stderr)
 
-    overrides = {"deep_all": args.deep}
+    if args.command in ("buscar", "onde-usa", "impacto", "depende"):
+        if not args.termo:
+            sys.exit(f"{args.command} exige o termo (ex.: dvinv {args.command} account.esab_campo --vault <pasta>)")
+        from . import consulta
+        vdir = args.vault or config_mod.load(args.config).vault_dir
+        inv = consulta.Inventario(vdir)
+        if args.command == "buscar":
+            print(consulta.cmd_buscar(inv, args.termo, args.limite))
+        else:
+            direction = "depende" if args.command == "depende" else "impacto"
+            depth = args.profundidade or (2 if args.command == "impacto" else 1)
+            print(consulta.cmd_walk(inv, args.termo, direction, depth, args.limite))
+        return 0
+
+    overrides = {"deep_all": args.deep, "sqlite": args.sqlite}
     if args.profile:
         overrides["profile"] = args.profile
     if args.only:
         overrides["collectors"] = [x.strip() for x in args.only.split(",") if x.strip()]
     cfg = config_mod.load(args.config, overrides)
 
-    if args.command in ("buscar", "onde-usa", "impacto", "depende"):
-        if not args.termo:
-            sys.exit(f"{args.command} exige o termo (ex.: dvinv {args.command} account.esab_campo -c inventory.yaml)")
-        from . import index as index_mod
-        con = index_mod.connect(index_mod.locate(cfg, args.indice))
-        if args.command == "buscar":
-            print(index_mod.cmd_buscar(con, args.termo, args.limite))
-        else:
-            direction = "depende" if args.command == "depende" else "impacto"
-            depth = args.profundidade or (2 if args.command == "impacto" else 1)
-            print(index_mod.cmd_walk(con, args.termo, direction, depth, args.internas, args.limite))
-        return 0
 
     try:
         if args.command == "check":

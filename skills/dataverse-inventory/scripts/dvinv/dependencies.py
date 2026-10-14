@@ -7,8 +7,8 @@ Aresta = "A depende de B" (se B mudar ou sumir, A é afetado). Duas origens:
   tabela/Custom API/host, Custom API → tabela/plugin, app → tabela, papel → tabela, tabela filha →
   tabela pai (lookup).
 - plataforma — tabela `dependency` (deep.platform_dependencies): o que o Dataverse registra e usa
-  para bloquear exclusão. Na matriz entram só as arestas cujo componente exigido está no escopo; o conjunto
-  completo (centenas de milhares de arestas) vai para o índice SQLite (index.py).
+  para bloquear exclusão. No grafo entram as arestas que tocam o escopo (nos dois sentidos), sem as internas
+  de metadados; o conjunto completo fica no snapshot (e no cache SQLite opcional, `dvinv indice`).
 
 Saídas: _derived/<run_id>/dependencies.json (render; o diff recalcula), matriz por tabela, matriz tipo × tipo, fan-in/fan-out, órfãos.
 """
@@ -48,10 +48,10 @@ class Graph:
         self.edges = {}            # (src, dst, relation) -> {"source": inferida|plataforma, "detail"}
         self._out, self._in = defaultdict(list), defaultdict(list)
 
-    def node(self, kind, key, label=None, sub=None):
+    def node(self, kind, key, label=None, sub=None, ct=None):
         k = (kind, key)
         if k not in self.nodes:
-            self.nodes[k] = {"kind": kind, "key": key, "label": label or str(key), "sub": sub}
+            self.nodes[k] = {"kind": kind, "key": key, "label": label or str(key), "sub": sub, "ct": ct}
         return k
 
     def edge(self, src, dst, relation, source="inferida", detail=None):
@@ -76,6 +76,20 @@ def structural_teams(sec):
     """Equipes que viram nota/nó: owner e grupo Entra. Equipes de acesso (teamtype 1) são criadas por
     registro (access team templates) e podem ser milhares — ficam só na contagem."""
     return [t for t in sec.get("teams") or [] if t.get("type_code") != 1]
+
+
+TEAM_NOTES_MAX = 1000  # acima disso, só equipes com papel ou grupo do Entra viram nota/nó (o resto: CSV + índice)
+
+
+def teams_with_notes(sec):
+    """Equipes que viram nota e nó do grafo. Org com dezenas de milhares de equipes de proprietário (uma por
+    registro/usuário — ESAB-TEST: 72 mil, todas com o mesmo papel) geraria notas, arestas e uma nota de papel
+    de vários MB sem análise: ficam as com papel ou grupo do Entra, as de mais membros primeiro."""
+    ts = structural_teams(sec)
+    if len(ts) <= TEAM_NOTES_MAX:
+        return ts
+    keep = [t for t in ts if t.get("roles") or t.get("aad_group")]
+    return sorted(keep, key=lambda t: (-(t.get("members") or 0), t["name"]))[:TEAM_NOTES_MAX]
 
 
 def build(d):
@@ -241,7 +255,7 @@ def build(d):
     for b in sec.get("business_units") or []:
         if b.get("parent_id") and ("bu", b["parent_id"]) in g.nodes:
             g.edge(("bu", b["id"]), ("bu", b["parent_id"]), "filha de")
-    for t in structural_teams(sec):
+    for t in teams_with_notes(sec):
         tn = g.node("team", t["id"], t["name"])
         if t.get("bu_id") and ("bu", t["bu_id"]) in g.nodes:
             g.edge(tn, ("bu", t["bu_id"]), "pertence a")
@@ -251,6 +265,77 @@ def build(d):
     for r in d.get("relationships") or []:
         if r["kind"] == "1:N" and r["from"] in known_tables and r["to"] in known_tables:
             g.edge(("table", r["to"]), ("table", r["from"]), f"lookup {r.get('lookup')}")
+
+    # --- uso de campos: componente → coluna (o que a pergunta "onde o campo X é usado?" precisa) ---
+    # Mesmas fontes da matriz de uso de campos (05), para TODAS as tabelas do escopo e todas as colunas.
+    # Formulário/view → coluna a plataforma já registra (tabela dependency); só entram aqui sem ela.
+    cols_of = {t["logical"]: {c["logical"] for c in t.get("columns") or []} for t in tables}
+    custom_of = {t["logical"]: {c["logical"] for c in t.get("columns") or [] if c.get("custom")} for t in tables}
+    has_platform = bool((d.get("platform_dependencies") or {}).get("edges"))
+
+    def col(tbl, c):
+        c = (c or "").strip().lower()
+        if tbl in cols_of and c in cols_of[tbl]:
+            return g.node("column", f"{tbl}.{c}", f"{tbl}.{c}", sub=tbl)
+        return None
+
+    lib_tables = defaultdict(set)
+    for f in d.get("forms") or []:
+        fn = ("form", f["id"])
+        if fn not in g.nodes:
+            continue
+        for lib in f.get("libraries") or []:
+            lib_tables[lib].add(f["entity"])
+        for h in f.get("handlers") or []:
+            cn = col(f["entity"], h.get("field"))
+            if cn:
+                g.edge(fn, cn, f"evento {h.get('event')}", detail=h.get("function"))
+        for pc in f.get("pcf") or []:
+            for fld in ([pc["field"]] if pc.get("field") else []) + list(pc.get("bound") or []):
+                cn = col(f["entity"], fld)
+                if cn:
+                    g.edge(fn, cn, "controle PCF", detail=pc.get("control"))
+        if not has_platform:
+            for fld in f.get("fields") or []:
+                cn = col(f["entity"], fld)
+                if cn:
+                    g.edge(fn, cn, "exibe campo")
+    if not has_platform:
+        for vw in d.get("views") or []:
+            for fld in vw.get("columns") or []:
+                cn = col(vw["entity"], fld)
+                if cn and ("view", vw["id"]) in g.nodes:
+                    g.edge(("view", vw["id"]), cn, "coluna da view")
+    for s in plugins.get("steps") or []:
+        attrs = {(a.strip(), "filtering attribute") for a in (s.get("filtering") or "").split(",") if a.strip()}
+        for im in s.get("images") or []:
+            attrs |= {(a.strip(), "imagem do step") for a in (im.get("attributes") or "").split(",") if a.strip()}
+        for fld, rel in sorted(attrs):
+            cn = col(s.get("entity"), fld)
+            if cn:
+                g.edge(("step", s["id"]), cn, rel)
+    for p in procs:
+        ents = [p.get("entity")] + [t for t in p.get("tables") or [] if t != p.get("entity")]
+        for fld in p.get("field_refs") or []:
+            for tbl in ents:  # primeira tabela do processo que tem a coluna
+                cn = col(tbl, fld)
+                if cn:
+                    g.edge(("process", p["id"]), cn, "lê/grava campo")
+                    break
+    for w in wrs:
+        content = w.get("content") or ""
+        if not content:
+            continue
+        # JS carregado em formulários: colunas das tabelas desses formulários; sem formulário: colunas
+        # custom de qualquer tabela do escopo que casem pelo nome (ambíguo por natureza — detalhe avisa)
+        tabs = lib_tables.get(w["name"])
+        cands = {tb: cols_of[tb] for tb in sorted(tabs) if tb in cols_of} if tabs else custom_of
+        for tbl, known in sorted(cands.items()):
+            for fld in field_refs(content, known):
+                cn = col(tbl, fld)
+                if cn:
+                    g.edge(("webresource", w["name"]), cn, "usa campo (JS)",
+                           detail=None if tabs else "casado só pelo nome da coluna")
 
     # --- site maps: app → site map → tabela / web resource ---
     for sm in d.get("sitemaps") or []:
@@ -349,7 +434,7 @@ def build(d):
             return g.node("column", f"{t}.{c}", f"{t}.{c}", sub=t)
         nm = (cat_names.get(oid) or [None, None])[1]
         lbl = ctype_label or type_label(ctype)
-        return g.node("platform", oid, f"{lbl} {nm}" if nm else f"{lbl} {oid[:8]}", sub=lbl)
+        return g.node("platform", oid, f"{lbl} {nm}" if nm else f"{lbl} {oid[:8]}", sub=lbl, ct=ctype)
 
     pd = d.get("platform_dependencies") or {}
     if pd.get("format") == "compacto/1":
@@ -357,7 +442,9 @@ def build(d):
         in_scope = set(id_index) | set(col_ids)
         for a, b, dt in pd.get("edges") or []:
             (ca, ia), (cb, ib) = nodes[a], nodes[b]
-            if ib not in in_scope:  # mesma semântica de antes (quem depende do escopo); o resto só no índice
+            # arestas que tocam o escopo, nos dois sentidos (quem depende do escopo e do que o escopo depende).
+            # Fora: internas de metadados (coluna → tabela, "Solution Internal") e nativo → nativo.
+            if dt == 1 or (ib not in in_scope and ia not in in_scope):
                 continue
             g.edge(resolve(ia, None, ca), resolve(ib, None, cb), f"plataforma ({DEP_TYPE.get(dt, dt)})",
                    source="plataforma")
@@ -367,6 +454,30 @@ def build(d):
             dst = resolve(e["required_id"], e.get("required_type_label"), e.get("required_type"))
             g.edge(src, dst, f"plataforma ({e.get('dependency_type')})", source="plataforma")
     return g
+
+
+GUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def canonical_key(n, cat_names=None):
+    """Chave estável de um nó, a mesma em Componentes.csv, Dependências.csv, frontmatter e `dvinv onde-usa`.
+
+    Componente do escopo: `<tipo>:<nome>` (table:account, column:account.x, webresource:...). Fora do escopo:
+    tabela/coluna pelo nome lógico (table:systemuser, column:account.name) e o resto pelo GUID."""
+    kind, key = n
+    if kind != "platform":
+        return f"{kind}:{key}"
+    nm = (cat_names or {}).get(key)
+    if nm and nm[1] and nm[0] in (1, 2):
+        return f"{'table' if nm[0] == 1 else 'column'}:{nm[1]}"
+    return key
+
+
+def guid_of(g, n):
+    oid = (getattr(g, "guid_index", {}) or {}).get(n)
+    if oid:
+        return oid
+    return str(n[1]).lower() if GUID_RE.match(str(n[1]).lower()) else None
 
 
 def kind_of(g, n):

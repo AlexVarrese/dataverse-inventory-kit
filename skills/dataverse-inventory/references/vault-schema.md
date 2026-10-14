@@ -1,6 +1,7 @@
 # Esquema do vault
 
-Toda nota gerada tem `ambiente`, `tipo` e `tags` (`dataverse`, `dataverse/<tipo>`, `ambiente/<slug>`).
+Toda nota gerada tem `ambiente`, `tipo` e `tags` (`dataverse`, `dataverse/<tipo>`, `ambiente/<slug>`); as de
+componente têm também `chave` (a mesma dos CSVs e do `dvinv onde-usa`) e `id` (GUID do Dataverse).
 Desde a 0.6 **não há data de extração por nota** (re-extrair sem mudança no ambiente não altera os
 arquivos e o diff do Git mostra só mudança real): a data e o `snapshot` ficam em `00 Índice`,
 `01 Ambiente` e `AGENT-INDEX`. Links em properties são strings `"[[caminho|alias]]"`, como pede o Obsidian.
@@ -46,13 +47,25 @@ e a janela de contexto de um agente sofrem com notas de vários MB):
 
 | Arquivo | Conteúdo |
 |---|---|
-| `Componentes.csv` | 100% dos componentes do ambiente (tipo, nome, pai, id, escopo, soluções, nota) |
-| `Dependências.csv` / `Matriz de Dependências.xlsx` | arestas do escopo (o conjunto completo está no índice SQLite) |
+| `Componentes.csv` | 100% dos componentes do ambiente (chave, tipo, nome, pai, GUID, escopo, soluções, nota) |
+| `Dependências.csv` | **índice textual**: uma linha por aresta que toca o escopo, com chave, GUID, tipo, nome e nota das duas pontas, em ordem estável |
+| `Matriz de Dependências.xlsx` | entrega ao cliente (binário; `output.xlsx: false` para não versionar) |
 | `Dependências ausentes.csv` | RetrieveMissingDependencies por solução, com nomes do catálogo |
 | `Equipes.csv` | todas as equipes estruturais; com mais de 1.000, só as que têm papel ou grupo do Entra viram nota |
 
 Web resource de biblioteca de terceiros ou com mais de 150 KB não tem o código na nota (fica no
 snapshot, `_raw/<run_id>/webresources.json`); a análise estática e as funções continuam na nota.
+
+## Vault em repositório Git
+
+- Texto com LF e ordem estável: o diff entre extrações mostra só o que mudou no ambiente.
+- O render avisa quando algum arquivo passa de 50 MB (o GitHub alerta nesse ponto e recusa acima de 100 MB).
+- `output.xlsx: false` evita versionar a planilha (binário regenerável).
+- Snapshot bruto, derivados e o cache SQLite ficam em `out/`, fora do vault — não vão para o repositório.
+- `output.repo: true` (repositório de conhecimento): o render mantém blocos `dvinv` no `README.md` (ambientes,
+  snapshot, como consultar, o que não está no repositório), no `.gitignore` (estado local do Obsidian, cópias de
+  trabalho, `.env`) e no `.gitattributes` (LF; CSVs marcados como gerados), e imprime o resumo do `git status`.
+  Não faz commit.
 
 ## Preservação entre extrações
 
@@ -60,8 +73,10 @@ snapshot, `_raw/<run_id>/webresources.json`); a análise estática e as funçõe
 - Properties mantidas: `status`, `responsavel`, `decisao`, `prazo`, `revisado`, `tags_extra`.
 - O resto é regenerado. O render escreve numa cópia de trabalho (`<vault_root>/.dvinv-render-*`) e
   troca a pasta `<vault_folder>` só no fim, depois da varredura de segredos; se falhar, o vault anterior
-  fica intacto. Edições feitas no vault *durante* o render se perdem (a cópia é tirada no início). Componentes que sumiram do ambiente **não** são apagados do vault: use o
-  `diff` para identificá-los e arquive manualmente.
+  fica intacto. Edições feitas no vault *durante* o render se perdem (a cópia é tirada no início).
+- Notas de componentes que não aparecem na extração atual: **removidas** se não têm nada abaixo do marcador
+  manual; **mantidas** e listadas em `Notas fora do inventário atual.md` se têm curadoria. Notas sem o
+  marcador do dvinv (escritas pelo time) nunca são tocadas.
 
 ## Bases geradas (`Bases/`)
 

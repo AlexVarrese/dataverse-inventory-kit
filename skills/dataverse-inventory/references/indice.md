@@ -1,78 +1,53 @@
-# Índice SQLite e consultas para agentes
+# Consultas de impacto sobre o vault
 
-O vault é para leitura humana e curadoria. Para perguntas **estruturais** (impacto de uma evolutiva,
-onde um campo é usado, do que um componente depende, se algo existe no ambiente), consulte o índice:
-uma consulta devolve poucas linhas com o caminho da nota, em vez de abrir notas grandes.
+O **vault é o produto**: publicado num repositório, o time consulta pelo Obsidian, pelo Copilot, pelo
+Claude ou por grep — tudo texto, com diff legível entre extrações. Perguntas **estruturais** (impacto de
+uma evolutiva, onde um campo é usado, do que um componente depende, se algo existe) são respondidas
+pelos CSVs da pasta do ambiente, sem ler notas:
 
-## Onde fica
+| Arquivo | Uma linha por… | Colunas principais |
+|---|---|---|
+| `Dependências.csv` | aresta que toca o escopo (origem **depende de** destino) | `Origem`, `Origem id`, `Origem tipo`, `Origem nome`, `Relação`, `Fonte`, `Destino`, `Destino id`, `Destino tipo`, `Destino nome`, `Nota origem`, `Nota destino`, `Origem no escopo`, `Destino no escopo` |
+| `Componentes.csv` | componente do ambiente (100%, todas as soluções) | `Chave`, `Tipo`, `Código do tipo`, `Nome`, `Pai`, `Id` (GUID), `No escopo`, `Só em soluções gerenciadas`, `Soluções`, `Nota` |
+| `Equipes.csv` | equipe estrutural | BU, grupo do Entra, membros, papéis, id |
 
-`<derived_dir>/<run_id>/inventario.sqlite` (padrão `out/<ambiente>/_derived/<run_id>/`), gerado pelo
-`render`. Fica **fora** do vault: é binário, regenerável a partir do snapshot e não deve ir para o Git.
-Tem a mesma sensibilidade do vault. Antes de publicar, todo texto do banco passa pela varredura de
-segredos (fail-closed).
+## Chave
+
+A mesma nos CSVs, no frontmatter (`chave:`) e nos comandos: `<tipo>:<nome>` para o que tem nota
+(`table:account`, `column:account.esab_x`, `webresource:esab_/js/x.js`, `process:<guid>`, `sla:<guid>`…);
+fora do escopo, `table:`/`column:` pelo nome lógico e o resto pelo GUID. Toda nota tem também `id:` (GUID do
+Dataverse): um GUID tirado de log, plugin trace ou chamado leva à nota com `grep -rl "id: <guid>"`.
 
 ## Comandos
 
-Todos leem o índice mais recente (ou `--indice <arquivo|run_id>`), só leitura:
-
-| Comando | Uso | Exemplo |
+| Pergunta | grep (qualquer agente/terminal) | dvinv |
 |---|---|---|
-| `buscar <texto>` | achar o componente e a chave | `dvinv.py buscar sitemap -c inventory.yaml` |
-| `onde-usa <alvo>` | quem depende **diretamente** do alvo | `dvinv.py onde-usa account.esab_segmento -c inventory.yaml` |
-| `impacto <alvo>` | cadeia de quem depende (padrão 2 níveis) | `dvinv.py impacto esab_/js/account.js --profundidade 3 -c inventory.yaml` |
-| `depende <alvo>` | do que o alvo precisa | `dvinv.py depende "Contoso - Sync conta → ERP" -c inventory.yaml` |
+| Existe? Qual a chave? | `grep -i "esab_x" Componentes.csv` | `dvinv.py buscar esab_x --vault <pasta>` |
+| Quem depende de X? | `grep ";column:account.esab_x;" Dependências.csv` | `dvinv.py onde-usa account.esab_x --vault <pasta>` |
+| Impacto em cadeia | repetir o grep para cada origem | `dvinv.py impacto account.esab_x --profundidade 2 --vault <pasta>` |
+| Do que X depende? | `grep "^webresource:esab_/js/x.js;" Dependências.csv` | `dvinv.py depende esab_/js/x.js --vault <pasta>` |
 
-`<alvo>` aceita: chave (`table:account`, `column:account.x`, `webresource:...`), GUID, `tabela.coluna`,
-nome lógico da tabela ou nome do componente. Se for ambíguo, o comando lista as chaves candidatas.
+`<pasta>` = pasta do ambiente no vault (ex. `Dataverse/PRD`). `--vault` dispensa `inventory.yaml` e
+credenciais: funciona em qualquer clone do repositório. Com `-c inventory.yaml`, usa o vault do config.
+`<alvo>` aceita chave, GUID, `tabela.coluna`, nome lógico de tabela ou nome do componente; se for ambíguo, o
+comando lista as chaves candidatas. Opções: `--profundidade N`, `--limite N` (padrão 150; escopo primeiro).
 
-Opções: `--profundidade N`, `--limite N` (padrão 150 linhas; os do escopo vêm primeiro),
-`--internas` (inclui arestas internas de metadados, ex. coluna → tabela, *Solution Internal*).
+## O que entra nas arestas
 
-## Saída (texto compacto)
+- **plataforma** — tabela `dependency` do Dataverse (o que ela usa para bloquear exclusão): formulário/view/
+  business rule → coluna, sitemap → tabela, PCF como controle de coluna/view… Entram as que tocam o escopo, nos
+  dois sentidos; ficam de fora as internas de metadados (coluna → tabela) e nativo → nativo.
+- **inferida** — o que o kit deduz e a plataforma não registra: uso de campos (evento de formulário, controle
+  PCF, filtering attribute e imagem de plugin, campos de workflow/flow, `getAttribute` em JS), JS chamando
+  Custom API/tabela/host, flow lendo variável/conexão/tabela, step registrado em mensagem, papel com privilégio,
+  tabela virtual → provedor → plugin, site map → tabela, SLA → coluna de condição/KPI.
 
-```
-# Impacto — account [Tabela] ·escopo (table:account)
-nota: Dataverse/ESAB-TEST/Tabelas/account.md
-57 componente(s) — quem depende (profundidade 1; sem arestas internas de metadados)
+Ausência de aresta **não prova** ausência de uso: integrações externas, Power BI, apps fora do Dataverse e
+código não coletado não aparecem. Trate "sem dependentes" como candidato a investigação.
 
-nível | tipo | qtde
-1 | System Form | 38
-...
-nível | componente | relação | nota
-1 | Conta Principal [Formulário] ·escopo | formulário de | —
-1 | esab_/js/account.js [Web resource] ·escopo | consulta/grava (JS) | Dataverse/ESAB-TEST/Web Resources/esab_-js-account.js.md
-```
+## Cache SQLite (opcional)
 
-Depois, abra só as notas listadas. Componentes **sem nota** estão fora do escopo (catálogo de 100%) —
-o nome e o tipo vêm do catálogo; para detalhe use o MCP do Dataverse ou `dv-metadata`.
-
-## Esquema (para SQL direto)
-
-| Tabela | Colunas |
-|---|---|
-| `componentes` | `id`, `chave`, `guid`, `ct` (componenttype), `tipo`, `nome`, `pai`, `no_escopo`, `nota` |
-| `dependencias` | `origem` **depende de** `destino` (ids de `componentes`), `relacao`, `fonte` (`plataforma`/`inferida`), `interna`, `detalhe` |
-| `solucoes` / `componente_solucao` | pertencimento a soluções (todas, inclusive gerenciadas) |
-| `tipos` | `ct` → nome do tipo e fonte do rótulo |
-| `achados` | achados automáticos por componente |
-| `meta` | ambiente, url, run_id, data da extração |
-
-Exemplo — colunas customizadas de `account` sem nenhum dependente (candidatas a investigar):
-
-```sql
-SELECT c.nome FROM componentes c
-WHERE c.chave LIKE 'column:account.%' AND c.no_escopo = 1
-  AND NOT EXISTS (SELECT 1 FROM dependencias d WHERE d.destino = c.id AND d.interna = 0);
-```
-
-## Origem das arestas
-
-- **plataforma** — tabela `dependency` do Dataverse, lida inteira (centenas de milhares de linhas): o
-  que a plataforma usa para bloquear exclusão (view → coluna, formulário → web resource, sitemap → tabela,
-  PCF como controle de coluna/view…).
-- **inferida** — o que o kit deduz e a plataforma não registra: JS chamando Custom API/tabela/host,
-  flow lendo variável/conexão/tabela, step registrado em mensagem/tabela, papel com privilégio na tabela,
-  tabela virtual → provedor → classe de plugin.
-
-Ausência de aresta **não prova** ausência de uso: integrações externas, Power BI, apps fora do
-Dataverse e código não coletado não aparecem. Trate "sem dependentes" como candidato a investigação.
+`render --sqlite` (ou `output.sqlite: true`) grava `_derived/<run_id>/inventario.sqlite` com **todas** as
+arestas da plataforma (inclusive nativo → nativo e internas) para SQL ad hoc na máquina de quem extraiu. Fica
+fora do vault (centenas de MB, binário, não vai para o Git). Tabelas: `componentes`, `dependencias`
+(`interna = 1` para metadados), `solucoes`, `componente_solucao`, `tipos`, `achados`, `meta`.
