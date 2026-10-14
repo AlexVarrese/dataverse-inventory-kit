@@ -115,6 +115,13 @@ ENTITIES = [
 ]
 
 
+SITEMAP_XML = """<SiteMap><Area Id="vendas" Icon="/WebResources/contoso_/js/account.js"><Titles><Title LCID="1046" Title="Vendas"/>
+<Title LCID="1033" Title="Sales"/></Titles><Group Id="g1"><Titles><Title LCID="1046" Title="Clientes"/></Titles>
+<SubArea Id="s1" Entity="account"><Titles><Title LCID="1046" Title="Contas"/></Titles><Privilege Entity="account" Privilege="Read"/></SubArea>
+<SubArea Id="s2" Url="https://erp.contoso.com/portal"><Titles><Title LCID="1046" Title="Portal ERP"/></Titles></SubArea>
+<SubArea Id="s3" Url="/main.aspx?pagetype=dashboard"><Titles><Title LCID="1046" Title="Painel"/></Titles></SubArea>
+<SubArea Id="s4" Url="https://contoso-dev.crm.dynamics.com/main.aspx?pagetype=entitylist&amp;etn=contoso_project"><Titles><Title LCID="1046" Title="Projetos (DEV)"/></Titles></SubArea>
+</Group></Area></SiteMap>"""
 DEP_BULK_FAIL = False  # True: a leitura em lote da tabela dependency devolve 403 (testa o fallback)
 TIER_ID = lambda: G(abs(hash("contoso_tier")) % 10**9)  # noqa: E731  (id da coluna, como em attr())
 
@@ -149,7 +156,35 @@ def route(path):
     if p.startswith("RelationshipDefinitions?$select=MetadataId,SchemaName"):
         return [{"MetadataId": G(20), "SchemaName": "contoso_account_project"}]
     if p.startswith("sitemaps?"):
-        return [{"sitemapid": G(86), "sitemapname": "Contoso Sitemap"}]
+        if "isappaware eq true" not in p and "isappaware eq false" not in p and "sitemapxml" in p:
+            return [{"sitemapid": G(87), "sitemapname": None, "ismanaged": True, "isappaware": False,
+                     "sitemapxml": "<SiteMap><Area Id='Clássica'/></SiteMap>"}]  # só o clássico sem filtro
+        if "isappaware eq false" in p:
+            return [{"sitemapid": G(87), "sitemapname": None, "ismanaged": True, "isappaware": False,
+                     "sitemapxml": "<SiteMap><Area Id='Clássica'/></SiteMap>"}]
+        if "isappaware eq true" in p:
+            return [{"sitemapid": G(86), "sitemapname": "Contoso Sitemap", "sitemapnameunique": "contoso_Vendas",
+                     "ismanaged": False, "isappaware": True, "sitemapxml": SITEMAP_XML}]
+        return [{"sitemapid": G(86), "sitemapname": "Contoso Sitemap"}]  # catálogo (só id + nome)
+    if p.startswith("slas?"):
+        return [{"slaid": G(210), "name": "Contoso SLA Projeto", "description": "Resolver em 8h úteis",
+                 "objecttypecode": 10001, "primaryentityotc": 10001, "statecode": 1, "statecode" + FV: "Active",
+                 "slaversion": 100000001, "slaversion" + FV: "Version UC", "isdefault": True, "ismanaged": False,
+                 "_businesshoursid_value": G(212)},
+                {"slaid": G(211), "name": "SLA nativo", "objecttypecode": 2, "ismanaged": True, "statecode": 1}]
+    if p.startswith("slaitems?"):
+        return [{"slaitemid": G(214), "name": "Resolver projeto", "_slaid_value": G(210), "sequencenumber": 1,
+                 "applicablewhenxml": '<fetch><entity name="contoso_project"><filter><condition attribute="contoso_name" '
+                                      'operator="not-null"/></filter><link-entity name="account"/></entity></fetch>',
+                 "successconditionsxml": '<fetch><entity name="contoso_project"><filter><condition attribute="statuscode" '
+                                         'operator="eq" value="2"/></filter></entity></fetch>',
+                 "failureafter": 480, "warnafter": 240, "_msdyn_slakpiid_value": G(213), "_workflowid_value": G(52),
+                 "_businesshoursid_value": G(212)}]
+    if p.startswith("msdyn_slakpis?"):
+        return [{"msdyn_slakpiid": G(213), "msdyn_name": "Resolver projeto", "msdyn_entityname": "contoso_project",
+                 "msdyn_kpifield": "contoso_resolvebykpiid", "msdyn_applicablefromfield": "createdon"}]
+    if p.startswith("calendars"):
+        return [{"calendarid": G(212), "name": "Horário Brasil"}]
     if p.startswith("EntityDefinitions?") and "TableType eq 'Virtual'" in p:
         return [e for e in ENTITIES if e.get("TableType") == "Virtual"]
     if p.startswith("entitydataproviders"):
@@ -483,7 +518,7 @@ def check_dependencies(cfg, derived):
     assert must <= edges, f"arestas faltando: {must - edges}"
     # 'Contoso.Account' (variável JS, sem aspas) não pode virar dependência da tabela account
     assert ("contoso_/js/account.js", "consulta/grava (JS)", "account") not in edges
-    assert any(n["kind"] == "platform" and n["sub"] == "Site Map" for n in dep["nodes"])
+    assert any(n["kind"] == "sitemap" and n["label"] == "contoso_Vendas" for n in dep["nodes"])
     acc = next(r for r in dep["per_table"] if r["table"] == "account")
     assert acc["form"] == 1 and acc["step"] == 2 and acc["app"] == 1 and acc["role"] == 1 and acc["child_table"] == 1, acc
     # Excel abre: XML válido e as planilhas esperadas
@@ -554,7 +589,7 @@ def check_catalog_index(cfg, snap, derived):
 
     dep = json.loads((derived / "dependencies.json").read_text())
     edges = {(e["from_label"], e["relation"], e["to_label"]) for e in dep["edges"]}
-    assert ("Contoso Sitemap" in str(edges)), "nome do catálogo não chegou ao grafo"
+    assert ("contoso_Vendas", "plataforma (Published)", "account") in edges, "site map do escopo resolvido pelo id"
     assert not any(e["to_label"] == "contact" for e in dep["edges"] if "plataforma" in e["source"]), "aresta fora do escopo na matriz"
     assert ("projeto / Projetos ativos" not in str(edges))
     assert ("contoso_project / Projetos ativos", "plataforma (Published)", "contoso_Contoso.TierPicker") in edges, \
@@ -568,12 +603,12 @@ def check_catalog_index(cfg, snap, derived):
     n_dep = con.execute("SELECT count(*) FROM dependencias WHERE fonte = 'plataforma'").fetchone()[0]
     assert n_dep == 5, n_dep  # conjunto completo, inclusive a aresta fora do escopo
     imp = index_mod.cmd_walk(con, "account", "impacto", 1, False, 50)
-    assert "Contoso Sitemap" in imp and "Projetos ativos" in imp and "Tabelas/account.md" in imp, imp
+    assert "contoso_Vendas" in imp and "Projetos ativos" in imp and "Tabelas/account.md" in imp, imp
     assert "account.contoso_tier" not in imp, "aresta interna (coluna → tabela) não deveria aparecer sem --internas"
     assert "account.contoso_tier" in index_mod.cmd_walk(con, "account", "impacto", 1, True, 50)
     ct = index_mod.cmd_walk(con, "contact", "impacto", 1, False, 50)
     assert G(300) in ct, ct  # fora do escopo: sem nome, mas presente
-    assert "Contoso Sitemap" in index_mod.cmd_buscar(con, "sitemap")
+    assert "contoso_Vendas" in index_mod.cmd_buscar(con, "vendas")
     two = index_mod.cmd_walk(con, "contoso_Contoso.TierPicker", "impacto", 2, False, 50)
     assert "Projetos ativos" in two, two
     assert "é ambíguo" in index_mod.cmd_walk(con, "Venda", "impacto", 1, False, 50)
@@ -591,6 +626,51 @@ def check_catalog_index(cfg, snap, derived):
     assert "## Tabelas virtuais" in (vd / "03 Integrações.md").read_text()
     ai = (vd / "AGENT-INDEX.md").read_text()
     assert "dvinv.py impacto" in ai and "inventario.sqlite" in ai
+
+
+def check_navigation_sla(cfg, snap, derived):
+    """Site maps (inclusive os de app, que exigem isappaware eq true) e SLAs com itens, KPI e condições."""
+    from dvinv import index as index_mod
+    sm = json.loads((snap / "sitemaps.json").read_text())
+    assert [x["name"] for x in sm] == ["contoso_Vendas"], sm  # clássico gerenciado fora do escopo
+    s0 = sm[0]
+    assert s0["apps"] == [{"id": G(80), "name": "Contoso Vendas"}] and s0["tables"] == ["account"], s0
+    assert s0["webresources"] == ["contoso_/js/account.js"], s0["webresources"]
+    assert s0["external_urls"] == ["https://contoso-dev.crm.dynamics.com/main.aspx?pagetype=entitylist&etn=contoso_project",
+                                   "https://erp.contoso.com/portal"], s0["external_urls"]
+    kinds = [x["kind"] for a in s0["areas"] for g in a["groups"] for x in g["subareas"]]
+    assert kinds == ["tabela", "url", "dashboard", "url"] and s0["areas"][0]["title"] == "Vendas", kinds
+    fnd = {f["id"]: f for f in json.loads((derived / "findings.json").read_text())}
+    assert fnd["NAV-01"]["severity"] == "médio" and fnd["NAV-01"]["evidence"] == ["contoso_Vendas: contoso-dev.crm.dynamics.com"], fnd["NAV-01"]
+    assert "SLA-01" not in fnd  # um SLA ativo com item
+    sla = json.loads((snap / "slas.json").read_text())
+    assert [x["name"] for x in sla] == ["Contoso SLA Projeto"], sla
+    it = sla[0]["items"][0]
+    assert sla[0]["table"] == "contoso_project" and sla[0]["business_hours"] == "Horário Brasil"
+    assert it["kpi_field"] == "contoso_resolvebykpiid" and it["applicable_when_fields"] == ["contoso_name"], it
+    assert it["success_fields"] == ["statuscode"] and it["linked_entities"] == ["account"], it
+
+    dep = json.loads((derived / "dependencies.json").read_text())
+    edges = {(e["from_label"], e["relation"], e["to_label"]) for e in dep["edges"]}
+    must = {("Contoso Vendas", "usa site map", "contoso_Vendas"), ("contoso_Vendas", "navega para", "account"),
+            ("contoso_Vendas", "usa web resource", "contoso_/js/account.js"),
+            ("contoso_Vendas", "abre URL externa", "erp.contoso.com"),
+            ("Contoso SLA Projeto", "SLA de", "contoso_project"),
+            ("Contoso SLA Projeto", "condição: aplicável quando", "contoso_project.contoso_name"),
+            ("Contoso SLA Projeto", "KPI", "contoso_project.contoso_resolvebykpiid"),
+            ("Contoso SLA Projeto", "dispara ação", "Atualiza projeto")}
+    assert must <= edges, must - edges
+    con = index_mod.connect(derived / "inventario.sqlite")
+    out = index_mod.cmd_walk(con, "contoso_project.contoso_name", "impacto", 1, False, 50)
+    assert "Contoso SLA Projeto" in out and "SLAs/Contoso SLA Projeto.md" in out, out
+    assert "contoso_Vendas" in index_mod.cmd_walk(con, "account", "impacto", 1, False, 80)
+    vd = cfg.vault_dir
+    smn = (vd / "Site Maps" / "contoso_Vendas.md").read_text()
+    assert "## Navegação" in smn and "Portal ERP" in smn and "URLs externas" in smn and "Contoso Vendas" in smn, smn
+    sln = (vd / "SLAs" / "Contoso SLA Projeto.md").read_text()
+    assert "## Itens (KPIs)" in sln and "480 min (8h00)" in sln and "contoso_resolvebykpiid" in sln, sln
+    for b in ("Site Maps.base", "SLAs.base"):
+        assert (vd / "Bases" / b).exists(), b
 
 
 def check_method_drift():
@@ -690,6 +770,7 @@ def main():
         check_dependencies(cfg, v.derived_dir)
         check_security_pcf(cfg, snap, fnd)
         check_catalog_index(cfg, snap, v.derived_dir)
+        check_navigation_sla(cfg, snap, v.derived_dir)
         for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios", "08 Matriz de Dependências"):
             assert (cfg.vault_dir / f"{sec}.md").exists(), sec
         flow = json.loads((snap / "processes.json").read_text())

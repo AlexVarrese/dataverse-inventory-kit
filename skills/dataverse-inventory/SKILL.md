@@ -5,7 +5,8 @@ description: >-
   num vault Obsidian, com índice SQLite para análise de impacto. Use para levantamento ou assessment de
   ambiente, documentar customizações, gap TEST × PRD, e para responder "o que é impactado se eu mudar X?",
   "onde este campo/JS/plugin é usado?" ou rastrear um problema até os componentes envolvidos (tabelas,
-  colunas, formulários, JS, plugins, workflows, business rules, flows, PCF, tabelas virtuais, apps, segurança).
+  colunas, formulários, JS, plugins, workflows, business rules, flows, PCF, site maps, SLAs, tabelas virtuais,
+  apps, segurança).
 version: 0.6.0
 author: Alex Giovani Varrese (alexvarrese)
 license: MIT
@@ -24,7 +25,8 @@ análise** para o que o cliente customizou e (3) **índice SQLite** com todas as
 pela plataforma + as inferidas pelo kit, para análise de impacto barata. O que entra na camada 2: tabelas, colunas, relacionamentos, formulários, views, web resources,
 ribbons, plugins (assemblies, classes, steps, imagens), Custom APIs, service endpoints, workflows,
 business rules, actions, BPFs, cloud/desktop flows, apps model-driven, canvas, agentes Copilot
-Studio, componentes PCF, tabelas virtuais (provedor de dados, fonte e classes de plugin), variáveis de
+Studio, site maps (navegação de cada app), SLAs (itens, KPIs, campos das condições, horário comercial),
+componentes PCF, tabelas virtuais (provedor de dados, fonte e classes de plugin), variáveis de
 ambiente, referências de conexão, conectores, soluções, segurança (BUs, papéis, privilégios, equipes,
 usuários) e saúde de execução (plugin trace). O resultado é um vault Obsidian
 com uma nota por componente, Bases, um Canvas do ambiente e achados automáticos rastreáveis.

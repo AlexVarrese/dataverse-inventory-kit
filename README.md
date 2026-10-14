@@ -22,6 +22,8 @@ skills, há um prompt equivalente.
   "o que é impactado se eu mudar X?" em poucas linhas, com o caminho da nota — sem ler o vault inteiro.
   O vault traz um `AGENT-INDEX.md` com o roteiro de leitura econômica (Claude Code, Copilot, Hermes…).
 - **Tabelas virtuais**: provedor de dados, fonte e classes de plugin por operação.
+- **Site maps e SLAs**: navegação de cada app (área → grupo → subárea → destino) e SLAs com itens, KPIs
+  e as colunas usadas nas condições — entram na análise de impacto.
 - **Uma nota por componente do escopo**: tabelas, colunas, formulários, views, web resources, plugins, Custom APIs,
   workflows, business rules, BPFs, cloud flows, apps, agentes Copilot Studio, papéis, soluções, variáveis
   de ambiente e conexões, com properties para Obsidian Bases.

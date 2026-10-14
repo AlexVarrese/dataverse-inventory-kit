@@ -22,6 +22,8 @@ escopo) e depois os demais.
 | pcf | `customcontrols` + `customcontrols(id)?$select=manifest`; vínculos coluna → controle vêm do formxml (coletor forms) | pcf.json | critério de escopo, ou de terceiros usado em formulário de tabela do escopo; controles nativos (`MscrmControls.*`) fora |
 | ribbons\* | `RetrieveEntityRibbon` (zip base64 → RibbonXml.xml) | ribbons.json | botões cujo comando chama biblioteca do escopo |
 | apps | `appmodules`, `canvasapps`, `bots` | apps.json | critério de escopo |
+| sitemaps | `sitemaps` com `$filter=isappaware eq true` **e** `eq false` (sem filtro a API só devolve o clássico) + `sitemapxml` (Área → Grupo → SubÁrea: tabela, web resource em Url/Icon, dashboard, URL externa, privilégios) | sitemaps.json | critério de escopo ou site map de app do escopo (via `appmodulecomponents`, tipo 62) |
+| slas | `slas`, `slaitems` (FetchXML de aplicável quando / sucesso / pausa → colunas citadas), `msdyn_slakpis` (campo de KPI, aplicável a partir de), `calendars` (só o nome do horário comercial) | slas.json | SLA de tabela do escopo ou critério de escopo |
 | plugins | `pluginassemblies`, `plugintypes`, `sdkmessageprocessingsteps` (`customizationlevel eq 1`), `…stepimages`, `pluginassemblies(id)?$select=content`\* | plugins.json, bin/*.dll | assembly no escopo; step de classe no escopo ou webhook em tabela do escopo |
 | customapis | `customapis` + `CustomAPIRequestParameters`/`CustomAPIResponseProperties` | customapis.json | critério de escopo |
 | serviceendpoints | `serviceendpoints` | serviceendpoints.json | critério de escopo |

@@ -19,6 +19,8 @@ arquivos e o diff do Git mostra só mudança real): a data e o `snapshot` ficam 
 | `app` | `Apps/` | `subtipo` (model-driven / canvas / agente Copilot Studio), `nome_unico` |
 | `solucao` | `Soluções/` | `versao`, `gerenciada`, `publisher`, `prefixo`, `componentes` |
 | `papel` | `Papéis/` | `gerenciado`, `tabelas_com_privilegio` |
+| `sitemap` | `Site Maps/` | `de_app`, `apps` (links), `areas`, `subareas`, `tabelas`, `web_resources`, `urls_externas`, `gerenciado` |
+| `sla` | `SLAs/` | `tabela` (link), `estado`, `versao_sla`, `padrao`, `itens`, `horario_comercial`, `permite_pausa`, `gerenciado` |
 | `pcf` | `Componentes PCF/` | `namespace`, `construtor`, `versao`, `tipo_controle`, `gerenciado`, `formularios`, `campos`, `dominios_externos`, `web_api` |
 | `business-unit` | `Business Units/` | `pai` (link), `filhas`, `equipes`, `usuarios_ativos`, `desativada` |
 | `equipe` | `Equipes/` | `tipo_equipe`, `business_unit` (link), `grupo_entra`, `membros`, `papeis` (links), `administrador` |
@@ -72,6 +74,8 @@ Todas filtram por `file.inFolder("<vault_folder>")` + `tipo`, então cada ambien
 - **Achados**: Por severidade · Abertos
 - **Componentes**: assemblies, Custom APIs, apps, soluções, papéis e PCF agrupados por tipo
 - **Componentes PCF**: Todos · Sem uso em formulário
+- **Site Maps**: Todos (apps, subáreas, tabelas, URLs externas)
+- **SLAs**: Por tabela · Não ativos
 - **Segurança**: Business units · Equipes (por BU) · Usuários por BU · Usuários de aplicação
 
 Para uma visão transversal a vários ambientes, crie uma Base sem o filtro de pasta e agrupe por

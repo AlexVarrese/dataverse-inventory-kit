@@ -36,6 +36,18 @@ Tabelas virtuais (coletor `virtual_tables`)
   externo e as classes de plugin do provedor por operação; seção na nota da tabela e em `03 Integrações`;
   no grafo, tabela → provedor → assembly/classe. Tabelas elásticas entram na contagem.
 
+Site maps e SLAs (coletores `sitemaps` e `slas`)
+- Site maps: lidos com `isappaware eq true` e `eq false` — sem filtro a API só devolve o clássico (ESAB-TEST:
+  1 × 29). Nota por site map com Área → Grupo → SubÁrea, destino (tabela, web resource, dashboard, URL
+  externa) e privilégios; no grafo, app → site map → tabela/web resource/host.
+- SLAs: itens com aviso/falha, KPI (`msdyn_slakpis`), horário comercial e as colunas citadas no FetchXML de
+  aplicável quando / sucesso / pausa; no grafo, SLA → tabela, SLA → coluna (por condição/KPI) e SLA →
+  workflow de ação. `dvinv onde-usa tabela.coluna` passa a mostrar os SLAs que dependem da coluna.
+- Bases **Site Maps** e **SLAs**; números no `00 Índice`.
+- Achados novos: **NAV-01** (subárea com URL absoluta de org Dynamics — médio se for de outro ambiente;
+  no ESAB-TEST, 2 site maps do TEST apontam para `esab-dev`) e **SLA-01** (SLA sem item ou tabela com mais
+  de um SLA ativo; no ESAB-TEST, 3 SLAs ativos em `incident`).
+
 Vault enxuto
 - Sem `extraido_em` por nota: re-extrair sem mudança no ambiente não altera os arquivos (diff do Git
   limpo). A data fica em `00 Índice`, `01 Ambiente` e `AGENT-INDEX`.

@@ -70,3 +70,10 @@ humana/agente, com o vault como mapa: diferenças de **corpo** de método entre 
 de integração (payload real × modelo do código); tipos de coluna assumidos pelo código × schema real
 (Money/Decimal/Double/Integer/Boolean); retenção e volume de auditoria/anexos; lógica de negócio
 espalhada entre JS, business rule, plugin e flow para o mesmo campo.
+
+## Site maps e SLAs
+
+| ID | Severidade | Regra | Como validar |
+|---|---|---|---|
+| NAV-01 | médio (outro ambiente) / baixo | Subárea de site map com URL absoluta `https://<org>.crm*.dynamics.com/…` | Abrir o app no ambiente: o item leva para outra org? Trocar por subárea de tabela/view ou URL relativa antes do próximo deploy |
+| SLA-01 | baixo | SLA sem item, ou tabela com mais de um SLA ativo | Conferir qual SLA é o padrão e se regras/flows trocam o SLA do registro; desativar os que não valem |

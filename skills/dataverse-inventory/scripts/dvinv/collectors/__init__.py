@@ -15,7 +15,7 @@ import traceback
 from datetime import datetime, timezone
 
 from .. import secrets
-from . import alm, apps, catalog, code, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
+from . import alm, apps, catalog, code, navigation, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
 from . import dependencies as deps
 
 # Ordem importa: solutions define o escopo por solução; tables define ctx.scope.tables,
@@ -34,11 +34,13 @@ REGISTRY = [
     ("views", ui.collect_views),
     ("ribbons", ui.collect_ribbons),
     ("apps", apps.collect_apps),
+    ("sitemaps", navigation.collect_sitemaps),   # depois de apps: site map de app do escopo entra no escopo
     ("plugins", code.collect_plugins),
     ("customapis", code.collect_customapis),
     ("serviceendpoints", code.collect_serviceendpoints),
     ("alm", alm.collect_alm),                    # antes de processes: flows citam variáveis/conexões
     ("processes", processes.collect_processes),
+    ("slas", navigation.collect_slas),            # depois de tables (_tables_index) e processes
     ("security", security.collect_security),
     ("users", users.collect_users),              # depois de security: papéis das equipes
     ("repos", repos.collect_repos),              # depois de webresources/plugins/tables
@@ -52,7 +54,7 @@ REGISTRY = [
 # Coletores que usam dados de outros: --only inclui as dependências automaticamente.
 DEPENDS = {
     "forms": ["webresources"], "ribbons": ["webresources"], "relationships": [],
-    "pcf": ["forms"], "users": ["security"], "virtual_tables": [],
+    "pcf": ["forms"], "users": ["security"], "virtual_tables": [], "sitemaps": ["apps"], "slas": [],
     "repos": ["webresources", "plugins"],
     "processes": ["alm", "customapis"],
     "field_usage": ["webresources", "forms", "views", "plugins", "processes", "repos"],

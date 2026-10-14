@@ -81,7 +81,7 @@ def write_all(v, findings):
         "Componentes": {
             "filters": {"and": [f'file.inFolder("{v.folder}")', {"or": [
                 'tipo == "plugin-assembly"', 'tipo == "customapi"', 'tipo == "app"', 'tipo == "solucao"', 'tipo == "papel"',
-                'tipo == "pcf"']}]},
+                'tipo == "pcf"', 'tipo == "sitemap"', 'tipo == "sla"']}]},
             "views": [{"type": "table", "name": "Por tipo", "groupBy": {"property": "tipo", "direction": "ASC"},
                        "order": ["file.name", "subtipo", "versao", "gerenciado", "gerenciada", "dependentes",
                                  "dependencias", "modificado"]}],
@@ -115,6 +115,8 @@ def write_all(v, findings):
                  "order": ["file.name", "gerenciado", "modificado"]},
             ]),
     }
+    from .navigation import bases as nav_bases
+    files.update(nav_bases(v, _base))
     for name, data in files.items():
         v.write(f"{v.folder}/Bases/{name}.base", None,
                 yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=1000), raw=True)

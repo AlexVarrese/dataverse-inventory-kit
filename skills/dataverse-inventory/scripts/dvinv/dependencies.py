@@ -27,7 +27,7 @@ KIND_LABEL = {
     "connref": "Referência de conexão", "endpoint": "Service endpoint", "connector": "Conector (externo)",
     "host": "Host HTTP (externo)", "optionset": "Option set", "platform": "Outro (plataforma)",
     "pcf": "Componente PCF", "team": "Equipe", "bu": "Business unit",
-    "dataprovider": "Provedor de dados virtual",
+    "dataprovider": "Provedor de dados virtual", "sitemap": "Site map", "sla": "SLA",
 }
 # Processos são subdivididos por categoria na matriz por tabela.
 PROC_KIND = {"Workflow": "workflow", "Dialog": "workflow", "Business Rule": "businessrule", "Action": "action",
@@ -252,6 +252,44 @@ def build(d):
         if r["kind"] == "1:N" and r["from"] in known_tables and r["to"] in known_tables:
             g.edge(("table", r["to"]), ("table", r["from"]), f"lookup {r.get('lookup')}")
 
+    # --- site maps: app → site map → tabela / web resource ---
+    for sm in d.get("sitemaps") or []:
+        sn = g.node("sitemap", sm["id"], sm["name"])
+        for a in sm.get("apps") or []:
+            if ("app", a["id"]) in g.nodes:
+                g.edge(("app", a["id"]), sn, "usa site map")
+        for t in sm.get("tables") or []:
+            if t in known_tables:
+                g.edge(sn, ("table", t), "navega para")
+        for w in sm.get("webresources") or []:
+            if ("webresource", w) in g.nodes:
+                g.edge(sn, ("webresource", w), "usa web resource")
+        for u in sm.get("external_urls") or []:
+            host = re.sub(r"^https?://([^/:?#]+).*$", r"\1", u, flags=re.I)
+            g.edge(sn, g.node("host", host, host), "abre URL externa")
+
+    # --- SLAs: SLA → tabela, colunas das condições e do KPI, workflow de ação ---
+    for s in d.get("slas") or []:
+        sn = g.node("sla", s["id"], s["name"] or s["id"], sub=s.get("table"))
+        if s.get("table") in known_tables:
+            g.edge(sn, ("table", s["table"]), "SLA de")
+        for it in s.get("items") or []:
+            ent = it.get("entity") or s.get("table")
+            if ent not in known_tables:
+                continue
+            for rel, cols in (("condição: aplicável quando", it.get("applicable_when_fields")),
+                              ("condição: sucesso", it.get("success_fields")),
+                              ("condição: pausa", it.get("pause_fields")),
+                              ("KPI", [it["kpi_field"]] if it.get("kpi_field") else []),
+                              ("aplicável a partir de", [it["applicable_from"]] if it.get("applicable_from") else [])):
+                for col in cols or []:
+                    g.edge(sn, g.node("column", f"{ent}.{col}", f"{ent}.{col}", sub=ent), rel, detail=it.get("name"))
+            wid = it.get("workflow_id")
+            if wid and ("process", wid) in g.nodes:
+                g.edge(sn, ("process", wid), "dispara ação", detail=it.get("name"))
+        if s.get("workflow_id") and ("process", s["workflow_id"]) in g.nodes:
+            g.edge(sn, ("process", s["workflow_id"]), "dispara ação")
+
     # --- tabelas virtuais: tabela → provedor de dados → classe de plugin ---
     asm_by_name = {a["name"]: a["name"] for a in plugins.get("assemblies") or []}
     vt = d.get("virtual_tables") or {}
@@ -277,7 +315,9 @@ def build(d):
                 **{a["id"].lower(): ("customapi", a["unique"]) for a in apis},
                 **{a["id"].lower(): ("app", a["id"]) for k in ("modeldriven", "canvas", "bots") for a in apps.get(k) or []},
                 **{r["id"].lower(): ("role", r["name"]) for r in sec.get("roles") or [] if r.get("scope_reason")},
-                **{p["id"].lower(): ("pcf", p["name"]) for p in d.get("pcf") or [] if p.get("id")}}
+                **{p["id"].lower(): ("pcf", p["name"]) for p in d.get("pcf") or [] if p.get("id")},
+                **{s["id"]: ("sitemap", s["id"]) for s in d.get("sitemaps") or []},
+                **{s["id"]: ("sla", s["id"]) for s in d.get("slas") or []}}
     for a in plugins.get("assemblies") or []:
         for t in a.get("types") or []:
             id_index[t["id"].lower()] = ("assembly", a["name"])  # classe → assembly (nota existente)

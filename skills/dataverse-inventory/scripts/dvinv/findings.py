@@ -5,6 +5,7 @@ rastreável a um arquivo do snapshot (_raw/<run_id>/). Nada de score decorativo.
 confirma, muda status e anota na nota do achado (o render preserva essas edições).
 """
 
+import re
 from collections import Counter, defaultdict
 
 SEV_ORDER = {"crítico": 0, "alto": 1, "médio": 2, "baixo": 3, "info": 4}
@@ -229,6 +230,40 @@ def compute(d):
                               "atribuídos só por processo externo — confirmar.",
                               refs=[("role", r["name"]) for r in unassigned],
                               evidence=[r["name"] for r in unassigned], metric=len(unassigned)))
+
+    # 8a. Site maps e SLAs ----------------------------------------------------------------------
+    env_host = re.sub(r"^https?://([^/:]+).*$", r"\1", ((d.get("environment") or {}).get("url") or "").lower())
+    hard = []
+    for sm in d.get("sitemaps") or []:
+        for u in sm.get("external_urls") or []:
+            host = re.sub(r"^https?://([^/:?#]+).*$", r"\1", u.lower())
+            if re.search(r"\.(crm\d*\.dynamics\.com|crm\d*\.microsoftdynamics\.(?:de|us)|dynamics\.cn)$", host):
+                hard.append((sm, host))
+    if hard:
+        other = sorted({h for _, h in hard if h != env_host})
+        out.append(_f("NAV-01", "médio" if other else "baixo",
+                      f"{len(hard)} subárea(s) de site map com URL absoluta de ambiente Dynamics"
+                      + (f" — {len(other)} de OUTRO ambiente" if other else ""),
+                      "A navegação aponta para `https://<org>.crm.dynamics.com/...` em vez de tabela/view/página "
+                      "relativa: ao importar a solução em outro ambiente, o menu continua levando ao ambiente de "
+                      "origem (e o appid/viewid podem não existir). Trocar por subárea de tabela ou URL relativa.",
+                      refs=[("sitemap", sm["id"]) for sm, _ in hard],
+                      evidence=sorted({f"{sm['name']}: {h}" for sm, h in hard}), metric=len(hard)))
+    slas = d.get("slas") or []
+    no_items = [s for s in slas if not s.get("items")]
+    dup = defaultdict(list)
+    for s in slas:
+        if str(s.get("state")).lower() in ("active", "ativo", "1"):
+            dup[s.get("table")].append(s)
+    multi = {t: ss for t, ss in dup.items() if t and len(ss) > 1}
+    if no_items or multi:
+        out.append(_f("SLA-01", "baixo", f"SLAs a revisar: {len(no_items)} sem item, {len(multi)} tabela(s) com mais de um SLA ativo",
+                      "SLA sem item não mede nada; vários SLAs ativos na mesma tabela dependem de qual é o padrão e "
+                      "de regras/flows que trocam o SLA do registro — confirmar qual vale e desativar os demais.",
+                      refs=[("sla", s["id"]) for s in no_items] + [("sla", s["id"]) for ss in multi.values() for s in ss],
+                      evidence=[f"sem item: {s['name']}" for s in no_items] +
+                               [f"{t}: {', '.join(s['name'] for s in ss)}" for t, ss in multi.items()],
+                      metric=len(no_items) + len(multi)))
 
     # 8b. Componentes PCF ----------------------------------------------------------------------
     pcfs = d.get("pcf") or []

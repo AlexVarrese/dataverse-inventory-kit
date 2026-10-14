@@ -27,7 +27,7 @@ from .. import snapshot as snapshot_mod
 from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
 from .. import index as index_mod
-from . import agents, bases, canvas, catalog, structure
+from . import agents, bases, canvas, catalog, navigation, structure
 
 MANUAL = "%% dvinv:manual — o conteúdo abaixo desta linha é preservado nas próximas extrações %%"
 PRESERVE_PROPS = {"status", "responsavel", "decisao", "prazo", "revisado", "tags_extra"}
@@ -235,6 +235,7 @@ def _render_into(v, d):
         if r.get("scope_reason"):
             v.reserve("role", r["name"], "Papéis", r["name"])
     structure.reserve(v, d)  # BUs, equipes, usuários (deep.users) e componentes PCF
+    navigation.reserve(v, d)  # site maps e SLAs
     for kind, section in (("envvar", "Variáveis de ambiente"), ("connref", "Referências de conexão"),
                           ("endpoint", "Service endpoints")):
         src = (alm.get("envvars") if kind == "envvar" else alm.get("connrefs") if kind == "connref"
@@ -665,6 +666,7 @@ def _render_into(v, d):
         b.append(findings_block("role", r["name"]))
         v.write(v.paths[("role", r["name"])], props, "\n".join(b))
     structure.write_notes(v, d, findings_block, sol_links)
+    navigation.write_notes(v, d, findings_block, sol_links)
 
     # ---- 7) achados ----
     for f in fnd:
@@ -1010,6 +1012,10 @@ def write_index(v, d, manifest, fnd, has_catalog=False):
         ["Business units / equipes", f"{st.get('security', {}).get('business_units')} / {st.get('security', {}).get('teams')}",
          None],
         ["Componentes PCF", st.get("pcf", {}).get("scope"), st.get("pcf", {}).get("org_total")],
+        ["Site maps (subáreas)", f"{st.get('sitemaps', {}).get('scope', '—')} ({st.get('sitemaps', {}).get('subareas', '—')})",
+         st.get("sitemaps", {}).get("org_total")],
+        ["SLAs (itens)", f"{st.get('slas', {}).get('scope', '—')} ({st.get('slas', {}).get('items', '—')})",
+         st.get("slas", {}).get("org_total")],
         ["Tabelas virtuais / provedores de dados", f"{st.get('virtual_tables', {}).get('scope', '—')} / "
          f"{st.get('virtual_tables', {}).get('providers_used', '—')}", st.get("virtual_tables", {}).get("org_total")],
         ["Tabelas elásticas", None, st.get("virtual_tables", {}).get("elastic_org_total")],
