@@ -119,7 +119,8 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
 6. **Renderizar:** `python3 <skill>/scripts/dvinv.py render -c inventory.yaml` (último snapshot íntegro;
    `--snapshot <run_id>` para outro). Achados e dependências vão para `_derived/<run_id>/` (com `--sqlite`,
    também o cache `inventario.sqlite`); o vault ganha `AGENT-INDEX.md` (entrada para agentes), `09 Catálogo de
-   Componentes.md`, `Componentes.csv` e `Dependências.csv`. Notas de extrações anteriores sem curadoria são
+   Componentes.md`, `Componentes.csv`, `Dependências.csv` e `Mapas/` (um hub + canvas por tipo de componente,
+   para navegar e ver o grafo por tipo; `.obsidian/graph.json` com cores por tipo, se ainda não existir). Notas de extrações anteriores sem curadoria são
    removidas; com curadoria, ficam listadas em `Notas fora do inventário atual.md`. Na raiz do vault, o bloco `dvinv` do `AGENTS.md` é atualizado e o
    `CLAUDE.md` (`@AGENTS.md`) é criado se faltar — nunca altere o texto do time fora do bloco. Re-renderizar é
    seguro: o conteúdo abaixo do marcador `%% dvinv:manual … %%` e as properties `status`,

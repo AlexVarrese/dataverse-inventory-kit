@@ -695,6 +695,24 @@ def check_navigation_sla(cfg, snap, derived):
         assert (vd / "Bases" / b).exists(), b
 
 
+def check_maps(cfg):
+    """Navegação e grafo por tipo: hub .md, canvas e cores do Graph view."""
+    vd = cfg.vault_dir
+    hub = (vd / "Mapas" / "Cloud Flows.md").read_text()
+    assert 'path:\"Dataverse/CONTOSO-PRD/Processos/Cloud Flows/\"' in hub, hub[:600]
+    assert "Contoso - Sync conta → ERP" in hub and "usa conexão" in hub, hub
+    idx = (vd / "Mapas" / "00 Mapas por tipo.md").read_text()
+    for name in ("Tabelas", "Cloud Flows", "Business Rules", "Web Resources", "Site Maps", "SLAs"):
+        assert f"Mapas/{name}\\|{name}" in idx, (name, idx)  # pipe escapado dentro da tabela
+    cv = json.loads((vd / "Mapas" / "Cloud Flows.canvas").read_text())
+    files = [n for n in cv["nodes"] if n["type"] == "file"]
+    assert files and all((cfg.vault_root / n["file"]).exists() for n in files), files
+    assert cv["edges"] and all(e["fromNode"] in {n["id"] for n in cv["nodes"]} for e in cv["edges"])
+    gj = json.loads((cfg.vault_root / ".obsidian" / "graph.json").read_text())
+    assert any(gr["query"] == 'path:"/Processos/Cloud Flows/"' for gr in gj["colorGroups"]), gj["colorGroups"][:3]
+    assert "Mapas por tipo" in (vd / "00 Índice.md").read_text()
+
+
 def check_method_drift():
     """REPO-04 sem ilspycmd: heurística de métodos por classe (decompilado × repo)."""
     from dvinv.collectors.repos import methods
@@ -793,6 +811,8 @@ def main():
         check_security_pcf(cfg, snap, fnd)
         check_catalog_index(cfg, snap, v.derived_dir)
         check_navigation_sla(cfg, snap, v.derived_dir)
+        check_maps(cfg)
+        (cfg.vault_root / ".obsidian" / "graph.json").write_text('{"search": "minha busca"}')  # agora é do usuário
         for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios", "08 Matriz de Dependências"):
             assert (cfg.vault_dir / f"{sec}.md").exists(), sec
         flow = json.loads((snap / "processes.json").read_text())
@@ -856,6 +876,7 @@ def main():
         assert "old_com_curadoria" in (cfg.vault_dir / "Notas fora do inventário atual.md").read_text()
         assert (cfg.vault_dir / "Tabelas" / "nota do time.md").exists(), "nota sem marcador do dvinv não pode ser apagada"
         assert not (cfg.vault_dir / "Matriz de Dependências.xlsx").exists(), "xlsx desligado: planilha antiga removida"
+        assert json.loads((cfg.vault_root / ".obsidian" / "graph.json").read_text()) == {"search": "minha busca"}
         assert "Matriz de Dependências.xlsx" not in (cfg.vault_dir / "00 Índice.md").read_text()
         assert any("CLAUDE.md" in w and "@AGENTS.md" in w for w in v2.agent_warnings), v2.agent_warnings
         txt2 = note.read_text()

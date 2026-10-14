@@ -33,6 +33,23 @@ Notas de componente que participam do grafo também recebem `dependencias` (quan
 e `dependentes` (quantos a usam), e uma seção **Dependências** com *Depende de* / *Usado por* agrupados
 pela relação. ⚙︎ marca dependência registrada pela plataforma.
 
+## Navegação e grafo por tipo (`Mapas/`)
+
+O Graph view do Obsidian não tem visões salvas e a Obsidian CLI não abre o grafo com filtro (exige o app aberto e
+não tem comandos de grafo). O vault traz o grafo por tipo em arquivos:
+
+- `Mapas/00 Mapas por tipo.md` — índice dos mapas.
+- `Mapas/<Tipo>.md` (`tipo: mapa`) — liga todos os componentes da pasta do tipo (Tabelas, Cloud Flows, Workflows,
+  Business Rules, Actions, BPFs, Plugins, Plugin Steps, Web Resources, Custom APIs, PCF, Apps, Site Maps, SLAs,
+  Papéis) com o resumo do que cada um usa (campos agrupados por tabela: "campos (7) → account"). O **grafo local**
+  da nota (profundidade 2) mostra o tipo inteiro e seus vizinhos; a nota traz filtros prontos para o grafo
+  global (`path:"Dataverse/<AMB>/Processos/Cloud Flows/"`, com/sem tabelas, sem soluções).
+- `Mapas/<Tipo>.canvas` — JSON Canvas: componentes à esquerda, o que usam à direita, setas com a relação (até 200
+  componentes, os de mais relacionamentos). Regenerado a cada render.
+- `<vault_root>/.obsidian/graph.json` — criado **só se não existir**: um grupo de cor por tipo (`path:"/Tabelas/"`,
+  `path:"/Processos/Cloud Flows/"`…, vale para todos os ambientes) e busca padrão sem soluções/achados/bases.
+  Depois de criado, a configuração do grafo é de quem usa o vault.
+
 ## Raiz do vault: AGENTS.md e CLAUDE.md
 
 Carregados automaticamente pelo Copilot (`AGENTS.md`) e pelo Claude Code (`CLAUDE.md` → `@AGENTS.md`). O

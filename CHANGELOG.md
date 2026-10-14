@@ -91,6 +91,12 @@ Validação real (ESAB-TEST, 2026-10-14)
   no índice); arestas internas de metadados ("Solution Internal") fora da matriz; GUID não duplicado no
   índice + VACUUM; Complex Control (sem RetrieveMultiple) fora do catálogo de nomes.
 
+Navegação e grafo por tipo
+- `Mapas/<Tipo>.md` (hub com todos os componentes do tipo e o que usam; filtros prontos para o Graph view; grafo
+  local mostra o tipo inteiro) e `Mapas/<Tipo>.canvas` (mapa visual fixo). Campos agrupados por tabela.
+- `.obsidian/graph.json` com cores por tipo, criado só se não existir. A Obsidian CLI não tem comandos de grafo
+  (e exige o app aberto) — por isso a visualização vem em arquivos do vault.
+
 Windows
 - Arquivos do vault e da comparação gravados sempre com LF (no Windows o Python gravaria CRLF e o diff contra um
   vault gerado no Linux mostraria todos os arquivos).

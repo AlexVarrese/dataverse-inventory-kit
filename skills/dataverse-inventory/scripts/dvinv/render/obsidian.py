@@ -27,7 +27,7 @@ from .. import snapshot as snapshot_mod
 from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
 from .. import index as index_mod
-from . import agents, bases, canvas, catalog, navigation, structure
+from . import agents, bases, canvas, catalog, maps, navigation, structure
 
 MANUAL = "%% dvinv:manual — o conteúdo abaixo desta linha é preservado nas próximas extrações %%"
 PRESERVE_PROPS = {"status", "responsavel", "decisao", "prazo", "revisado", "tags_extra"}
@@ -193,6 +193,7 @@ def render(cfg, snapshot=None):
         v.derived_dir = derived.publish()
         # AGENTS.md (bloco) + CLAUDE.md na raiz do vault; em modo repositório, README/.gitignore/.gitattributes
         v.agent_warnings = agents.update_root(cfg.vault_root, repo=getattr(cfg, "repo", False))
+        v.graph_created = maps.graph_settings(Path(cfg.vault_root))  # cores por tipo no Graph view (se não existir)
     except BaseException:
         derived.discard()
         raise
@@ -729,6 +730,7 @@ def _render_into(v, d):
     bases.write_all(v, fnd)
     canvas.write_map(v, d)
     has_catalog = catalog.write_catalog(v, d)
+    v.maps = maps.write_maps(v, graph)  # Mapas/<Tipo>.md + .canvas: navegação e grafo por tipo
     write_index(v, d, manifest, fnd, has_catalog)
     catalog.write_agent_index(v, d, has_catalog)  # lista as notas grandes já escritas
     prune_orphans(v)                               # por último: tudo que esta extração escreveu já está em v.written
@@ -1162,6 +1164,8 @@ def write_index(v, d, manifest, fnd, has_catalog=False):
          + (f" ([[{v.folder}/Matriz de Dependências.xlsx|Excel]])" if getattr(v, "xlsx", True) else ""),
          *([f"- {v.link_path('09 Catálogo de Componentes', 'Catálogo de componentes (100%)')}"] if has_catalog else []),
          f"- {v.link_path('Mapa do Ambiente.canvas', 'Mapa do ambiente (canvas)')}",
+         *([f"- {v.link_path('Mapas/00 Mapas por tipo', 'Mapas por tipo de componente (grafo por tipo)')}"]
+           if getattr(v, "maps", None) else []),
          f"- {v.link_path('AGENT-INDEX', 'Índice para agentes de IA')}", "",
          "## Achados", "", f"![[{v.folder}/Bases/Achados.base]]", "",
          "## Tabelas", "", f"![[{v.folder}/Bases/Tabelas.base]]", "",

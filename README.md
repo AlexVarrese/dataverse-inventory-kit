@@ -22,6 +22,8 @@ skills, há um prompt equivalente.
   `dvinv onde-usa|impacto|depende|buscar --vault <pasta>`, em poucas linhas e com o caminho da nota — sem ler
   o vault inteiro e sem binário. `AGENT-INDEX.md` e o bloco no `AGENTS.md` orientam Claude Code, Copilot e Hermes.
 - **Tabelas virtuais**: provedor de dados, fonte e classes de plugin por operação.
+- **Navegação e grafo por tipo**: `Mapas/` com um hub e um canvas por tipo (Cloud Flows, Workflows, Business
+  Rules, Tabelas…) e cores por tipo no Graph view do Obsidian.
 - **Site maps e SLAs**: navegação de cada app (área → grupo → subárea → destino) e SLAs com itens, KPIs
   e as colunas usadas nas condições — entram na análise de impacto.
 - **Uma nota por componente do escopo**: tabelas, colunas, formulários, views, web resources, plugins, Custom APIs,
