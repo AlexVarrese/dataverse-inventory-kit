@@ -80,6 +80,10 @@ PATTERNS = [
 SENSITIVE_KEY = re.compile(
     rf"(?i)^(?:[A-Za-z0-9_.$\-]*?(?:{_NAME}|client[_-]?secret)|{_HDR}|sig|signature|sas|sastoken)$")
 NOT_SENSITIVE_KEYS = {"publickeytoken", "public_key_token"}  # token público de assinatura .NET, não é segredo
+# Mesma exceção na varredura textual, e só no formato fixo do .NET: o nome exato + 16 hexadecimais
+# (`"publickeytoken": "31bf3856ad364e35"`). Qualquer outro valor nesse campo, ou outro `…token`, continua
+# sendo segredo. Sem isso, todo assembly de plugin assinado abortava a publicação do snapshot.
+_PUBLIC_KEY_TOKEN = re.compile(r"(?i)[\"']?public_?key_?token[\"']?\s*(?::|=>|=)\s*[\"'`][0-9a-f]{16}[\"'`]")
 
 
 def _matches(text):
@@ -88,7 +92,7 @@ def _matches(text):
     for name, rx in PATTERNS:
         for m in rx.finditer(text):
             v = m.group("v")
-            if not v or REDACTED in v:
+            if not v or REDACTED in v or _PUBLIC_KEY_TOKEN.fullmatch(m.group(0)):
                 continue
             spans.append((m.start("v"), m.end("v"), name))
     spans.sort(key=lambda s: (s[0], -(s[1] - s[0])))

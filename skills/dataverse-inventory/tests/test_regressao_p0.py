@@ -267,6 +267,18 @@ class TestP002Segredos(unittest.TestCase):
         self.assertEqual(t["publickeytoken"], "31bf3856ad364e35")
         self.assertEqual(t["clientSecret"], secrets.REDACTED)
 
+    def test_public_key_token_do_assembly_nao_bloqueia_mas_so_no_formato_dotnet(self):
+        # ESAB-TEST 2026-10-14: 6 assemblies assinados abortaram o snapshot (falso positivo desde a 0.5.0)
+        import json as _json
+        ok = _json.dumps({"publickeytoken": "31bf3856ad364e35"}, indent=1)
+        self.assertEqual(secrets.scan(ok), [])
+        self.assertEqual(secrets.scan('"PublicKeyToken": "5AB6C1D2E3F40718"'), [])
+        # continua barrando: valor fora do formato, outro nome terminado em token, nome com prefixo
+        for txt in ('"publickeytoken": "Sup3rS3cretValue"', '"publickeytoken": "31bf3856ad364e35aa"',
+                    '"apitoken": "31bf3856ad364e35"', '"accesstoken": "31bf3856ad364e35"',
+                    '"x.publickeytoken": "31bf3856ad364e35"'):
+            self.assertTrue(secrets.scan(txt), f"deveria acusar: {txt}")
+
     def test_nenhum_vetor_em_nenhuma_saida_nem_no_console(self):
         env = Env()
         try:
