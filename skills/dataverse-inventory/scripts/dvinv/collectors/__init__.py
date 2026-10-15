@@ -15,7 +15,7 @@ import traceback
 from datetime import datetime, timezone
 
 from .. import secrets
-from . import alm, apps, catalog, code, navigation, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
+from . import alm, apps, catalog, code, customization, navigation, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
 from . import dependencies as deps
 
 # Ordem importa: solutions define o escopo por solução; tables define ctx.scope.tables,
@@ -27,6 +27,8 @@ REGISTRY = [
     ("tables", tables.collect_tables),
     ("virtual_tables", tables.collect_virtual_tables),  # depois de tables: usa ctx.scope.tables
     ("relationships", tables.collect_relationships),
+    ("mappings", customization.collect_mappings),          # mapeamentos campo a campo entre tabelas do escopo
+    ("solution_layers", customization.collect_solution_layers),  # deep: camadas de solução por tabela
     ("optionsets", tables.collect_optionsets),
     ("webresources", ui.collect_webresources),
     ("forms", ui.collect_forms),
@@ -35,10 +37,12 @@ REGISTRY = [
     ("ribbons", ui.collect_ribbons),
     ("apps", apps.collect_apps),
     ("sitemaps", navigation.collect_sitemaps),   # depois de apps: site map de app do escopo entra no escopo
+    ("commands", customization.collect_commands),  # comandos modernos (command designer); usa ids dos web resources
     ("plugins", code.collect_plugins),
     ("customapis", code.collect_customapis),
     ("serviceendpoints", code.collect_serviceendpoints),
-    ("alm", alm.collect_alm),                    # antes de processes: flows citam variáveis/conexões
+    ("alm", alm.collect_alm),
+    ("solution_history", customization.collect_solution_history),  # importações/exportações e falhas                    # antes de processes: flows citam variáveis/conexões
     ("processes", processes.collect_processes),
     ("slas", navigation.collect_slas),            # depois de tables (_tables_index) e processes
     ("security", security.collect_security),
@@ -54,7 +58,8 @@ REGISTRY = [
 # Coletores que usam dados de outros: --only inclui as dependências automaticamente.
 DEPENDS = {
     "forms": ["webresources"], "ribbons": ["webresources"], "relationships": [],
-    "pcf": ["forms"], "users": ["security"], "virtual_tables": [], "sitemaps": ["apps"], "slas": [],
+    "pcf": ["forms"], "users": ["security"], "virtual_tables": [], "sitemaps": ["apps"], "slas": [], "commands": ["webresources", "apps"],
+    "mappings": [], "solution_layers": [], "solution_history": [],
     "repos": ["webresources", "plugins"],
     "processes": ["alm", "customapis"],
     "field_usage": ["webresources", "forms", "views", "plugins", "processes", "repos"],
@@ -106,21 +111,104 @@ def _status(ctx, name, failed, gaps_before):
     return {"status": "parcial" if falhas else "ok", "lacunas": falhas}
 
 
-def run(ctx, only=None):
+ALWAYS = ("environment", "solutions")  # baratos e com efeito no escopo (pertencimento a soluções): sempre rodam
+
+
+def _scope_signature(cfg):
+    return {"prefixes": cfg.prefixes, "keywords": cfg.keywords, "solutions": cfg.solutions,
+            "include_unmanaged": cfg.include_unmanaged, "all": cfg.scope_all, "exclude_prefixes": cfg.exclude_prefixes}
+
+
+def plan_base(ctx, base_dir, requested):
+    """Lê o snapshot base de `--completar` e decide o que roda e o que é herdado.
+
+    Herda só coletor que terminou ok/parcial no base, com os arquivos conferidos pelo sha256. Recusa base com outro
+    escopo ou perfil (misturaria inventários diferentes). Sem --only: roda só o que falhou ou faltou no base.
+    → (base_manifest, conjunto que roda)."""
+    from .. import snapshot
+    m = snapshot.read_manifest(base_dir)
+    if not m or m.get("schema") != snapshot.SCHEMA:
+        raise SystemExit(f"--completar: {base_dir} não é um snapshot desta versão (manifesto ausente ou antigo)")
+    ok, probs = snapshot.verify(base_dir)
+    if not ok:
+        raise SystemExit(f"--completar: snapshot {base_dir} não está íntegro: {'; '.join(probs[:3])}")
+    if (m.get("scope") or {}) != _scope_signature(ctx.cfg) or m.get("profile", "padrao") != ctx.cfg.profile:
+        raise SystemExit("--completar: o snapshot base tem outro escopo ou perfil de coleta — herdar dados dele "
+                         "misturaria inventários diferentes. Rode a extração completa (sem --completar).")
+    if m.get("url") and m["url"].rstrip("/") != ctx.cfg.url.rstrip("/"):
+        raise SystemExit(f"--completar: o snapshot base é de outro ambiente ({m['url']})")
+    good = {n for n, st in (m.get("collectors") or {}).items() if st.get("status") in ("ok", "parcial")}
+    names = [n for n, _ in REGISTRY]
+    run_set = set(requested) if requested else {n for n in names if n not in good}
+    todo = list(run_set)
+    while todo:  # dependência que o base não tem íntegra precisa rodar junto
+        for dep in DEPENDS.get(todo.pop(), []):
+            if dep not in good and dep not in run_set:
+                run_set.add(dep)
+                todo.append(dep)
+    return m, run_set | set(ALWAYS)
+
+
+def _inherit(ctx, stg, name, base_dir, base_m):
+    """Copia para o staging os arquivos do coletor no base e carrega os dados (para os coletores seguintes)."""
+    import json
+    import shutil
+    st_b = (base_m.get("collectors") or {}).get(name) or {}
+    files = list(st_b.get("arquivos") or [])
+    if name == "plugins":  # binários e decompilados dos assemblies vão junto
+        files += [f for f in (base_m.get("files") or {}) if f.startswith(("bin/", "decompiled/"))]
+    for rel in files:
+        src, dst = base_dir / rel, stg.dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        if rel.endswith(".json") and "/" not in rel:
+            ctx.data[rel[:-5]] = json.loads(src.read_text(encoding="utf-8"))
+    if name in (base_m.get("stats") or {}):
+        ctx.stats[name] = base_m["stats"][name]
+    for g in base_m.get("gaps") or []:  # lacunas do coletor herdado continuam valendo
+        if g.get("collector") == name and g.get("kind") != "nao-executado":
+            ctx.gaps.append(dict(g, what=f"{g['what']} (herdado de {base_dir.name})"))
+    if name == "tables":  # escopo das tabelas reconstruído a partir do base
+        ctx.scope.tables.update(t["logical"] for t in ctx.data.get("tables") or [])
+    return {"status": st_b.get("status"), "lacunas": st_b.get("lacunas", 0), "arquivos": files,
+            "origem": f"herdado de {base_dir.name}"}
+
+
+def run(ctx, only=None, base=None):
     """Executa os coletores numa área de staging e publica um snapshot imutável (ver snapshot.py).
 
-    Retorna o manifesto publicado; ctx.snapshot_dir aponta para o diretório do snapshot.
+    `base` (diretório de snapshot, de `--completar`): coletores fora do que roda são herdados do base, se lá
+    terminaram ok/parcial — declarado por coletor no manifesto (`origem`). Retorna o manifesto publicado;
+    ctx.snapshot_dir aponta para o diretório do snapshot.
     """
+    from pathlib import Path
+
     from .. import snapshot
 
     requested = list(only or [])
-    only = expand_only(requested)
+    base_m = None
+    if base is not None:
+        base = Path(base)
+        base_m, only = plan_base(ctx, base, requested)
+        print(f"[dvinv] completando o snapshot {base.name}: roda {', '.join(n for n, _ in REGISTRY if n in only)}; "
+              "o resto é herdado de lá (ok/parcial)", flush=True)
+    else:
+        only = expand_only(requested)
     timings = {}
     stg = snapshot.Staging(ctx.cfg.raw_dir)
     ctx.out_dir, ctx.run_id = stg.dir, stg.run_id
     started = datetime.now(timezone.utc)
     try:
         for name, fn in REGISTRY:
+            if base_m is not None and name not in only:
+                if ((base_m.get("collectors") or {}).get(name) or {}).get("status") in ("ok", "parcial"):
+                    ctx.status[name] = _inherit(ctx, stg, name, base, base_m)
+                    print(f"[dvinv]   ↺ {name}: herdado de {base.name}", flush=True)
+                else:
+                    ctx.status[name] = {"status": "nao-executado", "motivo": f"fora do --only e sem dado íntegro em {base.name}"}
+                    ctx.gap(name, "coletor não executado nem herdado", f"falhou ou faltou em {base.name}",
+                            kind="nao-executado")
+                continue
             if only and name not in only and name not in ("environment", "solutions", "tables"):
                 # environment/solutions/tables sempre rodam: definem o escopo dos demais
                 ctx.status[name] = {"status": "nao-executado", "motivo": "fora do --only"}
@@ -145,6 +233,7 @@ def run(ctx, only=None):
             st = _status(ctx, name, failed, gaps_before)
             from ..resumo import line
             print(line(name, ctx.stats.get(name), timings[name], st["status"]), flush=True)
+            st["origem"] = "coletado nesta execução"
             st["arquivos"] = []
             for key in keys:
                 if key in ctx.data:
@@ -161,6 +250,7 @@ def run(ctx, only=None):
             "profile": getattr(ctx.cfg, "profile", "padrao"),
             "profile_blocked": list(getattr(ctx.cfg, "profile_blocked", [])),
             "only": requested,
+            "base": base.name if base_m is not None else None,
             "scope": {
                 "prefixes": ctx.cfg.prefixes, "keywords": ctx.cfg.keywords, "solutions": ctx.cfg.solutions,
                 "include_unmanaged": ctx.cfg.include_unmanaged, "all": ctx.cfg.scope_all,

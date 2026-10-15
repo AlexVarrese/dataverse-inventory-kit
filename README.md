@@ -42,6 +42,8 @@ skills, há um prompt equivalente.
   de dono desativado, drift entre ambiente e repositório Git, soluções com dependências faltando…).
 - **Comparação** entre ambientes (TEST × PRD) ou entre datas.
 
+Guia de uso (comandos, extração por partes, opções de desempenho, consultas): [`skills/dataverse-inventory/README.md`](skills/dataverse-inventory/README.md#como-usar-resumo-prático).
+
 ## Instalação rápida
 
 ```bash

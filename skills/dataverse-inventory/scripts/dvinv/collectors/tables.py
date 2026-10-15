@@ -1,4 +1,5 @@
 import json
+import re
 
 from ..util import enum_value, label
 
@@ -73,7 +74,7 @@ def collect_tables(ctx):
         attrs = c.get_all(
             f"EntityDefinitions(LogicalName='{ln}')/Attributes?$select=MetadataId,LogicalName,SchemaName,"
             "DisplayName,Description,AttributeType,AttributeTypeName,RequiredLevel,IsCustomAttribute,"
-            "IsManaged,AttributeOf,IsAuditEnabled")
+            "IsManaged,AttributeOf,IsAuditEnabled,SourceType")
         try:
             keys = c.get_all(f"EntityDefinitions(LogicalName='{ln}')/Keys?$select=LogicalName,KeyAttributes")
         except Exception as ex:  # noqa: BLE001
@@ -130,6 +131,8 @@ def collect_tables(ctx):
                     "custom": custom,
                     "managed": a.get("IsManaged"),
                     "audit": enum_value(a.get("IsAuditEnabled")),
+                    "source_type": a.get("SourceType"),
+                    "type_name": enum_value(a.get("AttributeTypeName")),
                     "solutions": scope.solutions_of(a.get("MetadataId")),
                 })
             rec["columns"].sort(key=lambda x: (not x["custom"], x["logical"]))
@@ -154,7 +157,49 @@ def collect_tables(ctx):
         "native_customized": sum(1 for t in tables if not t["custom"]),
         "columns_custom": sum(sum(1 for col in t["columns"] if col["custom"]) for t in tables),
     }
+    try:
+        collect_formulas(ctx, tables)
+    except Exception as e:  # noqa: BLE001 — definição das fórmulas é complemento: falha vira lacuna
+        ctx.gap("tables", "definição das colunas calculadas/rollup/fórmula", e)
     ctx.data["tables"] = tables
+
+
+SOURCE_KIND = {1: "calculada", 2: "rollup", 3: "fórmula (Power Fx)"}
+XAML_ATTR_RE = re.compile(r'Attribute="(\w+)"[^>]*?EntityName="(\w+)"')
+
+
+def collect_formulas(ctx, tables):
+    """Definição das colunas calculadas, rollup e de fórmula (Power Fx) e as colunas que cada uma usa.
+
+    A definição (`FormulaDefinition`) só existe nos tipos derivados do metadado (Decimal, Integer, DateTime…):
+    uma leitura por coluna, com o tipo certo, em paralelo. Calculada/rollup = XAML (pares Attribute/EntityName);
+    fórmula = Power Fx (nomes de coluna da própria tabela)."""
+    from ..util import field_refs
+    c = ctx.client
+    todo = [(t, col) for t in tables for col in t.get("columns") or [] if col.get("source_type") in SOURCE_KIND]
+    if not todo:
+        return
+
+    def fetch(item):
+        t, col = item
+        cast = (col.get("type_name") or "").removesuffix("Type") + "AttributeMetadata"
+        return c.get(f"EntityDefinitions(LogicalName='{t['logical']}')/Attributes(LogicalName='{col['logical']}')/"
+                     f"Microsoft.Dynamics.CRM.{cast}?$select=FormulaDefinition").get("FormulaDefinition")
+
+    for (t, col), fd, err in c.parallel(fetch, todo, label="definição das colunas calculadas/rollup/fórmula"):
+        kind = SOURCE_KIND[col["source_type"]]
+        if err is not None or not fd:
+            col["formula"] = {"kind": kind, "refs": [], "error": "definição não lida" if err else "sem definição"}
+            if err is not None:
+                ctx.gap("tables", f"definição da coluna {kind} {t['logical']}.{col['logical']}", err)
+            continue
+        if col["source_type"] in (1, 2):
+            refs = {f"{e}.{a}" for a, e in XAML_ATTR_RE.findall(fd)}
+        else:
+            refs = {f"{t['logical']}.{a}" for a in field_refs(fd, {x["logical"] for x in t.get("columns") or []})}
+        refs.discard(f"{t['logical']}.{col['logical']}")
+        col["formula"] = {"kind": kind, "refs": sorted(refs)}
+    ctx.stats.setdefault("tables", {})["formula_columns"] = len(todo)
 
 
 def collect_relationships(ctx):

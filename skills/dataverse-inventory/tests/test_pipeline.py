@@ -13,7 +13,7 @@ import sys
 import tempfile
 import urllib.parse
 import zipfile
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,8 +88,9 @@ def zipped_ribbon():
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def attr(ln, custom, managed=True, typ="String"):
+def attr(ln, custom, managed=True, typ="String", source=0):
     return {"MetadataId": G(abs(hash(ln)) % 10**9), "LogicalName": ln, "SchemaName": ln.title(), "IsCustomAttribute": custom,
+            "SourceType": source,
             "IsManaged": managed, "DisplayName": {"UserLocalizedLabel": {"Label": ln}}, "AttributeTypeName": {"Value": typ + "Type"},
             "RequiredLevel": {"Value": "None"}, "AttributeOf": None, "IsAuditEnabled": {"Value": True}, "Description": None}
 
@@ -103,7 +104,8 @@ ENTITIES = [
     {"MetadataId": G(2), "LogicalName": "contoso_project", "SchemaName": "contoso_Project", "EntitySetName": "contoso_projects",
      "IsCustomEntity": True, "IsManaged": False, "OwnershipType": "UserOwned", "ObjectTypeCode": 10001,
      "PrimaryIdAttribute": "contoso_projectid",
-     "DisplayName": {"UserLocalizedLabel": {"Label": "Projeto"}}, "Attributes": [attr("contoso_name", True, False), attr("contoso_accountid", True, False, "Lookup")]},
+     "DisplayName": {"UserLocalizedLabel": {"Label": "Projeto"}}, "Attributes": [attr("contoso_name", True, False), attr("contoso_accountid", True, False, "Lookup"),
+                                                                           attr("contoso_score", True, False, "Decimal", source=1)]},
     {"MetadataId": G(4), "LogicalName": "contoso_virtual", "SchemaName": "contoso_Virtual", "EntitySetName": "contoso_virtuals",
      "IsCustomEntity": True, "IsManaged": False, "TableType": "Virtual", "Attributes": [attr("contoso_vname", True, False)],
      "DataProviderId": G(200), "DataSourceId": G(202), "ExternalName": "Projects", "ExternalCollectionName": "projects"},
@@ -131,8 +133,40 @@ def dep(dt, did, rt, rid, kind):
             "requiredcomponentobjectid": rid, "dependencytype": kind}
 
 
+CALC_XAML = ('<Activity><mxswa:GetEntityProperty Attribute="contoso_name" Entity="{x:Null}" EntityName="contoso_project" />'
+             '<mxswa:GetEntityProperty Attribute="name" Entity="{x:Null}" EntityName="account" /></Activity>')
+
+
 def route(path):
     p = urllib.parse.unquote(path)
+    # --- coluna calculada (definição só no tipo derivado), comandos, mapeamentos, histórico e camadas ---
+    if "Attributes(LogicalName='contoso_score')/Microsoft.Dynamics.CRM.DecimalAttributeMetadata" in p:
+        return {"FormulaDefinition": CALC_XAML}
+    if p.startswith("appactions?"):
+        return [{"appactionid": G(230), "uniquename": "contoso_SyncErp", "name": "SyncErp", "buttonlabeltext": "Sincronizar ERP",
+                 "location": 0, "location" + FV: "Main Form", "context": 1, "context" + FV: "Entity", "contextvalue": "contoso_project",
+                 "onclickeventtype" + FV: "JavaScript", "_onclickeventjavascriptwebresourceid_value": G(40),
+                 "onclickeventjavascriptfunctionname": "Contoso.Account.onLoad", "visibilitytype" + FV: "Show",
+                 "_appmoduleid_value": G(80), "ismanaged": False, "hidden": False},
+                {"appactionid": G(231), "uniquename": "Mscrm.Something", "context" + FV: "Entity", "contextvalue": "account",
+                 "ismanaged": True}]
+    if p.startswith("entitymaps?"):
+        return [{"entitymapid": G(220), "sourceentityname": "account", "targetentityname": "contoso_project", "ismanaged": False},
+                {"entitymapid": G(221), "sourceentityname": "lead", "targetentityname": "opportunity"}]
+    if p.startswith("attributemaps?"):
+        return [{"_entitymapid_value": G(220), "sourceattributename": "name", "targetattributename": "contoso_name", "issystem": False},
+                {"_entitymapid_value": G(220), "sourceattributename": "accountid", "targetattributename": "contoso_accountid", "issystem": True},
+                {"_entitymapid_value": G(221), "sourceattributename": "x", "targetattributename": "y"}]
+    if p.startswith("msdyn_solutionhistories?"):
+        ontem = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        return [{"msdyn_name": "ContosoCore", "msdyn_operation" + FV: "Import", "msdyn_result": False, "msdyn_starttime": ontem,
+                 "msdyn_solutionversion": "1.2.0.0", "msdyn_exceptionmessage": "referência ausente: contoso_RecalcProject"},
+                {"msdyn_name": "ContosoCore", "msdyn_operation" + FV: "Import", "msdyn_result": True, "msdyn_starttime": "2026-01-01T00:00:00Z"}]
+    if p.startswith("msdyn_componentlayers?"):
+        if G(1) in p:  # account: ajuste não gerenciado por cima
+            return [{"msdyn_order": 1, "msdyn_solutionname": "System"}, {"msdyn_order": 2, "msdyn_solutionname": "ContosoCore"},
+                    {"msdyn_order": 3, "msdyn_solutionname": "Active"}]
+        return [{"msdyn_order": 1, "msdyn_solutionname": "ContosoCore"}]
     # --- catálogo (100%) e dependências em lote ---
     if p.startswith("GlobalOptionSetDefinitions(Name='componenttype')"):
         return {"Options": [{"Value": v, "Label": {"UserLocalizedLabel": {"Label": lbl}}} for v, lbl in
@@ -726,6 +760,35 @@ def check_maps(cfg):
     assert "Mapas por tipo" in (vd / "00 Índice.md").read_text()
 
 
+def check_evolucao(cfg, snap, derived):
+    """Colunas calculadas, mapeamentos, comandos modernos, histórico e camadas de solução."""
+    from dvinv import consulta
+    tb = {t["logical"]: t for t in json.loads((snap / "tables.json").read_text())}
+    score = next(c for c in tb["contoso_project"]["columns"] if c["logical"] == "contoso_score")
+    assert score["formula"] == {"kind": "calculada", "refs": ["account.name", "contoso_project.contoso_name"]}, score
+    cmds = json.loads((snap / "commands.json").read_text())
+    assert [c["name"] for c in cmds] == ["contoso_SyncErp"] and cmds[0]["webresource"] == "contoso_/js/account.js", cmds
+    mp = json.loads((snap / "mappings.json").read_text())
+    assert len(mp) == 1 and mp[0]["fields"][0] == {"source": "name", "target": "contoso_name", "system": False, "managed": None}
+    dep = json.loads((derived / "dependencies.json").read_text())
+    edges = {(e["from_label"], e["relation"], e["to_label"]) for e in dep["edges"]}
+    must = {("contoso_project.contoso_score", "calculada: usa", "account.name"),
+            ("contoso_project.contoso_name", "mapeado de", "account.name"),
+            ("Sincronizar ERP", "botão em (Main Form)", "contoso_project"),
+            ("Sincronizar ERP", "executa JS", "contoso_/js/account.js"), ("Contoso Vendas", "usa comando", "Sincronizar ERP")}
+    assert must <= edges, must - edges
+    inv = consulta.Inventario(cfg.vault_dir)
+    out = consulta.cmd_walk(inv, "account.name", "impacto", 1, 50)
+    assert "contoso_score" in out and "mapeado de" in out, out
+    vd = cfg.vault_dir
+    pj = (vd / "Tabelas" / "contoso_project.md").read_text()
+    assert "## Colunas calculadas, rollup e fórmula" in pj and "## Mapeamentos entre tabelas" in pj, pj[:300]
+    assert "## Camadas de solução" in (vd / "Tabelas" / "account.md").read_text()
+    assert (vd / "Comandos" / "contoso_SyncErp.md").exists() and (vd / "10 Histórico de Soluções.md").exists()
+    fnd = {f["id"]: f for f in json.loads((derived / "findings.json").read_text())}
+    assert fnd["ALM-06"]["metric"] == 1 and fnd["ALM-07"]["evidence"] == ["account"], (fnd.get("ALM-06"), fnd.get("ALM-07"))
+
+
 def check_method_drift():
     """REPO-04 sem ilspycmd: heurística de métodos por classe (decompilado × repo)."""
     from dvinv.collectors.repos import methods
@@ -825,6 +888,7 @@ def main():
         check_catalog_index(cfg, snap, v.derived_dir)
         check_navigation_sla(cfg, snap, v.derived_dir)
         check_maps(cfg)
+        check_evolucao(cfg, snap, v.derived_dir)
         (cfg.vault_root / ".obsidian" / "graph.json").write_text('{"search": "minha busca"}')  # agora é do usuário
         for sec in ("05 Uso de Campos", "06 Armazenamento e Auditoria", "07 Repositórios", "08 Matriz de Dependências"):
             assert (cfg.vault_dir / f"{sec}.md").exists(), sec
@@ -956,6 +1020,37 @@ def main():
         DEP_BULK_FAIL = False
         assert m2["stats"]["platform_dependencies"]["source"].startswith("RetrieveDependentComponents"), m2["stats"]
         assert m2["stats"]["platform_dependencies"]["edges"] == 2 and any("lote" in g["what"] for g in m2["gaps"])
+
+        # --completar: roda só o pedido e herda o resto do snapshot base (declarado por coletor)
+        ctx6 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx6.client._bearer = lambda: "fake"
+        m6 = run(ctx6, ["forms"], base=snap)
+        cols6 = m6["collectors"]
+        assert m6["base"] == snap.name
+        assert cols6["forms"]["origem"] == "coletado nesta execução", cols6["forms"]
+        for herd in ("tables", "webresources", "catalog", "processes", "platform_dependencies"):
+            assert cols6[herd]["origem"] == f"herdado de {snap.name}", (herd, cols6[herd])
+        paths6 = " ".join(q["path"] for q in m6["queries"])
+        assert "webresourceset" not in paths6 and "solutioncomponents?$select=componenttype,objectid,_solutionid_value,root" \
+            not in paths6 and "dependencies?" not in paths6, "herdado não pode ser coletado de novo"
+        assert set(m6["files"]) >= set(manifest["files"]) - {"manifest.json"}, "snapshot completo deve ter todos os arquivos"
+        v6 = render(cfg, ctx6.snapshot_dir)
+        assert (cfg.vault_dir / "Web Resources").exists() and "herdado de" in (cfg.vault_dir / "01 Ambiente.md").read_text()
+        # sem --only: roda só o que falhou/faltou no base (aqui nada) — o resto é herdado
+        ctx7 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx7.client._bearer = lambda: "fake"
+        m7 = run(ctx7, [], base=ctx6.snapshot_dir)
+        ran = {k for k, st in m7["collectors"].items() if st.get("origem") == "coletado nesta execução"}
+        assert ran == {"environment", "solutions"}, ran
+        # base com outro escopo: recusa (misturaria inventários)
+        cfg.prefixes.append("outro_")
+        try:
+            run(Context(cfg, FakeClient(cfg, credential=None), Scope(cfg)), ["forms"], base=snap)
+            raise AssertionError("deveria recusar base com outro escopo")
+        except SystemExit as e:
+            assert "outro escopo" in str(e)
+        finally:
+            cfg.prefixes.remove("outro_")
 
         print(f"OK — {len(md)} notas, {len(list(cfg.vault_dir.rglob('*.base')))} bases, "
               f"{len(fnd)} achados, {len(manifest['queries'])} chamadas simuladas, {len(manifest['gaps'])} lacunas")

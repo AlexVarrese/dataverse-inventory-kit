@@ -27,7 +27,7 @@ KIND_LABEL = {
     "connref": "Referência de conexão", "endpoint": "Service endpoint", "connector": "Conector (externo)",
     "host": "Host HTTP (externo)", "optionset": "Option set", "platform": "Outro (plataforma)",
     "pcf": "Componente PCF", "team": "Equipe", "bu": "Business unit",
-    "dataprovider": "Provedor de dados virtual", "sitemap": "Site map", "sla": "SLA",
+    "dataprovider": "Provedor de dados virtual", "sitemap": "Site map", "sla": "SLA", "command": "Comando",
 }
 # Processos são subdivididos por categoria na matriz por tabela.
 PROC_KIND = {"Workflow": "workflow", "Dialog": "workflow", "Business Rule": "businessrule", "Action": "action",
@@ -337,6 +337,33 @@ def build(d):
                     g.edge(("webresource", w["name"]), cn, "usa campo (JS)",
                            detail=None if tabs else "casado só pelo nome da coluna")
 
+    # --- colunas calculadas/rollup/fórmula, mapeamentos entre tabelas e comandos modernos ---
+    def any_col(ref):  # coluna de tabela fora do escopo também vira nó (chave column:<tabela>.<coluna>)
+        tb, _, cn = ref.partition(".")
+        return col(tb, cn) or g.node("column", ref, ref, sub=tb)
+
+    for t in tables:
+        for c_ in t.get("columns") or []:
+            fm = c_.get("formula")
+            if fm and fm.get("refs"):
+                me = col(t["logical"], c_["logical"])
+                for ref in fm["refs"]:
+                    g.edge(me, any_col(ref), f"{fm['kind']}: usa")
+    for m in d.get("mappings") or []:
+        for f in m.get("fields") or []:
+            if f.get("source") and f.get("target") and (m["target"] in cols_of or m["source"] in cols_of):
+                g.edge(any_col(f"{m['target']}.{f['target']}"), any_col(f"{m['source']}.{f['source']}"),
+                       "mapeado de", detail="mapeamento do sistema" if f.get("system") else None)
+    for cm in d.get("commands") or []:
+        cn = g.node("command", cm["id"], cm.get("label") or cm["name"], sub=cm.get("table"))
+        if cm.get("table") in known_tables:
+            g.edge(cn, ("table", cm["table"]), f"botão em ({cm.get('location') or '—'})")
+        if cm.get("webresource"):
+            g.edge(cn, g.node("webresource", cm["webresource"], cm["webresource"]), "executa JS",
+                   detail=cm.get("function"))
+        if cm.get("app_id") and ("app", cm["app_id"]) in g.nodes:
+            g.edge(("app", cm["app_id"]), cn, "usa comando")
+
     # --- site maps: app → site map → tabela / web resource ---
     for sm in d.get("sitemaps") or []:
         sn = g.node("sitemap", sm["id"], sm["name"])
@@ -402,6 +429,7 @@ def build(d):
                 **{r["id"].lower(): ("role", r["name"]) for r in sec.get("roles") or [] if r.get("scope_reason")},
                 **{p["id"].lower(): ("pcf", p["name"]) for p in d.get("pcf") or [] if p.get("id")},
                 **{s["id"]: ("sitemap", s["id"]) for s in d.get("sitemaps") or []},
+                **{cm["id"]: ("command", cm["id"]) for cm in d.get("commands") or []},
                 **{s["id"]: ("sla", s["id"]) for s in d.get("slas") or []}}
     for a in plugins.get("assemblies") or []:
         for t in a.get("types") or []:

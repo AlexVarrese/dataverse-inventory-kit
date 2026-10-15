@@ -425,6 +425,31 @@ def _render_into(v, d):
                         (c.get("description") or "")[:120]] for c in custom_cols])]
         if t.get("keys"):
             b += ["## Chaves alternativas", "", mdtable(["Chave", "Colunas"], [[k["name"], ", ".join(k["columns"] or [])] for k in t["keys"]])]
+        fcols = [c_ for c_ in t["columns"] if c_.get("formula")]
+        if fcols:
+            def ref_link(ref):
+                tb, _, cn = ref.partition(".")
+                return f"`{cn}`" if tb == ln else f"{v.link('table', tb, tb, in_table=True)}.`{cn}`"
+            b += ["## Colunas calculadas, rollup e fórmula", "",
+                  "Mudar ou remover uma coluna usada aqui quebra o cálculo — confira antes de evoluir.", "",
+                  mdtable(["Coluna", "Tipo", "Usa"], [[f"`{c_['logical']}`", c_["formula"]["kind"],
+                          ", ".join(ref_link(r) for r in c_["formula"].get("refs") or []) or c_["formula"].get("error") or "—"]
+                          for c_ in fcols])]
+        maps_ = [m for m in d.get("mappings") or [] if ln in (m["source"], m["target"]) and m["fields"]]
+        if maps_:
+            b += ["## Mapeamentos entre tabelas", "",
+                  "Ao criar um registro a partir de outro (ex. na subgrade do pai), a plataforma copia estes campos.", "",
+                  mdtable(["Origem → destino", "Campos (customizados primeiro)", "Do sistema"],
+                          [[f"{v.link('table', m['source'], m['source'], in_table=True)} → "
+                            f"{v.link('table', m['target'], m['target'], in_table=True)}",
+                            ", ".join(f"`{f['source']}`→`{f['target']}`" for f in m["fields"] if not f["system"])[:900] or "—",
+                            sum(1 for f in m["fields"] if f["system"])] for m in maps_])]
+        layers = (d.get("solution_layers") or {}).get(ln)
+        if layers:
+            b += ["## Camadas de solução", "",
+                  "Da camada de cima (vale em tempo de execução) para a de baixo. `Active` = customização não gerenciada.", "",
+                  mdtable(["Ordem", "Solução", "Publisher", "Sobrescrita em"],
+                          [[x["order"], x["solution"], x["publisher"], x["overwritten"]] for x in layers])]
         rr = rels_by_table.get(ln, [])
         if rr:
             def other(r):
@@ -703,6 +728,7 @@ def _render_into(v, d):
         v.write(v.paths[("role", r["name"])], props, "\n".join(b))
     structure.write_notes(v, d, findings_block, sol_links)
     navigation.write_notes(v, d, findings_block, sol_links)
+    navigation.write_commands(v, d, findings_block, sol_links)
 
     # ---- 7) achados ----
     for f in fnd:
@@ -726,6 +752,7 @@ def _render_into(v, d):
     write_storage(v, d)
     write_repos(v, d)
     write_dependencies(v, d, graph, dsum, node_link)
+    write_solution_history(v, d)
     structure.write_security(v, d)
     write_environment(v, d, manifest)
     bases.write_all(v, fnd)
@@ -1057,6 +1084,35 @@ def write_dependencies(v, d, g, dsum, node_link):
                         "Destino no escopo"]] + rows)
 
 
+def write_solution_history(v, d):
+    hist = d.get("solution_history") or []
+    if not hist:
+        return
+    fails = [h for h in hist if h.get("ok") is False]
+    last = {}
+    for h in hist:  # já vem do mais recente para o mais antigo
+        last.setdefault(h["solution"], h)
+    b = ["# Histórico de soluções", "",
+         f"**{len(hist)}** operações (importação, exportação, upgrade…) desde {(hist[-1].get('start') or '')[:10]} · "
+         f"**{len(fails)}** com falha · lista completa em [[{v.folder}/Histórico de soluções.csv|Histórico de soluções.csv]].", "",
+         "## Falhas mais recentes", "",
+         mdtable(["Quando", "Solução", "Operação", "Versão", "Erro"],
+                 [[(h.get("start") or "")[:16].replace("T", " "), h["solution"], h.get("operation"), h.get("version"),
+                   (h.get("error") or h.get("error_code") or "")[:240]] for h in fails[:100]]),
+         "## Última operação por solução", "",
+         mdtable(["Solução", "Quando", "Operação", "Versão", "Gerenciada", "Resultado"],
+                 [[(v.link("solution", s_, s_, in_table=True) if ("solution", s_) in v.paths else s_),
+                   (h.get("start") or "")[:10], h.get("operation"), h.get("version"), h.get("managed"),
+                   "ok" if h.get("ok") else "falha"] for s_, h in list(last.items())[:300]])]
+    v.write(f"{v.folder}/10 Histórico de Soluções", {"tipo": "secao", "operacoes": len(hist), "falhas": len(fails),
+                                                     "tags": v.tags("secao")}, "\n".join(b))
+    catalog.write_csv(v, "Histórico de soluções.csv", [["Início", "Solução", "Operação", "Suboperação", "Resultado",
+                                                        "Versão", "Gerenciada", "Patch", "Publisher", "Segundos", "Código", "Erro"]] +
+                      [[h.get("start"), h["solution"], h.get("operation"), h.get("suboperation"),
+                        "ok" if h.get("ok") else "falha", h.get("version"), h.get("managed"), h.get("patch"),
+                        h.get("publisher"), h.get("seconds"), h.get("error_code"), h.get("error")] for h in hist])
+
+
 def write_environment(v, d, manifest):
     env = d.get("environment") or {}
     b = ["# Ambiente", "", mdtable(["Item", "Valor"], [
@@ -1065,6 +1121,7 @@ def write_environment(v, d, manifest):
         ["Auditoria", env.get("audit_enabled")], ["Plugin trace", env.get("plugin_trace_setting")],
         ["Extraído em (UTC)", manifest.get("extracted_at")], ["Chamadas à API", len(manifest.get("queries") or [])],
         ["Snapshot (run_id)", manifest.get("run_id") or "formato antigo"],
+        ["Completou o snapshot", manifest.get("base") or "—"],
         ["Perfil de coleta", manifest.get("profile") or "padrao"],
         ["Bloqueado pelo perfil", ", ".join(manifest.get("profile_blocked") or []) or "—"],
     ])]
@@ -1091,8 +1148,9 @@ def write_environment(v, d, manifest):
         b += ["## Status dos coletores", "",
               "> [!info] Cada extração é um snapshot imutável; coletor que falhou ou não rodou não tem dado neste vault "
               "(nunca é preenchido com arquivo de outra extração).", "",
-              mdtable(["Coletor", "Status", "Lacunas", "Arquivos", "Motivo"],
-                      [[k, st.get("status"), st.get("lacunas"), ", ".join(st.get("arquivos") or []), st.get("motivo")]
+              mdtable(["Coletor", "Status", "Origem", "Lacunas", "Arquivos", "Motivo"],
+                      [[k, st.get("status"), st.get("origem") or "—", st.get("lacunas"),
+                        ", ".join(a for a in st.get("arquivos") or [] if "/" not in a), st.get("motivo")]
                        for k, st in cols.items()])]
     elif manifest.get("legacy"):
         b += ["> [!warning] Snapshot no formato antigo (sem manifesto de integridade) — rode `extract` de novo.", ""]
@@ -1159,6 +1217,8 @@ def write_index(v, d, manifest, fnd, has_catalog=False):
          f"- {v.link_path('01 Ambiente', 'Ambiente, escopo e lacunas')}",
          f"- {v.link_path('03 Integrações', 'Integrações')}",
          f"- {v.link_path('04 Segurança', 'Segurança')}",
+         *([f"- {v.link_path('10 Histórico de Soluções', 'Histórico de soluções (importações e falhas)')}"]
+           if d.get("solution_history") else []),
          *([f"- {v.link_path('05 Uso de Campos', 'Uso de campos')}"] if d.get("field_usage") else []),
          *([f"- {v.link_path('06 Armazenamento e Auditoria', 'Armazenamento e auditoria')}"] if d.get("storage") else []),
          *([f"- {v.link_path('07 Repositórios', 'Repositórios × ambiente')}"] if d.get("repos") else []),

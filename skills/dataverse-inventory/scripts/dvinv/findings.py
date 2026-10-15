@@ -231,6 +231,25 @@ def compute(d):
                               refs=[("role", r["name"]) for r in unassigned],
                               evidence=[r["name"] for r in unassigned], metric=len(unassigned)))
 
+    # 7b. Histórico e camadas de solução ------------------------------------------------------------
+    from datetime import datetime, timedelta, timezone
+    hist = d.get("solution_history") or []
+    limite = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    falhas = [h for h in hist if h.get("ok") is False and (h.get("start") or "") >= limite]
+    if falhas:
+        por_sol = Counter(h["solution"] for h in falhas)
+        out.append(_f("ALM-06", "médio", f"{len(falhas)} operação(ões) de solução com falha nos últimos 90 dias",
+                      "Importação/upgrade que falhou deixa o ambiente diferente do esperado (componente ausente, versão "
+                      "antiga) e costuma voltar como erro em produção. Ver a mensagem em 10 Histórico de Soluções.",
+                      evidence=[f"{s_}: {n} falha(s)" for s_, n in por_sol.most_common(30)], metric=len(falhas)))
+    camadas = d.get("solution_layers") or {}
+    ativas = sorted(t for t, ls in camadas.items() if ls and ls[0].get("solution") == "Active" and len(ls) > 1)
+    if ativas:
+        out.append(_f("ALM-07", "médio", f"{len(ativas)} tabela(s) com customização não gerenciada por cima das gerenciadas",
+                      "A camada `Active` (não gerenciada) vence as soluções gerenciadas: o que o deploy entrega pode não ser "
+                      "o que roda. Em TEST/PRD indica ajuste feito direto no ambiente — levar para a solução e remover a camada.",
+                      refs=[("table", t) for t in ativas], evidence=ativas[:50], metric=len(ativas)))
+
     # 8a. Site maps e SLAs ----------------------------------------------------------------------
     env_host = re.sub(r"^https?://([^/:]+).*$", r"\1", ((d.get("environment") or {}).get("url") or "").lower())
     hard = []

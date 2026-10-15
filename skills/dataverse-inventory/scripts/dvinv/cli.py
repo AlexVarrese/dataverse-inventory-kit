@@ -133,14 +133,18 @@ def cmd_check(cfg):
     print(f"OK — {cfg.url} versão {ver}, usuário {who.get('UserId')}")
 
 
-def cmd_extract(cfg, only=None):
+def cmd_extract(cfg, only=None, completar=None):
     if (cfg.raw_dir / "manifest.json").exists():
         print(f"[dvinv] aviso: {cfg.raw_dir} tem arquivos do formato antigo (<= 0.4); eles são ignorados — "
               "cada extração agora vira um snapshot em subpasta própria", file=sys.stderr)
     if cfg.profile != "padrao":
         print(f"[dvinv] perfil {cfg.profile}: bloqueado {', '.join(cfg.profile_blocked)}", flush=True)
+    base = None
+    if completar:
+        from . import snapshot
+        base = snapshot.resolve(cfg.raw_dir if completar in ("ultimo", "último", "latest") else completar, cfg.raw_dir)
     ctx = Context(cfg, _client(cfg), Scope(cfg))
-    manifest = run(ctx, only)
+    manifest = run(ctx, only, base=base)
     from .resumo import table_text
     print(table_text(manifest), flush=True)
     falhou = [k for k, s in manifest["collectors"].items() if s["status"] == "falhou"]
@@ -173,7 +177,7 @@ def cmd_render(cfg, snapshot=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="dvinv", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["check", "extract", "render", "all", "diff", "collectors",
+    ap.add_argument("command", choices=["check", "extract", "render", "all", "diff", "collectors", "snapshots",
                                         "buscar", "onde-usa", "impacto", "depende"])
     ap.add_argument("termo", nargs="?", help="buscar/onde-usa/impacto/depende: componente (nome, tabela.coluna, chave ou GUID)")
     ap.add_argument("-c", "--config", default="inventory.yaml")
@@ -186,6 +190,9 @@ def main(argv=None):
     ap.add_argument("--b", help="diff: snapshot B")
     ap.add_argument("--profundidade", type=int, help="impacto/depende: níveis (padrão 2 / 1)")
     ap.add_argument("--limite", type=int, default=150, help="consultas: máximo de linhas listadas")
+    ap.add_argument("--completar", metavar="SNAPSHOT",
+                    help="extract/all: completa um snapshot anterior (run_id, pasta ou 'ultimo') — roda o --only (ou, "
+                         "sem --only, só o que falhou/faltou) e herda os demais coletores, declarando a origem")
     ap.add_argument("--vault", help="consultas: pasta do ambiente no vault (ex. vault/Dataverse/PRD); dispensa -c")
     ap.add_argument("--sqlite", action="store_true",
                     help="render/all: gera também o cache SQLite com todas as arestas (SQL ad hoc; fora do vault)")
@@ -193,6 +200,21 @@ def main(argv=None):
 
     if args.command == "collectors":
         print("\n".join(n for n, _ in REGISTRY))
+        return 0
+    if args.command == "snapshots":
+        from . import snapshot
+        cfg = config_mod.load(args.config)
+        total = len(REGISTRY)
+        print(f"Snapshots em {cfg.raw_dir} (mais recente primeiro) — use o run_id em --completar ou render --snapshot:")
+        for snap in snapshot.list_snapshots(cfg.raw_dir):
+            m = snapshot.read_manifest(snap) or {}
+            cols = m.get("collectors") or {}
+            ok = [n for n, st in cols.items() if st.get("status") in ("ok", "parcial")]
+            bad = [n for n, st in cols.items() if st.get("status") == "falhou"]
+            print(f"  {snap.name}  {m.get('extracted_at', '?')}  {len(ok):>2}/{total} etapas íntegras"
+                  + (f"  · falharam: {', '.join(bad)}" if bad else "")
+                  + (f"  · completou {m['base']}" if m.get("base") else "")
+                  + (f"  · --only {','.join(m['only'])}" if m.get("only") else ""))
         return 0
     if args.no_snapshot:
         print("[dvinv] --no-snapshot é obsoleto: cada extração já é um snapshot próprio (opção ignorada)",
@@ -227,13 +249,13 @@ def main(argv=None):
             cmd_check(cfg)
         elif args.command == "extract":
             with run_lock(cfg):
-                cmd_extract(cfg, cfg.collectors)
+                cmd_extract(cfg, cfg.collectors, args.completar or cfg.completar)
         elif args.command == "render":
             with run_lock(cfg):
                 cmd_render(cfg, args.snapshot)
         elif args.command == "all":
             with run_lock(cfg):
-                snap = cmd_extract(cfg, cfg.collectors)
+                snap = cmd_extract(cfg, cfg.collectors, args.completar or cfg.completar)
                 cmd_render(cfg, snap)
         elif args.command == "diff":
             if not (args.a and args.b):

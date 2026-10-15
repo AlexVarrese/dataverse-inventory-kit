@@ -104,6 +104,53 @@ out/<AMBIENTE>/
 - Pastas do formato antigo (≤ 0.4, JSON solto em `_raw/` e `_raw-AAAA-MM-DD/`) ainda podem ser lidas
   por `render --snapshot`/`diff`, com aviso: não têm verificação de integridade.
 
+## Como usar (resumo prático)
+
+Comandos a partir da pasta do cliente (onde está o `inventory.yaml`). No Windows sem PowerShell, use o CMD e o
+Python do venv (ex. `C:\temp\dvinv-venv\Scripts\python.exe`); `<skill>` = pasta da skill.
+
+| Objetivo | Comando |
+|---|---|
+| Testar acesso | `python <skill>/scripts/dvinv.py check -c inventory.yaml` |
+| Extrair e gerar o vault | `python <skill>/scripts/dvinv.py all -c inventory.yaml` (`--deep` liga tudo — veja o aviso abaixo) |
+| Só gerar o vault de novo | `... render -c inventory.yaml` |
+| Ver os snapshots e o que cada um tem | `... snapshots -c inventory.yaml` |
+| Rodar só algumas etapas | `... extract -c inventory.yaml --only webresources,forms` |
+| Completar um snapshot (herda o resto) | `... extract -c inventory.yaml --completar <run_id> [--only …]` — sem `--only`, refaz só o que falhou/faltou |
+| Consultar impacto (sem config, em qualquer clone do vault) | `... onde-usa account.campo --vault Dataverse/<AMB>` · `impacto` · `depende` · `buscar` |
+| Comparar ambientes/datas | `... diff -c inventory.yaml --a <snapshot> --b <snapshot>` |
+
+**Equivalentes no `inventory.yaml`:**
+
+```yaml
+parallel: 3                      # chamadas simultâneas (2–4 em VDI/proxy; até 8 se o log não mostrar 429/tentativas)
+collectors: [webresources, forms]  # = --only
+completar: 20261014T120424Z        # = --completar (run_id, pasta ou "ultimo") — remova depois
+deep:
+  webresource_content_types: [1, 3]   # 1 HTML, 3 JS (padrão); 2 CSS, 4 XML, 9 XSL, 11 SVG, 12 RESX
+  webresource_skip_names: []          # [] desliga o filtro de bibliotecas de terceiros pelo nome
+  webresource_max_bytes: 1000000      # acima disso: segredos verificados, conteúdo não guardado
+  webresource_reuse: true             # reaproveita conteúdo que não mudou (modifiedon)
+  solution_layers: false              # camadas de solução por tabela (~3 s por tabela)
+output:
+  repo: true                          # vault como repositório de conhecimento (README/.gitignore/.gitattributes)
+  xlsx: false                         # sem a planilha binária (padrão em modo repositório)
+```
+
+**Acompanhar:** o log com hora e cada chamada à API fica em `out/<ambiente>/logs/dvinv-<data>-<comando>.log`.
+Cada etapa termina com "N na org · M no escopo · processado"; etapas em lote mostram `N/total · ~restante`;
+tempo limite e nova tentativa aparecem na tela; o fim da extração traz a tabela-resumo (também no `01 Ambiente`).
+
+**Ambiente grande ou rede lenta — extração por partes:**
+1. `extract` sem `--deep` (estrutura); confira em `01 Ambiente` a tabela *De onde veio o escopo* e ajuste
+   `scope.prefixes` / `scope.exclude_prefixes` se o número de tabelas no escopo for maior que o esperado.
+2. `extract --completar <run_id> --only <etapas pesadas>` aos poucos (ex. `webresources`, depois `forms,views`).
+3. `extract --completar <run_id>` sem `--only` refaz só o que falhou; `render` no fim.
+
+**Atenção ao `--deep`:** liga também a lista nominal de usuários (dado pessoal), leitura de registros para uso de
+campos, DLLs de plugin, plugin trace e camadas de solução. Confirme o que está autorizado no ambiente e prefira
+ligar só as opções necessárias em `deep:`.
+
 Instalação, Service Principal e MCP: **[INSTALL.md](INSTALL.md)**.
 Com agente (Hermes/Claude Code): basta pedir "faça o inventário do ambiente X". A skill
 [`SKILL.md`](SKILL.md) conduz o processo. Para outros agentes, use [`PROMPT.md`](PROMPT.md).

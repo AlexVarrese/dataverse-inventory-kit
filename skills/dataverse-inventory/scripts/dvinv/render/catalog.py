@@ -119,7 +119,7 @@ def write_agent_index(v, d, has_catalog):
          mdtable(["Pasta", "Notas", "Conteúdo"],
                  [[f"`{k}/`", n, "uma nota por componente do escopo"] for k, n in sorted(folders.items())]),
          "Notas de seção: `00 Índice`, `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, "
-         "`06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`"
+         "`06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`, `10 Histórico de Soluções`"
          + (", `09 Catálogo de Componentes`" if has_catalog else "") + ". Filtrar por tipo: "
          "`grep -rl '^tipo: tabela' .`", "",
          "## Arquivos tabulares", "",

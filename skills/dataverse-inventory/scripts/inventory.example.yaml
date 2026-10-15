@@ -61,6 +61,12 @@ repos: []
 #  - path: ../repos/Plugins
 #    kind: plugins
 
+# Extração por partes (ambiente muito grande ou rede lenta). Equivalem a --only e --completar no comando:
+# collectors: [webresources, forms]   # roda só estas etapas (+ as que elas exigem)
+# completar: 20261014T120424Z        # herda as demais etapas deste snapshot (run_id, pasta ou "ultimo");
+#                                    # sem `collectors`, refaz só o que falhou/faltou nele. Ver `dvinv snapshots`.
+#                                    # Remova a linha depois: com ela, toda extração vira complemento.
+
 output:
   raw_dir: out/CLIENTE-PRD/_raw           # raiz dos snapshots: <raw_dir>/<run_id>/*.json + manifest.json
   # derived_dir: out/CLIENTE-PRD/_derived # achados/dependências por snapshot (padrão: irmão de raw_dir)

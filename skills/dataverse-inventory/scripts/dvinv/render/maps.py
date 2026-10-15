@@ -34,6 +34,7 @@ TYPES = [
     ("Site Maps", "Site Maps", 0x83BCB6),
     ("SLAs", "SLAs", 0xF2CF5B),
     ("Papéis", "Papéis", 0x8CD17D),
+    ("Comandos", "Comandos", 0xE15759),
 ]
 CANVAS_MAX = 200     # componentes por canvas (os de mais relacionamentos); a lista completa está no hub .md
 REL_SHOWN = 12       # relacionamentos listados por componente no hub

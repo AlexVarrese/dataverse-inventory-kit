@@ -11,6 +11,8 @@ def reserve(v, d):
         v.reserve("sitemap", s["id"], "Site Maps", s["name"])
     for s in d.get("slas") or []:
         v.reserve("sla", s["id"], "SLAs", s["name"] or s["id"])
+    for cm in d.get("commands") or []:
+        v.reserve("command", cm["id"], "Comandos", cm["name"])
 
 
 def _minutes(m):
@@ -84,6 +86,30 @@ def write_notes(v, d, findings_block, sol_links):
             b += ["> [!info] SLA sem itens.", ""]
         b.append(findings_block("sla", s["id"]))
         v.write(v.paths[("sla", s["id"])], props, "\n".join(b))
+
+
+def write_commands(v, d, findings_block, sol_links):
+    for cm in d.get("commands") or []:
+        props = {"tipo": "comando", "nome": cm["name"], "rotulo": cm.get("label"),
+                 "tabela": v.link("table", cm["table"], cm["table"]) if cm.get("table") else None,
+                 "local": cm.get("location"), "acao": cm.get("action"),
+                 "web_resource": v.link("webresource", cm["webresource"], cm["webresource"]) if cm.get("webresource") else None,
+                 "funcao": cm.get("function"), "power_fx": cm.get("powerfx"), "visibilidade": cm.get("visibility"),
+                 "oculto": cm.get("hidden"), "gerenciado": cm.get("managed"), "modificado": cm.get("modified"),
+                 "escopo": cm.get("scope_reason"), "solucoes": sol_links(cm.get("solutions")), "tags": v.tags("comando")}
+        b = [f"# {cm.get('label') or cm['name']} (`{cm['name']}`)", "",
+             f"Comando moderno · {cm.get('location') or '—'} de "
+             f"{v.link('table', cm['table'], cm['table']) if cm.get('table') else '—'}", "",
+             f"- Ao clicar: {cm.get('action') or '—'}"
+             + (f" → {v.link('webresource', cm['webresource'], cm['webresource'])} `{cm.get('function') or ''}`"
+                if cm.get("webresource") else "")
+             + (f" (parâmetros `{cm['parameters']}`)" if cm.get("parameters") else "")
+             + (f" · Power Fx `{cm['powerfx']}`" if cm.get("powerfx") else ""),
+             f"- Visibilidade: {cm.get('visibility') or '—'}"
+             + (f" · Power Fx `{cm['visibility_formula']}`" if cm.get("visibility_formula") else ""),
+             f"- Oculto: {cm.get('hidden')} · desabilitado: {cm.get('disabled')}", ""]
+        b.append(findings_block("command", cm["id"]))
+        v.write(v.paths[("command", cm["id"])], props, "\n".join(b))
 
 
 def bases(v, _base):

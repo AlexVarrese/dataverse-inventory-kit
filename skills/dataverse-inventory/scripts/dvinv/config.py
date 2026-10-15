@@ -32,6 +32,9 @@ DEEP_DEFAULTS = {
     "catalog_max_rows_per_type": 200_000,  # teto de linhas lidas por tipo para dar nome
     "platform_dependencies": True,           # tabela dependency em lote (fallback: RetrieveDependentComponents)
     "platform_dependencies_columns": False,  # idem para cada coluna custom (1 chamada por coluna — pesado)
+    "solution_layers": False,      # camadas de solução por tabela do escopo (msdyn_componentlayers, ~3 s/tabela)
+    "solution_layers_max": 500,    # teto de tabelas para as camadas
+    "solution_history_max": 5000,  # importações/exportações mais recentes lidas
 }
 
 # Perfis de coleta. `metadata_only` = só metadados de customização: desliga (e trava, mesmo com
@@ -88,6 +91,7 @@ class Config:
     sqlite: bool = False             # cache SQLite em _derived/ (SQL ad hoc); o vault não depende dele
     xlsx: bool = True                # Matriz de Dependências.xlsx no vault (binário: desligue se o vault vai para Git)
     repo: bool = False               # vault_root é um repositório de conhecimento: README/.gitignore/.gitattributes
+    completar: str | None = None     # extract: completa este snapshot (run_id | pasta | "ultimo"); o CLI sobrepõe
 
     @property
     def profile_blocked(self):
@@ -196,6 +200,7 @@ def load(path, overrides=None):
         sqlite=bool(overrides.get("sqlite") or out.get("sqlite", False)),
         xlsx=bool(out.get("xlsx", not out.get("repo", False))),  # em modo repositório, sem planilha por padrão
         repo=bool(out.get("repo", False)),
+        completar=(str(data["completar"]) if data.get("completar") else None),
     )
     if not (cfg.prefixes or cfg.solutions or cfg.include_unmanaged or cfg.scope_all):
         raise SystemExit("Defina scope.prefixes, scope.solutions, scope.include_unmanaged ou scope.all")

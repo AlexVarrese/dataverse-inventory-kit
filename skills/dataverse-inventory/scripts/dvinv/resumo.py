@@ -22,7 +22,9 @@ LABELS = {
     "audit_records": "registros de auditoria", "content_downloaded": "conteúdo baixado",
     "content_reused": "conteúdo reaproveitado", "content_skipped": "conteúdo ignorado", "subareas": "subáreas",
     "items": "itens", "active": "ativos", "buttons": "botões que chamam JS do escopo", "files": "arquivos",
-    "secret_hits": "possíveis segredos",
+    "secret_hits": "possíveis segredos", "formula_columns": "colunas calculadas/rollup/fórmula",
+    "custom_fields": "campos customizados", "failures": "com falha", "since": "desde", "javascript": "com JavaScript",
+    "active_on_top": "com camada Active por cima",
 }
 # mesmo nome de métrica com sentido diferente por coletor
 LABELS_BY = {"plugins": {"types": "classes no escopo"}, "ribbons": {"scope": "tabelas consultadas"}}
@@ -74,7 +76,8 @@ def rows(manifest):
             det, scope = f"tabelas consultadas {num(scope)}" + (f" · {det}" if det else ""), None
         c = cols.get(name) or {}
         out.append([name, num(org) if org is not None else "—", num(scope) if scope is not None else "—", det or "—",
-                    c.get("status", "—") + (f" ({c['lacunas']} lacuna(s))" if c.get("lacunas") else ""),
+                    c.get("status", "—") + (f" ({c['lacunas']} lacuna(s))" if c.get("lacunas") else "")
+                    + (" ↺ herdado" if str(c.get("origem", "")).startswith("herdado") else ""),
                     f"{tm[name]:.1f} s".replace(".", ",") if name in tm else "—"])
     return out
 

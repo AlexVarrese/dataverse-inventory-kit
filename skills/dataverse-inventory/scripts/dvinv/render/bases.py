@@ -81,7 +81,7 @@ def write_all(v, findings):
         "Componentes": {
             "filters": {"and": [f'file.inFolder("{v.folder}")', {"or": [
                 'tipo == "plugin-assembly"', 'tipo == "customapi"', 'tipo == "app"', 'tipo == "solucao"', 'tipo == "papel"',
-                'tipo == "pcf"', 'tipo == "sitemap"', 'tipo == "sla"']}]},
+                'tipo == "pcf"', 'tipo == "sitemap"', 'tipo == "sla"', 'tipo == "comando"']}]},
             "views": [{"type": "table", "name": "Por tipo", "groupBy": {"property": "tipo", "direction": "ASC"},
                        "order": ["file.name", "subtipo", "versao", "gerenciado", "gerenciada", "dependentes",
                                  "dependencias", "modificado"]}],

@@ -91,6 +91,21 @@ Validação real (ESAB-TEST, 2026-10-14)
   no índice); arestas internas de metadados ("Solution Internal") fora da matriz; GUID não duplicado no
   índice + VACUUM; Complex Control (sem RetrieveMultiple) fora do catálogo de nomes.
 
+Extração por partes e novos componentes
+- `--completar <snapshot>` (ou `completar:` no yaml): roda o `--only` — ou, sem ele, só o que falhou/faltou — e
+  herda os demais coletores do snapshot base (só ok/parcial, sha256 conferido, mesmo escopo/perfil/ambiente; senão
+  recusa). Origem por coletor no manifesto e no `01 Ambiente`. `collectors:` no yaml = `--only`. Comando
+  `snapshots` lista os snapshots e quantas etapas cada um tem íntegras. ESAB-TEST: completar a extração de ontem
+  com 3 etapas novas levou 226 s (completa: 37 min).
+- Colunas calculadas, rollup e fórmula: definição lida por coluna (tipo derivado do metadado) e colunas usadas
+  no grafo (`onde-usa` mostra quem calcula a partir do campo). ESAB-TEST: 212 em 16 s.
+- Mapeamentos entre tabelas (`entitymaps`/`attributemaps`): campo de destino depende do de origem.
+- Comandos modernos (`appactions`): nota por comando, botão → tabela/JS/app no grafo.
+- Histórico de soluções (`msdyn_solutionhistories`): `10 Histórico de Soluções` + CSV; achado ALM-06 (falhas nos
+  últimos 90 dias). Camadas de solução por tabela (`deep.solution_layers`, desligado): achado ALM-07 (camada
+  `Active` por cima das gerenciadas).
+- README da skill com o guia "Como usar".
+
 Desempenho e acompanhamento em ambientes muito customizados
 - Leituras em lote (`get_many`) agora em paralelo (`parallel`, padrão 4): conteúdo de web resources, formxml,
   views, definições de processos e manifestos PCF. Antes eram lotes em sequência — num cliente, só o conteúdo
