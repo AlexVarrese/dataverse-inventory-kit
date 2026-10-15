@@ -95,7 +95,11 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    prefixo): em ambientes de DEV/TEST, `include_unmanaged` costuma trazer milhares de bibliotecas de
    terceiros — mova o prefixo para `scope.exclude_prefixes`, e prefixos do próprio cliente (ex. de outra
    operação regional) para `scope.prefixes`.
-5. **Extrair:** `python3 <skill>/scripts/dvinv.py extract -c inventory.yaml`. `--deep` liga tudo:
+5. **Conferir o escopo e extrair em fases:** `dvinv.py escopo -c inventory.yaml` mostra quantas tabelas entrariam
+   e por quê, sem extrair; ajuste `scope:` se vier largo. Depois, em fases: `extract --nivel rapido` (minutos),
+   `extract --nivel padrao --completar ultimo`, `extract --nivel diagnostico --completar ultimo` — cada fase refaz
+   só as etapas cujas opções mudaram e herda o resto. Ou de uma vez:
+   **Extrair:** `python3 <skill>/scripts/dvinv.py extract -c inventory.yaml`. `--deep` liga tudo:
    privilégios por papel, ribbons, plugin trace, membros de equipe, DLLs de plugin, definições de
    processos, **uso de campos** (preenchimento real + matriz + candidatos a investigação de remoção) e **armazenamento/
    auditoria**. Se o cliente tiver repositórios Git, liste os clones locais em `repos:` — o pacote compara

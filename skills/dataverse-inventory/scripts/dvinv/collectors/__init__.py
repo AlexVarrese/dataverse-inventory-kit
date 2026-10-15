@@ -111,6 +111,18 @@ def _status(ctx, name, failed, gaps_before):
     return {"status": "parcial" if falhas else "ok", "lacunas": falhas}
 
 
+# Opções (deep.*) que mudam o resultado de cada coletor: ao completar um snapshot, coletor com opção diferente da
+# usada no base é refeito (ex. fase rapido → padrao: web resources passam a baixar conteúdo).
+FLAGS_BY_COLLECTOR = {
+    "catalog": ("catalog", "catalog_names"), "tables": ("record_counts",),
+    "webresources": ("webresource_content", "webresource_content_types", "webresource_skip_names",
+                     "webresource_max_bytes"),
+    "forms": ("form_events", "field_usage"), "views": ("field_usage",), "ribbons": ("ribbons",),
+    "plugins": ("plugin_binaries",), "processes": ("flow_definitions", "process_definitions"),
+    "security": ("role_privileges", "team_members"), "users": ("users",), "field_usage": ("field_usage",),
+    "platform_dependencies": ("platform_dependencies", "platform_dependencies_columns"), "storage": ("storage",),
+    "health": ("plugin_trace",), "solution_layers": ("solution_layers",),
+}
 ALWAYS = ("environment", "solutions")  # baratos e com efeito no escopo (pertencimento a soluções): sempre rodam
 
 
@@ -139,7 +151,21 @@ def plan_base(ctx, base_dir, requested):
         raise SystemExit(f"--completar: o snapshot base é de outro ambiente ({m['url']})")
     good = {n for n, st in (m.get("collectors") or {}).items() if st.get("status") in ("ok", "parcial")}
     names = [n for n, _ in REGISTRY]
+    base_deep, deep = m.get("deep") or {}, ctx.cfg.deep
+    changed = {n for n, flags in FLAGS_BY_COLLECTOR.items() if any(base_deep.get(f) != deep.get(f) for f in flags)}
+    good -= changed  # opção mudou (ex. nível novo): não herda — refaz
     run_set = set(requested) if requested else {n for n in names if n not in good}
+    if changed and not requested:
+        print(f"[dvinv] opções diferentes do snapshot base em: {', '.join(n for n in names if n in changed)} — "
+              "essas etapas são refeitas", flush=True)
+    if not requested:  # quem usa o dado de uma etapa refeita também é refeito (ex. forms → pcf, field_usage)
+        grew = True
+        while grew:
+            grew = False
+            for n, deps in DEPENDS.items():
+                if n not in run_set and any(dep in run_set for dep in deps):
+                    run_set.add(n)
+                    grew = True
     todo = list(run_set)
     while todo:  # dependência que o base não tem íntegra precisa rodar junto
         for dep in DEPENDS.get(todo.pop(), []):
@@ -251,6 +277,7 @@ def run(ctx, only=None, base=None):
             "profile_blocked": list(getattr(ctx.cfg, "profile_blocked", [])),
             "only": requested,
             "base": base.name if base_m is not None else None,
+            "nivel": getattr(ctx.cfg, "nivel", None),
             "scope": {
                 "prefixes": ctx.cfg.prefixes, "keywords": ctx.cfg.keywords, "solutions": ctx.cfg.solutions,
                 "include_unmanaged": ctx.cfg.include_unmanaged, "all": ctx.cfg.scope_all,

@@ -91,6 +91,13 @@ Validação real (ESAB-TEST, 2026-10-14)
   no índice); arestas internas de metadados ("Solution Internal") fora da matriz; GUID não duplicado no
   índice + VACUUM; Complex Control (sem RetrieveMultiple) fora do catálogo de nomes.
 
+Níveis e execução em fases
+- `nivel:` / `--nivel rapido|padrao|diagnostico`: presets de coleta (o rápido não baixa conteúdo, catálogo nem
+  dependências; o diagnóstico liga tudo menos a lista nominal de usuários). Em fases com `--completar ultimo`, cada
+  fase refaz só as etapas cujas opções `deep.*` mudaram em relação ao snapshot base — e as que dependem delas.
+  ESAB-TEST: rápido do zero em 8,8 min.
+- `dvinv escopo`: pré-visualização (tabelas no escopo por motivo e prefixo + CSV) sem extrair — 58 s no ESAB-TEST.
+
 Extração por partes e novos componentes
 - `--completar <snapshot>` (ou `completar:` no yaml): roda o `--only` — ou, sem ele, só o que falhou/faltou — e
   herda os demais coletores do snapshot base (só ok/parcial, sha256 conferido, mesmo escopo/perfil/ambiente; senão

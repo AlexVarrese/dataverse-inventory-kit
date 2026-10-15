@@ -61,6 +61,10 @@ repos: []
 #  - path: ../repos/Plugins
 #    kind: plugins
 
+# Nível de coleta: rapido (minutos) | padrao | diagnostico. Em fases: rapido do zero, depois os outros com
+# --completar ultimo (refaz só o que mudou). O --nivel do comando vale mais que o deep: abaixo.
+# nivel: rapido
+
 # Extração por partes (ambiente muito grande ou rede lenta). Equivalem a --only e --completar no comando:
 # collectors: [webresources, forms]   # roda só estas etapas (+ as que elas exigem)
 # completar: 20261014T120424Z        # herda as demais etapas deste snapshot (run_id, pasta ou "ultimo");

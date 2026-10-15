@@ -1008,7 +1008,7 @@ def main():
         acc = wr5["contoso_/js/account.js"]
         assert acc["content"] is None and acc["secret_hits"] and "não guardado" in acc["content_source"], acc
         assert any("acima de 0 KB não guardado" in g["what"] for g in m5["gaps"]), m5["gaps"]
-        del cfg.deep["webresource_max_bytes"]
+        cfg.deep["webresource_max_bytes"] = 1_000_000  # volta ao padrão (opção diferente do base faria refazer)
         cfg.deep["webresource_reuse"] = True
 
         # leitura em lote negada → fallback por componente do escopo, com lacuna declarada
@@ -1051,6 +1051,36 @@ def main():
             assert "outro escopo" in str(e)
         finally:
             cfg.prefixes.remove("outro_")
+
+        # níveis em fases: rapido (do zero) → padrao (--completar) refaz só o que mudou de opção + dependentes
+        cfg_r = config_mod.load(tmp / "inventory.yaml", {"nivel": "rapido"})
+        ctx_r = Context(cfg_r, FakeClient(cfg_r, credential=None), Scope(cfg_r))
+        ctx_r.client._bearer = lambda: "fake"
+        m_r = run(ctx_r)
+        assert m_r["nivel"] == "rapido" and m_r["collectors"]["catalog"]["status"] == "sem-dados"
+        assert not any("webresourceset(" in q["path"] or "webresourceid eq" in q["path"] for q in m_r["queries"]), \
+            "nível rápido não baixa conteúdo de web resources"
+        cfg_p = config_mod.load(tmp / "inventory.yaml", {"nivel": "padrao"})
+        ctx_p = Context(cfg_p, FakeClient(cfg_p, credential=None), Scope(cfg_p))
+        ctx_p.client._bearer = lambda: "fake"
+        m_p = run(ctx_p, [], base=ctx_r.snapshot_dir)
+        orig = {k: st.get("origem", "") for k, st in m_p["collectors"].items()}
+        for k in ("catalog", "webresources", "forms", "processes", "platform_dependencies", "pcf"):
+            assert orig[k] == "coletado nesta execução", (k, orig[k])  # opção mudou ou depende de quem mudou
+        for k in ("tables", "relationships", "plugins", "security", "slas"):
+            assert orig[k].startswith("herdado de"), (k, orig[k])
+        wr_p = {w["name"]: w for w in json.loads((ctx_p.snapshot_dir / "webresources.json").read_text())}
+        assert wr_p["contoso_/js/account.js"]["content_source"] in ("baixado",) or \
+            wr_p["contoso_/js/account.js"]["content_source"].startswith("reaproveitado")
+        # pré-visualização do escopo (sem detalhar colunas)
+        from dvinv.collectors import environment as env_c, tables as tab_c
+        ctx_e = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx_e.client._bearer = lambda: "fake"
+        ctx_e.preview = True
+        env_c.collect_solutions(ctx_e)
+        tab_c.collect_tables(ctx_e)
+        assert sorted(t["logical"] for t in ctx_e.data["_preview_tables"]) == ["account", "contoso_project", "contoso_virtual"]
+        assert "tables" not in ctx_e.data, "pré-visualização não detalha colunas"
 
         print(f"OK — {len(md)} notas, {len(list(cfg.vault_dir.rglob('*.base')))} bases, "
               f"{len(fnd)} achados, {len(manifest['queries'])} chamadas simuladas, {len(manifest['gaps'])} lacunas")

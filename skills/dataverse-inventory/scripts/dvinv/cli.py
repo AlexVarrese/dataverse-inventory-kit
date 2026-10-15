@@ -133,6 +133,38 @@ def cmd_check(cfg):
     print(f"OK — {cfg.url} versão {ver}, usuário {who.get('UserId')}")
 
 
+def cmd_escopo(cfg):
+    """Pré-visualização do escopo: o que entraria na extração, sem extrair (minutos, não horas)."""
+    import csv
+    from collections import Counter
+    from .collectors import environment, tables
+    ctx = Context(cfg, _client(cfg), Scope(cfg))
+    ctx.preview = True
+    print("[dvinv] lendo soluções e tabelas (sem detalhar colunas)…", flush=True)
+    environment.collect_solutions(ctx)
+    tables.collect_tables(ctx)
+    sel, org = ctx.data.get("_preview_tables") or [], ctx.data.get("_preview_org_tables")
+    sols = [s_ for s_ in ctx.data.get("solutions") or [] if s_.get("in_scope")]
+    print(f"\nEscopo com a configuração atual: {len(sel)} de {org} tabelas · {len(sols)} solução(ões) no escopo")
+    print("\nPor motivo:")
+    for r, n in Counter(t["reason"] for t in sel).most_common():
+        print(f"  {n:6}  {r}")
+    pref = Counter((t["logical"].split("_", 1)[0] + "_") if "_" in t["logical"] else "(sem prefixo)" for t in sel)
+    print("\nPor prefixo (as 15 maiores):")
+    for p_, n in pref.most_common(15):
+        print(f"  {n:6}  {p_}")
+    out = Path(cfg.raw_dir).parent / f"escopo-{time.strftime('%Y%m%d-%H%M%S')}.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f, delimiter=";")
+        w.writerow(["Tabela", "Motivo", "Colunas custom", "Custom", "Gerenciada"])
+        w.writerows([[t["logical"], t["reason"], t["custom_columns"], t["custom"], t["managed"]] for t in sel])
+    print(f"\nLista completa: {out}")
+    print("Motivos: prefix/keyword/solution = critério do yaml · custom-columns = tabela nativa com coluna "
+          "customizada · unmanaged = componente não gerenciado. Muitas tabelas por 'custom-columns'/'unmanaged' "
+          "costumam vir de prefixos de terceiros: use scope.exclude_prefixes ou restrinja scope.prefixes/solutions.")
+
+
 def cmd_extract(cfg, only=None, completar=None):
     if (cfg.raw_dir / "manifest.json").exists():
         print(f"[dvinv] aviso: {cfg.raw_dir} tem arquivos do formato antigo (<= 0.4); eles são ignorados — "
@@ -177,7 +209,7 @@ def cmd_render(cfg, snapshot=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="dvinv", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["check", "extract", "render", "all", "diff", "collectors", "snapshots",
+    ap.add_argument("command", choices=["check", "escopo", "extract", "render", "all", "diff", "collectors", "snapshots",
                                         "buscar", "onde-usa", "impacto", "depende"])
     ap.add_argument("termo", nargs="?", help="buscar/onde-usa/impacto/depende: componente (nome, tabela.coluna, chave ou GUID)")
     ap.add_argument("-c", "--config", default="inventory.yaml")
@@ -190,6 +222,9 @@ def main(argv=None):
     ap.add_argument("--b", help="diff: snapshot B")
     ap.add_argument("--profundidade", type=int, help="impacto/depende: níveis (padrão 2 / 1)")
     ap.add_argument("--limite", type=int, default=150, help="consultas: máximo de linhas listadas")
+    ap.add_argument("--nivel", choices=["rapido", "padrao", "diagnostico"],
+                    help="nível de coleta (sobrepõe deep: do yaml): rapido (minutos) → padrao → diagnostico. Em fases: "
+                         "a 1ª sem --completar, as seguintes com --completar ultimo")
     ap.add_argument("--completar", metavar="SNAPSHOT",
                     help="extract/all: completa um snapshot anterior (run_id, pasta ou 'ultimo') — roda o --only (ou, "
                          "sem --only, só o que falhou/faltou) e herda os demais coletores, declarando a origem")
@@ -234,7 +269,7 @@ def main(argv=None):
             print(consulta.cmd_walk(inv, args.termo, direction, depth, args.limite))
         return 0
 
-    overrides = {"deep_all": args.deep, "sqlite": args.sqlite}
+    overrides = {"deep_all": args.deep, "sqlite": args.sqlite, "nivel": args.nivel}
     if args.profile:
         overrides["profile"] = args.profile
     if args.only:
@@ -247,6 +282,8 @@ def main(argv=None):
     try:
         if args.command == "check":
             cmd_check(cfg)
+        elif args.command == "escopo":
+            cmd_escopo(cfg)
         elif args.command == "extract":
             with run_lock(cfg):
                 cmd_extract(cfg, cfg.collectors, args.completar or cfg.completar)

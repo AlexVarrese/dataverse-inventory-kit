@@ -37,6 +37,27 @@ DEEP_DEFAULTS = {
     "solution_history_max": 5000,  # importações/exportações mais recentes lidas
 }
 
+# Níveis de coleta: o que cada fase liga. Executados em sequência com `--completar`, cada fase refaz só as etapas
+# cujas opções mudaram e herda o resto (rapido → padrao → diagnostico). `users` (dado pessoal) nunca é ligado por
+# nível — só explicitamente em deep.users.
+_OFF = {"catalog": False, "webresource_content": False, "flow_definitions": False, "form_events": False,
+        "process_definitions": False, "platform_dependencies": False, "role_privileges": False, "ribbons": False,
+        "plugin_trace": False, "team_members": False, "plugin_binaries": False, "field_usage": False, "storage": False,
+        "solution_layers": False, "record_counts": True}
+LEVELS = {
+    # minutos: estrutura e metadados (tabelas, colunas, processos, plugins, web resources sem conteúdo, apps…)
+    "rapido": dict(_OFF),
+    # + código e definições, catálogo de 100% e dependências da plataforma
+    "padrao": dict(_OFF, catalog=True, webresource_content=True, flow_definitions=True, form_events=True,
+                   process_definitions=True, platform_dependencies=True),
+    # + privilégios, ribbons, trace, membros, DLLs, uso de campos (lê registros), armazenamento, camadas
+    "diagnostico": dict(_OFF, catalog=True, webresource_content=True, flow_definitions=True, form_events=True,
+                        process_definitions=True, platform_dependencies=True, role_privileges=True, ribbons=True,
+                        plugin_trace=True, team_members=True, plugin_binaries=True, field_usage=True, storage=True,
+                        solution_layers=True),
+}
+LEVEL_ALIASES = {"rápido": "rapido", "padrão": "padrao", "diagnóstico": "diagnostico", "completo": "diagnostico"}
+
 # Perfis de coleta. `metadata_only` = só metadados de customização: desliga (e trava, mesmo com
 # --deep) toda coleta que lê CONTEÚDO (código, definições, binários) ou REGISTROS de negócio/log.
 # Ficam permitidos: record_counts (contagem agregada por tabela, sem ler registro), form_events
@@ -92,6 +113,7 @@ class Config:
     xlsx: bool = True                # Matriz de Dependências.xlsx no vault (binário: desligue se o vault vai para Git)
     repo: bool = False               # vault_root é um repositório de conhecimento: README/.gitignore/.gitattributes
     completar: str | None = None     # extract: completa este snapshot (run_id | pasta | "ultimo"); o CLI sobrepõe
+    nivel: str | None = None         # rapido | padrao | diagnostico (ver LEVELS)
 
     @property
     def profile_blocked(self):
@@ -150,7 +172,14 @@ def load(path, overrides=None):
         keywords = [p.rstrip("_") for p in prefixes if p.rstrip("_")]
 
     deep = dict(DEEP_DEFAULTS)
-    deep.update(data.get("deep", {}) or {})
+    nivel = str(overrides.get("nivel") or data.get("nivel") or "").strip().lower() or None
+    nivel = LEVEL_ALIASES.get(nivel, nivel)
+    if nivel and nivel not in LEVELS:
+        raise SystemExit(f"nivel '{nivel}' desconhecido — use: {', '.join(LEVELS)}")
+    if nivel:
+        deep.update(LEVELS[nivel])
+    if not overrides.get("nivel"):  # nível escolhido no comando vale mais que o deep: do yaml
+        deep.update(data.get("deep", {}) or {})
     if overrides.get("deep_all"):
         deep = {k: (True if isinstance(v, bool) else v) for k, v in deep.items()}
     if deep.get("field_usage"):  # a matriz precisa dos campos citados em workflows/BRs e nos formulários
@@ -201,6 +230,7 @@ def load(path, overrides=None):
         xlsx=bool(out.get("xlsx", not out.get("repo", False))),  # em modo repositório, sem planilha por padrão
         repo=bool(out.get("repo", False)),
         completar=(str(data["completar"]) if data.get("completar") else None),
+        nivel=nivel,
     )
     if not (cfg.prefixes or cfg.solutions or cfg.include_unmanaged or cfg.scope_all):
         raise SystemExit("Defina scope.prefixes, scope.solutions, scope.include_unmanaged ou scope.all")

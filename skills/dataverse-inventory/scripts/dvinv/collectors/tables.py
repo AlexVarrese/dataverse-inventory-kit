@@ -69,6 +69,13 @@ def collect_tables(ctx):
         if reason:
             selected.append((e, reason, len(ca)))
 
+    if getattr(ctx, "preview", False):  # `dvinv escopo`: só a seleção, sem detalhar colunas
+        ctx.data["_preview_tables"] = [{"logical": e["LogicalName"], "reason": r, "custom_columns": n,
+                                        "custom": e.get("IsCustomEntity"), "managed": e.get("IsManaged")}
+                                       for e, r, n in selected]
+        ctx.data["_preview_org_tables"] = len(ents)
+        return
+
     # Fase 2 em paralelo: colunas (labels, tipo, obrigatoriedade) e chaves de cada tabela do escopo.
     def details(ln):
         attrs = c.get_all(

@@ -141,6 +141,19 @@ output:
 Cada etapa termina com "N na org · M no escopo · processado"; etapas em lote mostram `N/total · ~restante`;
 tempo limite e nova tentativa aparecem na tela; o fim da extração traz a tabela-resumo (também no `01 Ambiente`).
 
+**Em fases (recomendado para ambiente grande):** níveis `rapido` → `padrao` → `diagnostico`; cada fase completa
+a anterior e refaz só as etapas cujas opções mudaram (e as que dependem delas):
+
+| Fase | Comando | O que acrescenta |
+|---|---|---|
+| 0. Conferir o escopo | `... escopo -c inventory.yaml` | lista quantas tabelas entrariam e por quê (CSV em `out/<amb>/escopo-*.csv`) — ajuste `scope:` antes |
+| 1. Rápido (minutos) | `... all -c inventory.yaml --nivel rapido` | estrutura: tabelas, colunas, relacionamentos, formulários e views (lista), processos, plugins, web resources (sem conteúdo), apps, site maps, SLAs, comandos, mapeamentos, histórico, segurança |
+| 2. Padrão | `... all -c inventory.yaml --nivel padrao --completar ultimo` | código JS/HTML, eventos de formulário, definições de flows/workflows, catálogo de 100%, dependências da plataforma |
+| 3. Diagnóstico | `... all -c inventory.yaml --nivel diagnostico --completar ultimo` | privilégios, ribbons, trace, membros, DLLs, uso de campos (lê registros), armazenamento, camadas de solução |
+
+Cada fase gera um vault já utilizável; pare na que bastar. No yaml: `nivel: padrao` (o `--nivel` do comando vale
+mais que o `deep:` do yaml). Lista nominal de usuários nunca é ligada por nível (só `deep.users: true`).
+
 **Ambiente grande ou rede lenta — extração por partes:**
 1. `extract` sem `--deep` (estrutura); confira em `01 Ambiente` a tabela *De onde veio o escopo* e ajuste
    `scope.prefixes` / `scope.exclude_prefixes` se o número de tabelas no escopo for maior que o esperado.
