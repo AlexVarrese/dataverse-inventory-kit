@@ -101,6 +101,16 @@ Desempenho e acompanhamento em ambientes muito customizados
   declarada. ESAB-TEST: 1ª rodada 133 baixados em 3 s; 2ª rodada 0 baixados, 133 reaproveitados.
 - Progresso com tempo decorrido e estimativa do restante (a cada 10% ou 30 s) em toda etapa por lotes.
 - Log de cada `extract`/`render`/`all` com hora por linha em `out/<ambiente>/logs/dvinv-<data>-<comando>.log`.
+- O log registra **cada chamada à API** (caminho, status, tamanho, tempo); o console avisa tempo limite e nova
+  tentativa (antes eram silenciosos e a etapa parecia travada); leituras paginadas longas mostram linhas/páginas
+  lidas a cada 30 s.
+- Web resources: a análise local do conteúdo (segredos, redação, funções, JS — ~2 s por MB) mostra progresso
+  com MB processados e estimativa; sem achado na varredura, a redação não roda de novo (mesmo resultado, metade
+  do tempo); acima de `deep.webresource_max_bytes` (1 MB) os segredos são verificados mas conteúdo e análise não
+  são guardados (lacuna declarada). Num cliente com ~10 mil web resources a etapa ficou 20+ min sem mensagem
+  depois do download em 100%.
+- Catálogo: subetapas 1/4–4/4 com contagens e tempo; nomes por tipo lidos em paralelo (ESAB-TEST: 287 tipos,
+  de ~15 min estimados em sequência para 48 s; coletor de 518 s para 147 s).
 - Ao fim de cada coletor, uma linha "N na org · M no escopo · processado…"; no fim da extração, tabela-resumo
   (etapa, na org, no escopo, processado/detalhe, status, tempo) — a mesma tabela vai para `01 Ambiente`.
 

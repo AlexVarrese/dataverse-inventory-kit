@@ -108,23 +108,45 @@ def collect_webresources(ctx):
     contents = c.get_many("webresourceset", "webresourceid", [r["id"] for r, _t in want], "content",
                           batch=int(cfg.deep.get("webresource_batch") or 10), label="conteúdo de web resources") \
         if want else {}
-    for rec, t in want:
+    # Análise local do conteúdo (segredos, redação, funções, JS): ~2 s por MB. Com milhares de arquivos são
+    # dezenas de minutos de CPU — antes sem nenhuma mensagem depois do download chegar a 100%.
+    max_bytes = int(cfg.deep.get("webresource_max_bytes") or 1_000_000)
+    import time as _time
+    t0, last, total, done_bytes, big = _time.time(), _time.time(), len(want), 0, 0
+    for n, (rec, t) in enumerate(want, 1):
         try:
             d = contents.get(rec["id"].lower())
             if d is None:
                 raise RuntimeError("não retornado pela API")
             raw = base64.b64decode(d.get("content") or "")
+            done_bytes += len(raw)
             text = raw.decode("utf-8-sig", "replace")
             rec["size"] = len(raw)
             rec["secret_hits"] = secrets.scan(text)
-            if t == 3:
-                names = {next(g for g in m.groups() if g) for m in FUNC_RE.finditer(text)}
-                rec["functions"] = sorted(names)
-                rec["js"] = analyze_js(rec["name"], text)
-            rec["content"] = secrets.redact(text)
-            rec["content_source"] = "baixado"
+            if len(raw) > max_bytes:
+                # grande demais (bundle/minificado): segredos verificados, mas conteúdo e análise não guardados
+                rec["content_source"] = f"baixado; conteúdo não guardado (> {max_bytes // 1000} KB, deep.webresource_max_bytes)"
+                rec["js"] = {"third_party": None, "lines": text.count("\n") + 1, "too_large": True} if t == 3 else None
+                big += 1
+            else:
+                if t == 3:
+                    names = {next(g for g in m.groups() if g) for m in FUNC_RE.finditer(text)}
+                    rec["functions"] = sorted(names)
+                    rec["js"] = analyze_js(rec["name"], text)
+                # sem achado na varredura, a redação não muda nada: evita a segunda passada (mesmo resultado)
+                rec["content"] = secrets.redact(text) if rec["secret_hits"] else text
+                rec["content_source"] = "baixado"
         except Exception as e:  # noqa: BLE001
             ctx.gap("webresources", f"conteúdo de {rec['name']}", e)
+        if total >= 20 and (_time.time() - last >= 30 or n == total):
+            last = _time.time()
+            el = last - t0
+            print(f"[dvinv]   analisando conteúdo dos web resources: {n}/{total} ({100 * n // total}%) · "
+                  f"{done_bytes / 1e6:.0f} MB · {int(el // 60)}m{int(el % 60):02d}s decorrido"
+                  + (f" · ~{int(el / n * (total - n) // 60)}m restante" if n < total else ""), flush=True)
+    if big:
+        ctx.gap("webresources", f"conteúdo de {big} web resource(s) acima de {max_bytes // 1000} KB não guardado "
+                "(segredos verificados)", "deep.webresource_max_bytes", kind="limitação")
     if skipped:
         ctx.gap("webresources", f"conteúdo não baixado de {sum(skipped.values())} web resource(s) "
                 f"({', '.join(f'{k}: {n}' for k, n in sorted(skipped.items()))})",

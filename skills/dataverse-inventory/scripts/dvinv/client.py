@@ -42,6 +42,22 @@ class UnsafeUrlError(DataverseError):
         super().__init__(0, url, f"URL recusada ({reason}) — o token só é enviado para a base configurada")
 
 
+# Rastreamento detalhado (só no arquivo de log): uma linha por chamada HTTP. Ligado por cli.start_log.
+TRACE = None
+
+
+def _trace(text):
+    if TRACE:
+        try:
+            TRACE(text)
+        except Exception:  # noqa: BLE001 — log nunca derruba a coleta
+            pass
+
+
+def _fmt_s(s):
+    return f"{int(s // 3600)}h{int(s % 3600 // 60):02d}m" if s >= 3600 else f"{int(s // 60)}m{int(s % 60):02d}s"
+
+
 def progress(label, n, total, t0):
     """Linha de progresso com tempo decorrido e estimativa do restante."""
     el = time.time() - t0
@@ -49,6 +65,11 @@ def progress(label, n, total, t0):
     fmt = lambda s: f"{int(s // 3600)}h{int(s % 3600 // 60):02d}m" if s >= 3600 else f"{int(s // 60)}m{int(s % 60):02d}s"  # noqa: E731
     print(f"[dvinv]   {label}: {n}/{total} ({100 * n // total}%) · {fmt(el)} decorrido"
           + (f" · ~{fmt(eta)} restante" if n < total else ""), flush=True)
+
+
+def _short(path, n=180):
+    p = urllib.parse.unquote(path)
+    return p if len(p) <= n else p[:n] + "…"
 
 
 class Client:
@@ -151,6 +172,7 @@ class Client:
                 "OData-Version": "4.0",
                 "Prefer": f'odata.include-annotations="*",odata.maxpagesize={page_size}',
             }
+            t0 = time.time()
             try:
                 conn = self._conn(parts.netloc, fresh=attempt > 0)
                 conn.request("GET", target, headers=headers)
@@ -159,10 +181,17 @@ class Client:
                 if resp.getheader("Content-Encoding", "").lower() == "gzip":
                     body = gzip.decompress(body)
             except (http.client.HTTPException, OSError) as e:  # conexão caiu/expirou: reabre e tenta de novo
+                why = "tempo limite" if "timed out" in str(e).lower() else e.__class__.__name__
+                msg = (f"[dvinv]   {why} após {time.time() - t0:.0f}s em {_short(short)} — "
+                       f"tentativa {attempt + 1}/{self.max_retries + 1}")
                 if attempt < self.max_retries:
+                    print(msg + ", tentando de novo", flush=True)  # antes era silencioso: parecia travado
                     time.sleep(min(2 ** attempt, 30))
                     continue
+                print(msg + ", desistindo", flush=True)
                 raise DataverseError(0, short, str(e)) from None
+            _trace(f"GET {_short(short)} → {resp.status} · {len(body) / 1024:,.0f} KB · {time.time() - t0:.1f}s"
+                   + (f" · tentativa {attempt + 1}" if attempt else ""))
             if resp.status == 200:
                 return json.loads(body.decode("utf-8"))
             # 429 = service protection limit; 502/503/504 = transitório
@@ -188,14 +217,25 @@ class Client:
             self.log.append({"path": path, "status": e.status, "ms": int((time.time() - t0) * 1000)})
             raise
 
+    def _page_progress(self, path, rows, pages, t0, state):
+        """Leituras paginadas longas: linha a cada 30 s (antes, minutos sem nenhuma mensagem)."""
+        now = time.time()
+        if now - t0 >= 15 and now - state.get("last", t0) >= 30:
+            state["last"] = now
+            print(f"[dvinv]   lendo {path.split('?')[0]}: {rows:,} linhas ({pages} páginas) · {_fmt_s(now - t0)}"
+                  .replace(",", "."), flush=True)
+
     def get_all(self, path, max_rows=None):
         """Segue @odata.nextLink até o fim (ou até max_rows linhas, se informado)."""
         t0 = time.time()
         url, out = self._url(path), []
+        pages, state = 0, {}
         try:
             while url:
                 data = self._request(url)
                 out.extend(data.get("value", []))
+                pages += 1
+                self._page_progress(path, len(out), pages, t0, state)
                 url = data.get("@odata.nextLink")
                 if max_rows and len(out) >= max_rows:
                     del out[max_rows:]
@@ -213,11 +253,14 @@ class Client:
         """Como get_all, mas entrega página a página (leituras de centenas de milhares de linhas)."""
         t0, n = time.time(), 0
         url = self._url(path)
+        pages, state = 0, {}
         try:
             while url:
                 data = self._request(url)
                 rows = data.get("value", [])
                 n += len(rows)
+                pages += 1
+                self._page_progress(path, n, pages, t0, state)
                 yield from rows
                 url = data.get("@odata.nextLink")
                 if url:

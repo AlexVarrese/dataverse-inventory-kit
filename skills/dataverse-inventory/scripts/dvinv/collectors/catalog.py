@@ -166,11 +166,21 @@ def _entity_sources(ctx, types, present):
     return out
 
 
+def _step(msg):
+    print(f"[dvinv]   catálogo: {msg}", flush=True)
+
+
 def collect_catalog(ctx):
+    import time
     c, cfg = ctx.client, ctx.cfg
     if not cfg.deep.get("catalog", True):
         return
+    t0 = time.time()
+    _step("1/4 nomes dos tipos de componente")
     types = _type_names(ctx)
+    _step(f"1/4 {len(types)} tipos conhecidos · {time.time() - t0:.0f}s")
+    _step("2/4 lendo todos os componentes de todas as soluções (solutioncomponent, páginas de 5.000)")
+    t1 = time.time()
 
     members, present, ids = [], set(), {}
     for r in c.iter_all("solutioncomponents?$select=componenttype,objectid,_solutionid_value,rootcomponentbehavior"):
@@ -181,18 +191,28 @@ def collect_catalog(ctx):
         ids.setdefault(oid, ct)
         members.append([ct, oid, (r.get("_solutionid_value") or "").lower(), r.get("rootcomponentbehavior")])
 
+    _step(f"2/4 {len(members):,} linhas · {len(ids):,} componentes · {len(present)} tipos · {time.time() - t1:.0f}s"
+          .replace(",", "."))
     names = {}
     if cfg.deep.get("catalog_names", True):
+        t2 = time.time()
+        _step("3/4 nomes de tabelas, colunas, chaves, relacionamentos e option sets (respostas grandes, sem paginação)")
         _metadata_names(ctx, names, present)
+        _step(f"3/4 {len(names):,} nomes de metadados · {time.time() - t2:.0f}s".replace(",", "."))
         sources = {ct: CLASSIC[ct] for ct in present if ct in CLASSIC}
         sources.update(_entity_sources(ctx, types, present))
         cap = int(cfg.deep.get("catalog_max_rows_per_type") or 200_000)
-        for ct, (es, idf, namef, parentf) in sorted(sources.items()):
-            sel = ",".join(x for x in (idf, namef, parentf) if x)
-            try:
-                got = c.get_all(f"{es}?$select={sel}", max_rows=cap)
-            except Exception as e:  # noqa: BLE001
-                ctx.gap("catalog", f"nomes do tipo {ct} ({(types.get(ct) or {}).get('name') or es})", e)
+        total = len(sources)
+        _step(f"4/4 nomes dos demais componentes: {total} tipos, uma leitura por tipo (em paralelo)")
+
+        def fetch(item):
+            _ct, (es, idf, namef, parentf) = item
+            return c.get_all(f"{es}?$select={','.join(x for x in (idf, namef, parentf) if x)}", max_rows=cap)
+
+        for (ct, (es, idf, namef, parentf)), got, err in c.parallel(fetch, sorted(sources.items()),
+                                                                     label="catálogo 4/4 nomes por tipo"):
+            if err is not None:
+                ctx.gap("catalog", f"nomes do tipo {ct} ({(types.get(ct) or {}).get('name') or es})", err)
                 continue
             if len(got) >= cap:
                 ctx.gap("catalog", f"nomes do tipo {ct} ({es})", f"truncado em {cap} linhas "

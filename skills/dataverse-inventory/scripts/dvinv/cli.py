@@ -89,7 +89,13 @@ def start_log(cfg, command):
     path = logs / f"dvinv-{time.strftime('%Y%m%d-%H%M%S')}-{command}.log"
     fh = open(path, "a", encoding="utf-8", newline="\n")  # noqa: SIM115 — fica aberto até o fim do processo
     sys.stdout, sys.stderr = _Tee(sys.stdout, fh), _Tee(sys.stderr, fh)
-    print(f"[dvinv] log desta execução: {path}", flush=True)
+    from . import client as client_mod
+
+    def trace(text):  # uma linha por chamada HTTP, só no arquivo (o console fica legível)
+        fh.write(time.strftime("%H:%M:%S ") + "        http " + secrets.redact(text) + "\n")
+        fh.flush()
+    client_mod.TRACE = trace
+    print(f"[dvinv] log desta execução: {path} (inclui cada chamada à API, com tempo e tamanho)", flush=True)
     return path
 
 

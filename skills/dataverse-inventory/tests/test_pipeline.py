@@ -924,6 +924,16 @@ def main():
         assert m4["stats"]["webresources"]["content_skipped"] == 1 and m4["stats"]["webresources"]["content_downloaded"] == 1
         assert any("conteúdo não baixado" in g["what"] and g["kind"] == "limitação" for g in m4["gaps"])
         del cfg.deep["webresource_skip_names"]
+        # acima do limite de tamanho: segredos verificados, conteúdo não guardado (lacuna declarada)
+        cfg.deep["webresource_max_bytes"] = 50
+        ctx5 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx5.client._bearer = lambda: "fake"
+        m5 = run(ctx5, ["webresources"])
+        wr5 = {w["name"]: w for w in json.loads((ctx5.snapshot_dir / "webresources.json").read_text())}
+        acc = wr5["contoso_/js/account.js"]
+        assert acc["content"] is None and acc["secret_hits"] and "não guardado" in acc["content_source"], acc
+        assert any("acima de 0 KB não guardado" in g["what"] for g in m5["gaps"]), m5["gaps"]
+        del cfg.deep["webresource_max_bytes"]
         cfg.deep["webresource_reuse"] = True
 
         # leitura em lote negada → fallback por componente do escopo, com lacuna declarada

@@ -14,6 +14,7 @@ DEEP_DEFAULTS = {
     "webresource_content_types": [1, 3],  # tipos com conteúdo baixado: 1 HTML, 3 JS (2 CSS, 4 XML, 9 XSL, 11 SVG, 12 RESX)
     "webresource_reuse": True,     # reaproveita conteúdo do snapshot anterior quando o modifiedon não mudou
     "webresource_batch": 10,       # web resources por chamada (lotes em paralelo, `parallel`)
+    "webresource_max_bytes": 1_000_000,  # acima disso: segredos verificados, conteúdo/análise não guardados
     # "webresource_skip_names": [...]  # regex de bibliotecas de terceiros sem download ([] desliga; padrão em ui.py)
     "flow_definitions": True,      # clientdata dos cloud flows do escopo (gatilho, conectores, HTTP)
     "form_events": True,           # formxml dos formulários do escopo (bibliotecas, handlers)
