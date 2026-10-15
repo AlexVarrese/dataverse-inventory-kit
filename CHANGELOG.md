@@ -109,6 +109,10 @@ Desempenho e acompanhamento em ambientes muito customizados
   do tempo); acima de `deep.webresource_max_bytes` (1 MB) os segredos são verificados mas conteúdo e análise não
   são guardados (lacuna declarada). Num cliente com ~10 mil web resources a etapa ficou 20+ min sem mensagem
   depois do download em 100%.
+- Metadados das tabelas em lotes de 40 (`EntityDefinitions` com `$filter` por MetadataId + `$expand`), em
+  paralelo, com nova tentativa tabela a tabela: a API não pagina metadados, e a resposta única com todas as
+  colunas da org caía no meio (`ConnectionAbortError`) num cliente grande — derrubando o coletor `tables`, que
+  define o escopo dos demais. Vale para a fase 1 de `tables` e para o catálogo 3/4. ESAB-TEST: 63 lotes em 11 s.
 - Catálogo: subetapas 1/4–4/4 com contagens e tempo; nomes por tipo lidos em paralelo (ESAB-TEST: 287 tipos,
   de ~15 min estimados em sequência para 48 s; coletor de 518 s para 147 s).
 - Ao fim de cada coletor, uma linha "N na org · M no escopo · processado…"; no fim da extração, tabela-resumo

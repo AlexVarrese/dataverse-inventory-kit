@@ -185,6 +185,17 @@ def route(path):
                  "msdyn_kpifield": "contoso_resolvebykpiid", "msdyn_applicablefromfield": "createdon"}]
     if p.startswith("calendars"):
         return [{"calendarid": G(212), "name": "Horário Brasil"}]
+    if p.startswith("EntityDefinitions?") and "$expand=Attributes" in p:
+        # como no cliente com muitos recursos: a resposta única com todas as colunas derruba a conexão
+        if "$filter" not in p:
+            raise DataverseError(0, p, "[WinError 10053] ConnectionAbortError: conexão anulada pelo software do host")
+        if G(3) in p and " or " in p:  # um lote com problema: o kit refaz tabela a tabela
+            raise DataverseError(500, p, "erro no lote")
+        ids = set(re.findall(r"MetadataId eq ([0-9a-f-]{36})", p))
+        return [e for e in ENTITIES if e["MetadataId"] in ids]
+    m = re.match(r"EntityDefinitions\(([0-9a-f-]{36})\)\?", p)
+    if m:
+        return next(e for e in ENTITIES if e["MetadataId"] == m.group(1))
     if p.startswith("EntityDefinitions?") and "TableType eq 'Virtual'" in p:
         return [e for e in ENTITIES if e.get("TableType") == "Virtual"]
     if p.startswith("entitydataproviders"):

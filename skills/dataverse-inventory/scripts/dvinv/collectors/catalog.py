@@ -123,8 +123,9 @@ def _metadata_names(ctx, names, present):
     c = ctx.client
     if present & {1, 2, 14}:
         try:
-            ents = c.get_all("EntityDefinitions?$select=MetadataId,LogicalName"
-                             "&$expand=Attributes($select=MetadataId,LogicalName),Keys($select=MetadataId,LogicalName)")
+            ents = c.entity_definitions("MetadataId,LogicalName",
+                                        "Attributes($select=MetadataId,LogicalName),Keys($select=MetadataId,LogicalName)",
+                                        label="catálogo 3/4 colunas e chaves")
             for e in ents:
                 t = e["LogicalName"]
                 names[e["MetadataId"].lower()] = [1, t, None]

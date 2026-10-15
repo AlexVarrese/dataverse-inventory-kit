@@ -38,11 +38,10 @@ def collect_tables(ctx):
 
     # Fase 1 (leve): todas as tabelas + só nome/flag-custom de cada coluna, para descobrir
     # tabelas nativas que receberam colunas customizadas.
-    ents = c.get_all(
-        "EntityDefinitions?$select=MetadataId,LogicalName,SchemaName,EntitySetName,DisplayName,"
-        "IsCustomEntity,IsManaged,OwnershipType,ObjectTypeCode,IsActivity,IsIntersect,TableType,PrimaryIdAttribute"
-        "&$expand=Attributes($select=LogicalName,IsCustomAttribute,IsManaged)"
-    )
+    ents = c.entity_definitions(
+        "MetadataId,LogicalName,SchemaName,EntitySetName,DisplayName,"
+        "IsCustomEntity,IsManaged,OwnershipType,ObjectTypeCode,IsActivity,IsIntersect,TableType,PrimaryIdAttribute",
+        "Attributes($select=LogicalName,IsCustomAttribute,IsManaged)", label="tabelas e colunas (fase 1)")
 
     # Índice leve de TODAS as tabelas (objecttypecode → nome): usado por storage/auditoria.
     ctx.data["_tables_index"] = [{"logical": e["LogicalName"], "otc": e.get("ObjectTypeCode"),

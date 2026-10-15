@@ -270,6 +270,45 @@ class Client:
             raise
         self.log.append({"path": path, "status": 200, "rows": n, "ms": int((time.time() - t0) * 1000)})
 
+    def entity_definitions(self, select, expand, chunk=40, label="metadados das tabelas"):
+        """EntityDefinitions com `$expand` (colunas, chaves) em lotes de tabelas, em paralelo.
+
+        A API não pagina metadados: `EntityDefinitions?$expand=Attributes` da org inteira vira uma resposta única
+        de dezenas/centenas de MB e, em ambientes grandes, a conexão cai no meio (ConnectionAbortError) — e o
+        coletor de tabelas, que define o escopo de quase todos os outros, falhava. Aqui: 1) lista as tabelas sem
+        expand (resposta pequena); 2) busca o expand em lotes de `chunk` tabelas por MetadataId; 3) lote que
+        falhar é refeito tabela a tabela. Retorna a mesma lista que a chamada única retornaria.
+        """
+        sel = ",".join(dict.fromkeys(["MetadataId", "LogicalName"] + [x for x in select.split(",") if x]))
+        base = self.get_all(f"EntityDefinitions?$select={sel}")
+        if not expand:
+            return base
+        ids = [e["MetadataId"] for e in base if e.get("MetadataId")]
+        chunks = [ids[i:i + chunk] for i in range(0, len(ids), chunk)]
+
+        def fetch(ch):
+            flt = " or ".join(f"MetadataId eq {x}" for x in ch)
+            try:
+                return self.get_all(f"EntityDefinitions?$select={sel}&$filter={flt}&$expand={expand}")
+            except DataverseError:
+                got = []
+                for x in ch:  # isola a tabela problemática; as demais do lote seguem
+                    try:
+                        got.append(self.get(f"EntityDefinitions({x})?$select={sel}&$expand={expand}"))
+                    except DataverseError:
+                        pass
+                return got
+
+        full = {}
+        for _ch, got, err in self.parallel(fetch, chunks, label=f"{label} (lotes de {chunk} tabelas)"):
+            for e in got or []:
+                full[e["MetadataId"]] = e
+        missing = [e["LogicalName"] for e in base if e.get("MetadataId") not in full]
+        if missing:
+            raise DataverseError(0, "EntityDefinitions (lotes)",
+                                 f"{len(missing)} tabela(s) sem metadados após nova tentativa: {', '.join(missing[:15])}")
+        return [full[e["MetadataId"]] for e in base if e.get("MetadataId") in full]
+
     def get_many(self, entity_set, key, ids, select, batch=10, label=None):
         """Busca vários registros por id em lotes (`key eq a or key eq b …`) → {id_minúsculo: registro}.
 
