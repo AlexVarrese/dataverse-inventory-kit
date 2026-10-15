@@ -27,6 +27,7 @@ from .. import snapshot as snapshot_mod
 from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
 from .. import index as index_mod
+from .. import resumo
 from . import agents, bases, canvas, catalog, maps, navigation, structure
 
 MANUAL = "%% dvinv:manual — o conteúdo abaixo desta linha é preservado nas próximas extrações %%"
@@ -1081,9 +1082,10 @@ def write_environment(v, d, manifest):
               mdtable(["Motivo", "Prefixo", "Componentes"],
                       [[r, p, n] for r, ps in sorted(bd.items()) for p, n in list(ps.items())[:15]])]
     b += ["",
-          "## Escopo × organização", "",
-          mdtable(["Coletor", "Métricas"], [[k, ", ".join(f"{a}={b_}" for a, b_ in (s or {}).items())]
-                                            for k, s in (manifest.get("stats") or {}).items()])]
+          "## Componentes: organização × escopo × processados", "",
+          "Por etapa da coleta: quantos existem no ambiente, quantos entraram no escopo e o que foi processado "
+          "(conteúdo baixado/reaproveitado/ignorado, falhas, tempo).", "",
+          mdtable(["Etapa", "Na org", "No escopo", "Processado / detalhe", "Status", "Tempo"], resumo.rows(manifest))]
     cols = manifest.get("collectors") or {}
     if cols:
         b += ["## Status dos coletores", "",

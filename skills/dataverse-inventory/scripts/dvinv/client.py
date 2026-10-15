@@ -42,6 +42,15 @@ class UnsafeUrlError(DataverseError):
         super().__init__(0, url, f"URL recusada ({reason}) — o token só é enviado para a base configurada")
 
 
+def progress(label, n, total, t0):
+    """Linha de progresso com tempo decorrido e estimativa do restante."""
+    el = time.time() - t0
+    eta = el / n * (total - n) if n else 0
+    fmt = lambda s: f"{int(s // 3600)}h{int(s % 3600 // 60):02d}m" if s >= 3600 else f"{int(s // 60)}m{int(s % 60):02d}s"  # noqa: E731
+    print(f"[dvinv]   {label}: {n}/{total} ({100 * n // total}%) · {fmt(el)} decorrido"
+          + (f" · ~{fmt(eta)} restante" if n < total else ""), flush=True)
+
+
 class Client:
     def __init__(self, cfg, credential=None, timeout=180, max_retries=5):
         self.cfg = cfg
@@ -102,12 +111,15 @@ class Client:
             except Exception as e:  # noqa: BLE001
                 return it, None, e
 
-        out = []
+        out, t0 = [], time.time()
+        last = t0
         with ThreadPoolExecutor(max_workers=self.workers) as ex:
             for n, r in enumerate(ex.map(one, items), 1):
                 out.append(r)
-                if label and total >= 20 and (n % step == 0 or n == total):
-                    print(f"[dvinv]   {label}: {n}/{total}", flush=True)
+                # a cada ~10% ou, em etapas longas, pelo menos a cada 30 s — para acompanhar e estimar o fim
+                if label and total >= 5 and (n % step == 0 or n == total or time.time() - last >= 30):
+                    progress(label, n, total, t0)
+                    last = time.time()
         return out
 
     def _url(self, path):
@@ -215,25 +227,35 @@ class Client:
             raise
         self.log.append({"path": path, "status": 200, "rows": n, "ms": int((time.time() - t0) * 1000)})
 
-    def get_many(self, entity_set, key, ids, select, batch=10):
+    def get_many(self, entity_set, key, ids, select, batch=10, label=None):
         """Busca vários registros por id em lotes (`key eq a or key eq b …`) → {id_minúsculo: registro}.
 
         Troca N chamadas por N/batch. Se um lote falhar, refaz item a item para isolar o registro
         problemático; ids que nem assim vierem ficam fora do resultado (o chamador registra a lacuna).
         """
-        out, ids = {}, [i for i in dict.fromkeys(ids) if i]
-        for i in range(0, len(ids), batch):
-            chunk = ids[i:i + batch]
+        ids = [i for i in dict.fromkeys(ids) if i]
+        chunks = [ids[i:i + batch] for i in range(0, len(ids), batch)]
+
+        def fetch(chunk):
+            got = {}
             flt = " or ".join(f"{key} eq {x}" for x in chunk)
             try:
                 for r in self.get_all(f"{entity_set}?$select={key},{select}&$filter={flt}"):
-                    out[str(r.get(key)).lower()] = r
+                    got[str(r.get(key)).lower()] = r
             except DataverseError:
                 for x in chunk:
                     try:
-                        out[x.lower()] = self.get(f"{entity_set}({x})?$select={select}")
+                        got[x.lower()] = self.get(f"{entity_set}({x})?$select={select}")
                     except DataverseError:
                         pass
+            return got
+
+        # lotes em paralelo (cfg.parallel): conteúdo de web resource, formxml, xaml… são respostas grandes, e
+        # em sequência a latência até o datacenter somava horas em ambientes muito customizados
+        out = {}
+        for _chunk, got, err in self.parallel(fetch, chunks, label=f"{label or entity_set} (lotes de {batch})"):
+            if got:
+                out.update(got)
         return out
 
     def get_first_ok(self, *paths):

@@ -165,7 +165,7 @@ def collect_processes(ctx):
             if r_ and ((cat == 5 and cfg.deep.get("flow_definitions")) or
                        (cat in (0, 2, 3, 4) and cfg.deep.get("process_definitions"))):
                 want.append(w["workflowid"])
-        defs = c.get_many("workflows", "workflowid", want, "clientdata,xaml", batch=5)
+        defs = c.get_many("workflows", "workflowid", want, "clientdata,xaml", batch=5, label="definição dos processos")
     out = []
     for w in rows:
         ent = w.get("primaryentity")

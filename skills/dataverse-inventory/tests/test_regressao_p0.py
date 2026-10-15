@@ -658,5 +658,20 @@ class TestWindows(unittest.TestCase):
             self.assertNotIn(b"\r", f.read_bytes(), f)
 
 
+class TestLogDeExecucao(unittest.TestCase):
+    def test_tee_grava_com_hora_e_repassa(self):
+        import io as _io
+        from dvinv.cli import _Tee
+        out, fh = _io.StringIO(), _io.StringIO()
+        t = _Tee(out, fh)
+        t.write("[dvinv] tables ...\n[dvinv]   colunas")
+        t.write(" 10/20\n")
+        self.assertEqual(out.getvalue(), "[dvinv] tables ...\n[dvinv]   colunas 10/20\n")
+        linhas = fh.getvalue().splitlines()
+        self.assertEqual(len(linhas), 2)
+        self.assertRegex(linhas[0], r"^\d\d:\d\d:\d\d \[dvinv\] tables")
+        self.assertRegex(linhas[1], r"^\d\d:\d\d:\d\d \[dvinv\]   colunas 10/20$")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

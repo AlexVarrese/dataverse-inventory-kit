@@ -58,6 +58,41 @@ def run_lock(cfg):
         path.unlink(missing_ok=True)
 
 
+class _Tee:
+    """Repete stdout/stderr num arquivo de log, com hora em cada linha — para acompanhar extrações longas
+    (`type`/`tail` no arquivo) e guardar o histórico da execução. Só o que já é impresso (mensagens redigidas)."""
+
+    def __init__(self, stream, fh):
+        self.stream, self.fh, self._bol = stream, fh, True
+
+    def write(self, text):
+        self.stream.write(text)
+        for part in text.splitlines(keepends=True):
+            if self._bol:
+                self.fh.write(time.strftime("%H:%M:%S "))
+            self.fh.write(part)
+            self._bol = part.endswith("\n")
+        self.fh.flush()
+        return len(text)
+
+    def flush(self):
+        self.stream.flush()
+        self.fh.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def start_log(cfg, command):
+    logs = Path(cfg.raw_dir).parent / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    path = logs / f"dvinv-{time.strftime('%Y%m%d-%H%M%S')}-{command}.log"
+    fh = open(path, "a", encoding="utf-8", newline="\n")  # noqa: SIM115 — fica aberto até o fim do processo
+    sys.stdout, sys.stderr = _Tee(sys.stdout, fh), _Tee(sys.stderr, fh)
+    print(f"[dvinv] log desta execução: {path}", flush=True)
+    return path
+
+
 def git_summary(root):
     """Resumo só-leitura do que o render mudou no repositório do vault (git status). Não faz commit."""
     import subprocess
@@ -100,6 +135,8 @@ def cmd_extract(cfg, only=None):
         print(f"[dvinv] perfil {cfg.profile}: bloqueado {', '.join(cfg.profile_blocked)}", flush=True)
     ctx = Context(cfg, _client(cfg), Scope(cfg))
     manifest = run(ctx, only)
+    from .resumo import table_text
+    print(table_text(manifest), flush=True)
     falhou = [k for k, s in manifest["collectors"].items() if s["status"] == "falhou"]
     print(f"[dvinv] extração concluída: {len(manifest['queries'])} chamadas, {len(manifest['gaps'])} lacuna(s)"
           f"{', coletor(es) com falha: ' + ', '.join(falhou) if falhou else ''} → {ctx.snapshot_dir}")
@@ -177,6 +214,8 @@ def main(argv=None):
     cfg = config_mod.load(args.config, overrides)
 
 
+    if args.command in ("extract", "render", "all"):
+        start_log(cfg, args.command)
     try:
         if args.command == "check":
             cmd_check(cfg)

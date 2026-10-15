@@ -3,12 +3,22 @@ import io
 import re
 import zipfile
 
+from collections import Counter
+
 from .. import secrets
+from .. import snapshot
 from ..util import day, field_refs, fv, url_host
 
 WR_TYPES = {1: "HTML", 2: "CSS", 3: "JScript", 4: "XML", 5: "PNG", 6: "JPG", 7: "GIF", 8: "XAP",
             9: "XSL", 10: "ICO", 11: "SVG", 12: "RESX", 13: "TS"}
 TEXT_TYPES = {1, 2, 3, 4, 9, 11, 12}
+# Conteúdo baixado por padrão: só HTML e JS (onde estão lógica, campos e chamadas). CSS, XML, XSL, SVG e RESX
+# costumam ser grandes e pouco úteis para a análise — ligue em deep.webresource_content_types se precisar.
+DEFAULT_CONTENT_TYPES = (1, 3)
+# Bibliotecas de terceiros reconhecidas pelo nome: conteúdo não baixado (não há regra de negócio nelas).
+DEFAULT_SKIP_NAMES = (r"(jquery|bootstrap|xrmservicet\w*kit|moment(\.min)?\.js|lodash|underscore|"
+                      r"knockout|angular|\breact(-dom)?\b|\bvue(\.min)?\.js|select2|datatables|chart(\.min)?\.js|\bd3(\.min)?\.js|"
+                      r"font-?awesome|polyfill|sweetalert|toastr|kendo|telerik|signalr|crypto-?js|pdfmake|xlsx(\.full)?(\.min)?\.js)")
 # Análise estática de JS — padrões de risco/legado (portado e generalizado).
 JS_CHECKS = {
     "xrm_page": re.compile(r"\bXrm\.Page\b"),                          # API obsoleta desde a v9
@@ -63,31 +73,64 @@ def collect_webresources(ctx):
             "id": w["webresourceid"], "name": w["name"], "display": w.get("displayname"),
             "type": WR_TYPES.get(t, str(t)), "managed": w.get("ismanaged"), "modified": day(w.get("modifiedon")),
             "scope_reason": reason, "solutions": scope.solutions_of(w["webresourceid"]),
+            "modifiedon": w.get("modifiedon"), "content_source": None,
             "size": None, "functions": [], "secret_hits": [], "content": None, "js": None,
         }
         out.append((rec, t))
-    contents = {}
-    if cfg.deep.get("webresource_content"):
-        contents = c.get_many("webresourceset", "webresourceid",
-                              [rec["id"] for rec, t in out if t in TEXT_TYPES], "content")
+    content_types = {int(x) for x in (cfg.deep.get("webresource_content_types") or DEFAULT_CONTENT_TYPES)}
+    skip = cfg.deep.get("webresource_skip_names", DEFAULT_SKIP_NAMES)
+    if isinstance(skip, (list, tuple)):
+        skip = "|".join(f"(?:{x})" for x in skip)
+    skip_re = re.compile(skip or r"(?!x)x", re.I)  # [] ou "" desliga
+    want, reused, skipped = [], 0, Counter()
+    prev = {}
+    if cfg.deep.get("webresource_content") and cfg.deep.get("webresource_reuse", True):
+        prev_run, prev_list = snapshot.previous_file(cfg.raw_dir, "webresources")
+        prev = {(r.get("id") or "").lower(): r for r in prev_list or [] if r.get("modifiedon") and r.get("content") is not None}
     for rec, t in out:
-        if cfg.deep.get("webresource_content") and t in TEXT_TYPES:
-            try:
-                d = contents.get(rec["id"].lower())
-                if d is None:
-                    raise RuntimeError("não retornado pela API")
-                raw = base64.b64decode(d.get("content") or "")
-                text = raw.decode("utf-8-sig", "replace")
-                rec["size"] = len(raw)
-                rec["secret_hits"] = secrets.scan(text)
-                if t == 3:
-                    names = {next(g for g in m.groups() if g) for m in FUNC_RE.finditer(text)}
-                    rec["functions"] = sorted(names)
-                    rec["js"] = analyze_js(rec["name"], text)
-                rec["content"] = secrets.redact(text)
-            except Exception as e:  # noqa: BLE001
-                ctx.gap("webresources", f"conteúdo de {rec['name']}", e)
-    ctx.stats["webresources"] = {"org_total": len(allwr), "scope": len(out)}
+        if not cfg.deep.get("webresource_content") or t not in TEXT_TYPES:
+            continue
+        if t not in content_types:
+            rec["content_source"] = f"não baixado: tipo {rec['type']} fora de deep.webresource_content_types"
+            skipped["tipo"] += 1
+        elif skip_re.search(rec["name"]):
+            rec["content_source"] = "não baixado: biblioteca de terceiros pelo nome (deep.webresource_skip_names)"
+            rec["js"] = {"third_party": True}
+            skipped["terceiros"] += 1
+        elif (p := prev.get(rec["id"].lower())) and p.get("modifiedon") == rec["modifiedon"]:
+            # sem mudança no ambiente desde a extração anterior: reaproveita conteúdo (já redigido) e análise
+            for k in ("size", "functions", "secret_hits", "content", "js"):
+                rec[k] = p.get(k)
+            rec["content_source"] = f"reaproveitado do snapshot {prev_run} (modifiedon igual)"
+            reused += 1
+        else:
+            want.append((rec, t))
+    contents = c.get_many("webresourceset", "webresourceid", [r["id"] for r, _t in want], "content",
+                          batch=int(cfg.deep.get("webresource_batch") or 10), label="conteúdo de web resources") \
+        if want else {}
+    for rec, t in want:
+        try:
+            d = contents.get(rec["id"].lower())
+            if d is None:
+                raise RuntimeError("não retornado pela API")
+            raw = base64.b64decode(d.get("content") or "")
+            text = raw.decode("utf-8-sig", "replace")
+            rec["size"] = len(raw)
+            rec["secret_hits"] = secrets.scan(text)
+            if t == 3:
+                names = {next(g for g in m.groups() if g) for m in FUNC_RE.finditer(text)}
+                rec["functions"] = sorted(names)
+                rec["js"] = analyze_js(rec["name"], text)
+            rec["content"] = secrets.redact(text)
+            rec["content_source"] = "baixado"
+        except Exception as e:  # noqa: BLE001
+            ctx.gap("webresources", f"conteúdo de {rec['name']}", e)
+    if skipped:
+        ctx.gap("webresources", f"conteúdo não baixado de {sum(skipped.values())} web resource(s) "
+                f"({', '.join(f'{k}: {n}' for k, n in sorted(skipped.items()))})",
+                "configuração deep.webresource_content_types / deep.webresource_skip_names", kind="limitação")
+    ctx.stats["webresources"] = {"org_total": len(allwr), "scope": len(out), "content_downloaded": len(want),
+                                 "content_reused": reused, "content_skipped": sum(skipped.values())}
     ctx.data["webresources"] = sorted((rec for rec, _ in out), key=lambda x: x["name"])
 
 
@@ -196,7 +239,7 @@ def collect_forms(ctx):
     # entram com deep.field_usage: contam como uso "fraco" de coluna (não como biblioteca/handler ativo).
     if cfg.deep.get("form_events"):
         need = [r for r in out if r["entity"] and r["entity"] != "none" and (r["active"] or cfg.deep.get("field_usage"))]
-        xmls = c.get_many("systemforms", "formid", [r["id"] for r in need], "formxml")
+        xmls = c.get_many("systemforms", "formid", [r["id"] for r in need], "formxml", label="formxml dos formulários")
         for rec in need:
             d = xmls.get(rec["id"].lower())
             if d is None:
@@ -227,7 +270,8 @@ def collect_views(ctx):
         })
     if ctx.cfg.deep.get("field_usage"):
         # em lotes: orgs grandes têm milhares de views (uma chamada por view levava 15+ min)
-        xmls = c.get_many("savedqueries", "savedqueryid", [x["id"] for x in out], "fetchxml,layoutxml", batch=20)
+        xmls = c.get_many("savedqueries", "savedqueryid", [x["id"] for x in out], "fetchxml,layoutxml", batch=20,
+                          label="definição das views")
         for x in out:
             d = xmls.get(x["id"].lower())
             if d is None:
@@ -286,4 +330,5 @@ def collect_ribbons(ctx):
                 "entity": ent, "button": (A_ID.search(attrs) or [None, None])[1],
                 "label": (A_LABEL.search(attrs) or [None, None])[1], "command": cmd, "calls": calls,
             })
+    ctx.stats["ribbons"] = {"scope": len(scope.tables), "buttons": len(out)}
     ctx.data["ribbons"] = out

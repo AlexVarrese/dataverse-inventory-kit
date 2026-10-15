@@ -92,6 +92,12 @@ segurar um arquivo — o kit tenta de novo e, persistindo, mantém o vault anter
 todos os arquivos, segunda renderização idêntica, consultas `--vault` e `core.longpaths` no repositório. Use pasta
 de trabalho curta (ex. `C:\kb\…`): o render avisa se algum caminho do vault puder passar de 260 caracteres.
 
+**Acompanhar uma extração longa:** cada `extract`/`render`/`all` grava o log com hora em
+`out\<ambiente>\logs\dvinv-<data>-<comando>.log` (abra no VS Code, que atualiza sozinho, ou `type` no CMD). As
+etapas em lote mostram `N/total (%) · decorrido · ~restante`, cada coletor termina com "na org · no escopo ·
+processado" e o fim da extração traz a tabela-resumo. Em ambiente muito customizado: `parallel: 8`, confira a
+tabela *De onde veio o escopo* em `01 Ambiente` e mova prefixos de terceiros para `scope.exclude_prefixes`.
+
 Quem clona o repositório consulta sem instalar nada além do Python: `grep` nos CSVs ou
 `python3 <skill>/scripts/dvinv.py onde-usa <alvo> --vault Dataverse/<AMB>` (sem `inventory.yaml` nem credenciais).
 

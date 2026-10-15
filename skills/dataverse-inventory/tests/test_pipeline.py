@@ -305,8 +305,10 @@ def route(path):
         content = {G(40): JS_ACCOUNT, G(41): "function nobodyCallsMe(){}"}[m.group(1)]
         return {"content": base64.b64encode(content.encode()).decode()}
     if p.startswith("webresourceset"):
-        return [{"webresourceid": G(40), "name": "contoso_/js/account.js", "webresourcetype": 3, "ismanaged": False},
-                {"webresourceid": G(41), "name": "contoso_/js/unused.js", "webresourcetype": 3, "ismanaged": False},
+        return [{"webresourceid": G(40), "name": "contoso_/js/account.js", "webresourcetype": 3, "ismanaged": False,
+                 "modifiedon": "2026-01-02T03:04:05Z"},
+                {"webresourceid": G(41), "name": "contoso_/js/unused.js", "webresourcetype": 3, "ismanaged": False,
+                 "modifiedon": "2026-01-02T03:04:06Z"},
                 {"webresourceid": G(42), "name": "msdyn_/x.js", "webresourcetype": 3, "ismanaged": True}]
     m = re.match(r"systemforms\((.+?)\)", p)
     if m:
@@ -901,6 +903,28 @@ def main():
         dep_row = re.search(r"^\| Dependências \| (\d+) \|", out.read_text(), re.M)
         assert dep_row and int(dep_row.group(1)) > 0, "diff sem dependências recalculadas a partir do snapshot"
         assert not list(cfg.vault_root.glob(".dvinv-render-*")), "cópia de trabalho do render não foi removida"
+
+        # web resources: conteúdo reaproveitado do snapshot anterior quando o modifiedon não mudou (sem download)
+        calls_before = []
+        ctx3 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx3.client._bearer = lambda: "fake"
+        m3 = run(ctx3, ["webresources"])
+        w3 = m3["stats"]["webresources"]
+        assert w3["content_reused"] == 2 and w3["content_downloaded"] == 0, w3
+        assert not any("webresourceset(" in q["path"] or "webresourceid eq" in q["path"] for q in m3["queries"]), \
+            "conteúdo inalterado não deveria ser baixado de novo"
+        wr3 = {w["name"]: w for w in json.loads((ctx3.snapshot_dir / "webresources.json").read_text())}
+        assert wr3["contoso_/js/account.js"]["content_source"].startswith("reaproveitado do snapshot")
+        assert wr3["contoso_/js/account.js"]["secret_hits"], "achado de segredo precisa vir junto do reaproveitamento"
+        # biblioteca de terceiros pelo nome: sem download, declarado como limitação
+        cfg.deep["webresource_skip_names"], cfg.deep["webresource_reuse"] = ["account\\.js$"], False
+        ctx4 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx4.client._bearer = lambda: "fake"
+        m4 = run(ctx4, ["webresources"])
+        assert m4["stats"]["webresources"]["content_skipped"] == 1 and m4["stats"]["webresources"]["content_downloaded"] == 1
+        assert any("conteúdo não baixado" in g["what"] and g["kind"] == "limitação" for g in m4["gaps"])
+        del cfg.deep["webresource_skip_names"]
+        cfg.deep["webresource_reuse"] = True
 
         # leitura em lote negada → fallback por componente do escopo, com lacuna declarada
         global DEP_BULK_FAIL

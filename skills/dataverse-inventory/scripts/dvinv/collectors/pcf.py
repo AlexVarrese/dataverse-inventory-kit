@@ -80,7 +80,7 @@ def collect_pcf(ctx):
                 ", ".join(sorted(names)[:10]))
     if out:
         try:
-            mans = c.get_many("customcontrols", "customcontrolid", [x["id"] for x in out], "manifest", batch=10)
+            mans = c.get_many("customcontrols", "customcontrolid", [x["id"] for x in out], "manifest", batch=10, label="manifestos PCF")
             for x in out:
                 m = mans.get(x["id"].lower())
                 if m is None:

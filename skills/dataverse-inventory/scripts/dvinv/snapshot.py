@@ -153,6 +153,24 @@ def latest(root, warn=True):
     return None
 
 
+def previous_file(root, name):
+    """(run_id, conteúdo) de `<name>.json` no snapshot mais recente que o tenha íntegro (sha256 do próprio
+    arquivo conferido com o manifesto) — ou (None, None). Para reaproveitar o que não mudou no ambiente
+    (ex. conteúdo de web resource com o mesmo modifiedon), nunca para cobrir coletor que falhou."""
+    for p in list_snapshots(root):
+        m = read_manifest(p)
+        if not m or m.get("schema") != SCHEMA:
+            continue
+        digest = (m.get("files") or {}).get(f"{name}.json")
+        f = p / f"{name}.json"
+        if digest and f.is_file() and sha256_file(f) == digest:
+            try:
+                return p.name, json.loads(f.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+    return None, None
+
+
 def is_legacy(path):
     m = read_manifest(path)
     return bool(m) and m.get("schema") != SCHEMA

@@ -91,6 +91,19 @@ Validação real (ESAB-TEST, 2026-10-14)
   no índice); arestas internas de metadados ("Solution Internal") fora da matriz; GUID não duplicado no
   índice + VACUUM; Complex Control (sem RetrieveMultiple) fora do catálogo de nomes.
 
+Desempenho e acompanhamento em ambientes muito customizados
+- Leituras em lote (`get_many`) agora em paralelo (`parallel`, padrão 4): conteúdo de web resources, formxml,
+  views, definições de processos e manifestos PCF. Antes eram lotes em sequência — num cliente, só o conteúdo
+  de web resources passou de 2 h.
+- Web resources: conteúdo reaproveitado do snapshot anterior quando o `modifiedon` não mudou (com análise e
+  achados de segredo); só HTML e JS baixados por padrão (`deep.webresource_content_types`); bibliotecas de
+  terceiros reconhecidas pelo nome não são baixadas (`deep.webresource_skip_names`, `[]` desliga) — lacuna
+  declarada. ESAB-TEST: 1ª rodada 133 baixados em 3 s; 2ª rodada 0 baixados, 133 reaproveitados.
+- Progresso com tempo decorrido e estimativa do restante (a cada 10% ou 30 s) em toda etapa por lotes.
+- Log de cada `extract`/`render`/`all` com hora por linha em `out/<ambiente>/logs/dvinv-<data>-<comando>.log`.
+- Ao fim de cada coletor, uma linha "N na org · M no escopo · processado…"; no fim da extração, tabela-resumo
+  (etapa, na org, no escopo, processado/detalhe, status, tempo) — a mesma tabela vai para `01 Ambiente`.
+
 Navegação e grafo por tipo
 - `Mapas/<Tipo>.md` (hub com todos os componentes do tipo e o que usam; filtros prontos para o Graph view; grafo
   local mostra o tipo inteiro) e `Mapas/<Tipo>.canvas` (mapa visual fixo). Campos agrupados por tabela.

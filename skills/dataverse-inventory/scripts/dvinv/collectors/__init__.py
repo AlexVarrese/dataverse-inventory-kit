@@ -143,6 +143,8 @@ def run(ctx, only=None):
                     ctx.data.pop(key, None)
                 ctx.stats.pop(name, None)
             st = _status(ctx, name, failed, gaps_before)
+            from ..resumo import line
+            print(line(name, ctx.stats.get(name), timings[name], st["status"]), flush=True)
             st["arquivos"] = []
             for key in keys:
                 if key in ctx.data:
