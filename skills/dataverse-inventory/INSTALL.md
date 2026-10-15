@@ -75,8 +75,8 @@ copiar em vez de criar link, `--copy`.
    apontam para o mesmo repositório; as comparações (`diff`) ficam em `Dataverse/Comparações/`.
 3. `dvinv all` (ou `render`). O kit mantém os blocos `dvinv` do `README.md`, `.gitignore`, `.gitattributes` e
    `AGENTS.md` (o texto do time fora deles é preservado) e mostra no fim `N novo(s), M alterado(s), K removido(s)`.
-4. Revise o diff e faça o commit — **o dvinv não commita nem faz push**. Snapshot bruto, derivados, `.env` e o
-   cache SQLite ficam em `out/`, fora do repositório.
+4. Revise o diff e faça o commit — **o dvinv não commita nem faz push**. Snapshot bruto, derivados e `.env` ficam em
+   `out/`, fora do repositório.
 
 **Validar no Windows (VDI) antes de usar em produção ou taguear uma versão:**
 
@@ -279,8 +279,10 @@ Não sabe o prefixo? Rode `dvinv.py extract -c inventory.yaml --only solutions` 
 ```bash
 D=$SKILL/scripts/dvinv.py
 python3 $D check   -c inventory.yaml          # conexão
-python3 $D extract -c inventory.yaml          # coleta padrão
-python3 $D extract -c inventory.yaml --deep   # liga todas as coletas pesadas (lista abaixo)
+python3 $D escopo  -c inventory.yaml          # quantas tabelas/soluções entram, sem extrair
+python3 $D extract -c inventory.yaml          # núcleo: tudo o que é customizado + uso
+python3 $D extract -c inventory.yaml --extras historico,saude   # + diagnóstico (lista abaixo)
+python3 $D extract -c inventory.yaml --completar ultimo         # retoma: refaz só o que falhou
 python3 $D render  -c inventory.yaml          # (re)gera o vault — edições do analista são preservadas
 python3 $D all     -c inventory.yaml          # extract + render
 python3 $D diff    -c inventory.prd.yaml --a out/CLIENTE-PRD/_raw --b out/CLIENTE-TEST/_raw
@@ -296,7 +298,7 @@ snapshots no mesmo dia coexistem; apague os antigos quando quiser. A opção `--
 anteriores é ignorada.
 
 **Perfil `metadata_only`** (`profile: metadata_only` no YAML ou `--profile metadata_only`): desliga e trava
-— mesmo com `--deep` ou `deep.*: true` — tudo que lê conteúdo ou registros: `webresource_content`,
+— mesmo que o núcleo, um extra ou `deep.*: true` peça — tudo que lê conteúdo ou registros: `webresource_content`,
 `flow_definitions`, `process_definitions`, `plugin_binaries`, `field_usage`, `storage`, `plugin_trace`,
 `team_members` e `users`. Continuam permitidos metadados de customização (`form_events`, `ribbons`,
 `role_privileges`, `platform_dependencies`) e `record_counts`: é uma contagem agregada por tabela
@@ -304,23 +306,26 @@ anteriores é ignorada.
 nem o volume puder ser coletado. O perfil aparece no manifesto e em `01 Ambiente.md`. Observação: o
 coletor `security` continua contando usuários ativos (`systemusers`, só flags de status).
 
-`deep.users` traz a lista nominal de usuários (nome, UPN, BU, licença, papéis diretos e via equipe,
+O extra `usuarios` traz a lista nominal de usuários (nome, UPN, BU, licença, papéis diretos e via equipe,
 equipes) e uma nota por usuário ativo em `Usuários/`. É **dado pessoal**: ligue só quando o levantamento de
 acessos estiver no escopo acordado e trate o vault como confidencial. Sem ele, BUs, equipes (com papéis) e
 PCF continuam no vault, e os usuários aparecem só como contagem.
 
-O `--deep` liga: privilégios por papel, ribbons, plugin trace, membros de equipe, DLLs de plugin,
-definições de processos, **uso de campos**, **armazenamento/auditoria** e **dependências registradas
-pela plataforma** (inclusive por coluna, uma chamada por coluna customizada). Para ligar só parte
-delas, use as chaves de `deep:` no `inventory.yaml` em vez do `--deep`.
+**Núcleo e extras.** O núcleo sempre roda: tudo o que foi customizado (código, definições, eventos de formulário,
+privilégios por papel, ribbons, catálogo de 100%, dependências registradas pela plataforma) e se está em uso
+(contagem de registros, **uso de campos**). Os extras são diagnóstico, opt-in por `extras:` no YAML ou
+`--extras`: `saude` (plugin trace), `armazenamento` (maiores tabelas, anexos, auditoria), `historico`
+(importações/exportações de soluções), `camadas` (camadas de solução, ~3 s por tabela), `binarios` (DLLs de
+plugin), `usuarios` (lista nominal e membros de equipe — dado pessoal). As chaves `deep:` ficam para ajuste fino
+(ver o fim do `inventory.example.yaml`); se o YAML desligar parte do núcleo, o `dvinv` avisa.
 
 Desempenho: o kit reaproveita conexões HTTPS (keep-alive), pede respostas comprimidas (gzip), busca
 em lote (até 25 ids por consulta) e faz até `parallel` (padrão 4) chamadas simultâneas nas etapas de uma
 chamada por item. O log mostra o progresso dessas etapas e avisa se o serviço pedir espera (429).
 Referência medida: ambiente com 159 tabelas, 4 mil colunas custom, 1,8 mil views, 900 processos e 1,5 mil
-consultas de dependência — **22 min** com `--deep` completo, a partir de um host a ~200 ms do datacenter.
+consultas de dependência — **22 min** com todas as coletas ligadas, a partir de um host a ~200 ms do datacenter.
 
-Tempo típico: de minutos (org pequena) até 30–60 min com `--deep` em orgs com centenas de tabelas e
+Tempo típico: de minutos (org pequena) até 30–60 min em orgs com centenas de tabelas e
 milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service protection limits).
 
 ## 6. Abrir no Obsidian
@@ -330,7 +335,7 @@ milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service 
 3. Comece por `Dataverse/<AMBIENTE>/00 Índice.md`.
 4. **Matriz de dependências**: `08 Matriz de Dependências.md` (impacto por tabela, tipo × tipo, mais
    dependidos, externos, órfãos) e a seção *Dependências* de cada nota. Para o cliente, entregue
-   `Matriz de Dependências.xlsx` (mesma pasta), que abre no Excel com filtros. A matriz sai sempre;
+   `Dependências.csv` (mesma pasta; abre no Excel, separador `;`). A matriz sai sempre;
    `deep.platform_dependencies: true` acrescenta as dependências registradas pelo Dataverse e as
    dependências ausentes de cada solução.
 

@@ -16,7 +16,7 @@ auth:
 
 # padrao | metadata_only — metadata_only trava em desligado tudo que lê conteúdo ou registros
 # (webresource_content, flow/process_definitions, plugin_binaries, field_usage, storage, plugin_trace,
-# team_members), mesmo com --deep. record_counts (contagem agregada) continua permitido.
+# extras de dados), mesmo que o núcleo ou um extra peça. record_counts (contagem agregada) continua permitido.
 profile: padrao
 
 scope:
@@ -29,22 +29,11 @@ scope:
                                           # (veja "De onde veio o escopo" em 01 Ambiente após a 1ª extração)
   all: false                              # true = tudo da org (gera MUITO volume; use com cuidado)
 
-deep:                                     # coletas pesadas — `--deep` liga todas
-  record_counts: true
-  webresource_content: true
-  flow_definitions: true
-  form_events: true
-  role_privileges: false
-  ribbons: false
-  plugin_trace: false
-  team_members: false
-  users: false                    # lista nominal de usuários (nome, UPN, BU, papéis, equipes) — DADO PESSOAL
-  plugin_binaries: false          # baixa as DLLs; com `ilspycmd` no PATH, decompila e compara com o repo
-  process_definitions: false      # XAML/clientdata de workflows, business rules, actions e BPFs
-  field_usage: false              # preenchimento real + matriz de uso + candidatos a investigação de remoção (liga process_definitions)
-  storage: false                  # maiores tabelas, anexos (notas/e-mail), auditoria
-  platform_dependencies: false    # dependências registradas pelo Dataverse + dependências ausentes por solução
-  platform_dependencies_columns: false  # idem por coluna custom (1 chamada por coluna — pesado)
+# O núcleo sempre roda: tudo o que foi customizado (com código, definições, privilégios, ribbons, catálogo de 100%,
+# dependências) e se está em uso (contagem de registros, preenchimento dos campos). Extras = diagnóstico, opt-in:
+#   saude (plugin trace) · armazenamento · historico (importações de soluções) · camadas (camadas de solução)
+#   binarios (DLLs de plugin) · usuarios (lista nominal — DADO PESSOAL, só com autorização do cliente)
+extras: []                                # ex. [historico, saude]; `--extras` no comando vale mais
 
 plugin_trace_days: 7
 parallel: 4                               # chamadas simultâneas nas etapas de uma chamada por item
@@ -61,10 +50,6 @@ repos: []
 #  - path: ../repos/Plugins
 #    kind: plugins
 
-# Nível de coleta: rapido (minutos) | padrao | diagnostico. Em fases: rapido do zero, depois os outros com
-# --completar ultimo (refaz só o que mudou). O --nivel do comando vale mais que o deep: abaixo.
-# nivel: rapido
-
 # Extração por partes (ambiente muito grande ou rede lenta). Equivalem a --only e --completar no comando:
 # collectors: [webresources, forms]   # roda só estas etapas (+ as que elas exigem)
 # completar: 20261014T120424Z        # herda as demais etapas deste snapshot (run_id, pasta ou "ultimo");
@@ -79,5 +64,12 @@ output:
   # Vault publicado como repositório de conhecimento (um por unidade de negócio; vários ambientes dentro):
   # vault_root: ../<programa>-<unidade>-knowledge   # a pasta do repositório (clone do remoto)
   # repo: true          # README/.gitignore/.gitattributes com bloco dvinv + resumo do `git status` no fim do render
-  # xlsx: false         # padrão em modo repositório: sem a planilha binária (o CSV tem tudo)
-  # sqlite: false       # cache SQLite com todas as arestas da plataforma, em derived_dir (nunca no vault)
+
+# Ajuste fino (avançado) — normalmente não precisa. Padrões em scripts/dvinv/config.py (DEEP_DEFAULTS).
+# deep:
+#   webresource_content_types: [1, 3]   # 1 HTML, 3 JS (padrão); 2 CSS, 4 XML, 9 XSL, 11 SVG, 12 RESX
+#   webresource_skip_names: []          # [] desliga o filtro de bibliotecas de terceiros pelo nome
+#   webresource_max_bytes: 1000000      # acima disso: segredos verificados, conteúdo não guardado
+#   catalog_max_rows_per_type: 200000   # teto de linhas lidas por tipo no catálogo
+#   platform_dependencies_columns: false  # dependências por coluna custom (1 chamada por coluna — pesado)
+#   solution_layers_max: 500            # teto de tabelas no extra camadas

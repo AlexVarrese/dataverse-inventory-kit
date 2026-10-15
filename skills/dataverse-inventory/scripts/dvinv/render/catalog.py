@@ -2,7 +2,7 @@
 
 - `09 Catálogo de Componentes.md`: resumo por tipo (todos os tipos do ambiente) + `Componentes.csv`
   com uma linha por componente. Componentes fora do escopo NÃO viram nota (seriam dezenas de milhares
-  de notas sem análise): ficam no CSV e no índice SQLite.
+  de notas sem análise): ficam só no CSV.
 - `AGENT-INDEX.md`: ponto de entrada compacto para agentes (Claude, Copilot, Hermes…): onde está
   cada coisa, como consultar o índice e o que nunca ler inteiro.
 """
@@ -69,7 +69,7 @@ def write_catalog(v, d):
     b = ["# Catálogo de componentes", "",
          f"**{len(per)}** componentes distintos em **{len(by_type)}** tipos, de todas as soluções do ambiente "
          f"(inclusive as gerenciadas da Microsoft) · {st.get('components_named', '?')} com nome · lista completa em "
-         f"[[{v.folder}/Componentes.csv|Componentes.csv]] e no índice SQLite (`dvinv buscar`, `dvinv impacto`).", "",
+         f"[[{v.folder}/Componentes.csv|Componentes.csv]] (consulta: `dvinv buscar`, `dvinv impacto`).", "",
          "> [!info] Por que nem todo componente tem nota",
          "> Só o que está no **escopo** (prefixos/soluções do cliente) vira nota com análise. O restante fica no "
          "CSV e no índice — assim o vault continua leve para o Obsidian e para a IA, sem perder nenhum componente.", "",
@@ -128,7 +128,7 @@ def write_agent_index(v, d, has_catalog):
          "- `Dependências.csv`: 1 linha por aresta que toca o escopo (chave, GUID, tipo, nome e nota das duas pontas).",
          "- `Equipes.csv`: todas as equipes com BU e papéis (inclusive as que não viraram nota).",
          f"- Fora do repositório, na máquina que extraiu: snapshot `_raw/{run_id or '<run_id>'}/*.json` (código de web "
-         "resources, definições de flows) e, se ligado, o cache SQLite com todas as arestas da plataforma.", ""]
+         "resources, definições de flows, todas as dependências da plataforma).", ""]
     if big:
         b += ["## Não ler inteiro", "", mdtable(["Arquivo", "Tamanho"],
               [[f"`{p.relative_to(v.root / v.folder).as_posix()}`", f"{s // 1024} KB"] for p, s in big[:30]])]

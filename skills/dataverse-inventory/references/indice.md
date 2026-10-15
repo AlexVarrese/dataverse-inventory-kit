@@ -45,9 +45,8 @@ comando lista as chaves candidatas. Opções: `--profundidade N`, `--limite N` (
 Ausência de aresta **não prova** ausência de uso: integrações externas, Power BI, apps fora do Dataverse e
 código não coletado não aparecem. Trate "sem dependentes" como candidato a investigação.
 
-## Cache SQLite (opcional)
+## Conjunto completo da plataforma
 
-`render --sqlite` (ou `output.sqlite: true`) grava `_derived/<run_id>/inventario.sqlite` com **todas** as
-arestas da plataforma (inclusive nativo → nativo e internas) para SQL ad hoc na máquina de quem extraiu. Fica
-fora do vault (centenas de MB, binário, não vai para o Git). Tabelas: `componentes`, `dependencias`
-(`interna = 1` para metadados), `solucoes`, `componente_solucao`, `tipos`, `achados`, `meta`.
+O vault traz só as arestas que tocam o escopo. **Todas** as dependências registradas pelo Dataverse
+(inclusive nativo → nativo) ficam no snapshot, `_raw/<run_id>/platform_dependencies.json` (formato compacto:
+nós + arestas), na máquina de quem extraiu — fora do vault e do Git.

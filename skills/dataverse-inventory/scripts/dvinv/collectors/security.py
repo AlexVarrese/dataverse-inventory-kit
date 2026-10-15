@@ -1,5 +1,5 @@
 """Business units, papéis, equipes (com papéis atribuídos), perfis de segurança de campo e contagem
-de usuários (total, por tipo e por BU). A lista nominal de usuários fica no coletor `users` (deep.users).
+de usuários (total, por tipo e por BU). A lista nominal de usuários fica no coletor `users` (extra usuarios).
 
 Lições aplicadas:
 - Papéis são copiados para cada BU (N nomes × M BUs linhas na tabela roles) → só a cópia da BU raiz.

@@ -6,8 +6,9 @@ from pathlib import Path
 
 import yaml
 
-# Coletas pesadas (muitas chamadas ou payload grande). Defaults pensados para um
-# primeiro levantamento completo sem estourar tempo em orgs grandes.
+# Opções de coleta. O núcleo (ligado por padrão) é tudo o que descreve componente customizado e se ele está em uso:
+# conteúdo e definições, privilégios, ribbons, catálogo de 100%, dependências e uso real de campos. O que é
+# diagnóstico (saúde, armazenamento, histórico, camadas, binários, usuários) fica desligado e entra por `extras`.
 DEEP_DEFAULTS = {
     "record_counts": True,         # RetrieveTotalRecordCount (snapshot de 24h, barato)
     "webresource_content": True,   # baixa JS/HTML do escopo (scan de segredos, funções)
@@ -18,48 +19,40 @@ DEEP_DEFAULTS = {
     # "webresource_skip_names": [...]  # regex de bibliotecas de terceiros sem download ([] desliga; padrão em ui.py)
     "flow_definitions": True,      # clientdata dos cloud flows do escopo (gatilho, conectores, HTTP)
     "form_events": True,           # formxml dos formulários do escopo (bibliotecas, handlers)
-    "role_privileges": False,      # RetrieveRolePrivilegesRole por papel do escopo
-    "ribbons": False,              # RetrieveEntityRibbon por tabela do escopo
-    "plugin_trace": False,         # plugintracelogs dos últimos N dias
-    "team_members": False,         # contagem de membros por equipe (FetchXML aggregate)
-    "users": False,                # lista nominal de usuários (nome, UPN, BU, papéis, equipes) — dado pessoal
-    "plugin_binaries": False,      # .dll dos assemblies do escopo (para decompilar com ilspycmd)
-    "process_definitions": False,  # xaml/clientdata de workflows, business rules e actions (campos referenciados)
-    "field_usage": False,          # preenchimento real por campo + matriz de uso + candidatos a remoção
-    "storage": False,              # anexos (annotation/activitymimeattachment), auditoria, maiores tabelas
+    "process_definitions": True,   # xaml/clientdata de workflows, business rules e actions (campos referenciados)
+    "role_privileges": True,       # RetrieveRolePrivilegesRole por papel do escopo
+    "ribbons": True,               # RetrieveEntityRibbon por tabela do escopo
+    "field_usage": True,           # preenchimento real por campo + matriz de uso + candidatos a remoção
     "catalog": True,               # 100% dos componentes (solutioncomponent de todas as soluções) + nome do tipo
     "catalog_names": True,         # nome de cada componente (uma leitura id+nome por tipo; só metadados)
     "catalog_max_rows_per_type": 200_000,  # teto de linhas lidas por tipo para dar nome
     "platform_dependencies": True,           # tabela dependency em lote (fallback: RetrieveDependentComponents)
     "platform_dependencies_columns": False,  # idem para cada coluna custom (1 chamada por coluna — pesado)
+    # extras (desligados; ver EXTRAS)
+    "plugin_trace": False,         # plugintracelogs dos últimos N dias
+    "storage": False,              # anexos (annotation/activitymimeattachment), auditoria, maiores tabelas
+    "solution_history": False,     # importações/exportações/upgrades de soluções (msdyn_solutionhistories)
+    "solution_history_max": 5000,  # importações/exportações mais recentes lidas
     "solution_layers": False,      # camadas de solução por tabela do escopo (msdyn_componentlayers, ~3 s/tabela)
     "solution_layers_max": 500,    # teto de tabelas para as camadas
-    "solution_history_max": 5000,  # importações/exportações mais recentes lidas
+    "plugin_binaries": False,      # .dll dos assemblies do escopo (para decompilar com ilspycmd)
+    "users": False,                # lista nominal de usuários (nome, UPN, BU, papéis, equipes) — dado pessoal
+    "team_members": False,         # membros por equipe (associações usuário × equipe)
 }
 
-# Níveis de coleta: o que cada fase liga. Executados em sequência com `--completar`, cada fase refaz só as etapas
-# cujas opções mudaram e herda o resto (rapido → padrao → diagnostico). `users` (dado pessoal) nunca é ligado por
-# nível — só explicitamente em deep.users.
-_OFF = {"catalog": False, "webresource_content": False, "flow_definitions": False, "form_events": False,
-        "process_definitions": False, "platform_dependencies": False, "role_privileges": False, "ribbons": False,
-        "plugin_trace": False, "team_members": False, "plugin_binaries": False, "field_usage": False, "storage": False,
-        "solution_layers": False, "record_counts": True}
-LEVELS = {
-    # minutos: estrutura e metadados (tabelas, colunas, processos, plugins, web resources sem conteúdo, apps…)
-    "rapido": dict(_OFF),
-    # + código e definições, catálogo de 100% e dependências da plataforma
-    "padrao": dict(_OFF, catalog=True, webresource_content=True, flow_definitions=True, form_events=True,
-                   process_definitions=True, platform_dependencies=True),
-    # + privilégios, ribbons, trace, membros, DLLs, uso de campos (lê registros), armazenamento, camadas
-    "diagnostico": dict(_OFF, catalog=True, webresource_content=True, flow_definitions=True, form_events=True,
-                        process_definitions=True, platform_dependencies=True, role_privileges=True, ribbons=True,
-                        plugin_trace=True, team_members=True, plugin_binaries=True, field_usage=True, storage=True,
-                        solution_layers=True),
+# Extras: diagnóstico fora do inventário de customização. `extras: [saude, historico]` no yaml ou `--extras`.
+EXTRAS = {
+    "saude": ("plugin_trace",),
+    "armazenamento": ("storage",),
+    "historico": ("solution_history",),
+    "camadas": ("solution_layers",),
+    "binarios": ("plugin_binaries",),
+    "usuarios": ("users", "team_members"),  # dado pessoal: só quando acordado com o cliente
 }
-LEVEL_ALIASES = {"rápido": "rapido", "padrão": "padrao", "diagnóstico": "diagnostico", "completo": "diagnostico"}
+EXTRA_ALIASES = {"saúde": "saude", "histórico": "historico", "binários": "binarios", "usuários": "usuarios"}
 
 # Perfis de coleta. `metadata_only` = só metadados de customização: desliga (e trava, mesmo com
-# --deep) toda coleta que lê CONTEÚDO (código, definições, binários) ou REGISTROS de negócio/log.
+# extras) toda coleta que lê CONTEÚDO (código, definições, binários) ou REGISTROS de negócio/log.
 # Ficam permitidos: record_counts (contagem agregada por tabela, sem ler registro), form_events
 # (formxml = customização), ribbons, role_privileges e platform_dependencies (metadados).
 PROFILES = {
@@ -80,6 +73,9 @@ PROFILE_ALIASES = {"padrão": "padrao", "default": "padrao", "metadata-only": "m
 
 # Soluções que contêm "tudo" e não servem para dizer a que solução um componente pertence.
 SYSTEM_SOLUTIONS = {"default", "active", "basic", "system", "activitypartysolution"}
+
+
+REMOVED_OUTPUT = ("sqlite", "xlsx")  # yaml antigo continua válido: avisa e ignora
 
 
 @dataclass
@@ -109,11 +105,9 @@ class Config:
     env_file: Path | None = None
     tenant_id: str | None = None
     config_path: Path | None = None  # o próprio inventory.yaml (citado no AGENTS.md gerado)
-    sqlite: bool = False             # cache SQLite em _derived/ (SQL ad hoc); o vault não depende dele
-    xlsx: bool = True                # Matriz de Dependências.xlsx no vault (binário: desligue se o vault vai para Git)
     repo: bool = False               # vault_root é um repositório de conhecimento: README/.gitignore/.gitattributes
     completar: str | None = None     # extract: completa este snapshot (run_id | pasta | "ultimo"); o CLI sobrepõe
-    nivel: str | None = None         # rapido | padrao | diagnostico (ver LEVELS)
+    extras: list = field(default_factory=list)  # extras ligados (ver EXTRAS)
 
     @property
     def profile_blocked(self):
@@ -151,6 +145,9 @@ def load(path, overrides=None):
     env = data.get("environment", {})
     scope = data.get("scope", {})
     out = data.get("output", {})
+    for k in REMOVED_OUTPUT:
+        if k in (out or {}):
+            print(f"[dvinv] aviso: output.{k} foi removido na 0.6 — opção ignorada")
     auth = data.get("auth", {})
 
     def rel(p, default):
@@ -171,16 +168,30 @@ def load(path, overrides=None):
     if keywords is None:  # 'contoso_' -> 'contoso' para casar nomes de processos/assemblies
         keywords = [p.rstrip("_") for p in prefixes if p.rstrip("_")]
 
+    if data.get("nivel"):
+        print("[dvinv] aviso: nivel foi removido na 0.6 (o núcleo sempre coleta tudo o que é customizado; "
+              "diagnóstico entra por extras) — opção ignorada")
     deep = dict(DEEP_DEFAULTS)
-    nivel = str(overrides.get("nivel") or data.get("nivel") or "").strip().lower() or None
-    nivel = LEVEL_ALIASES.get(nivel, nivel)
-    if nivel and nivel not in LEVELS:
-        raise SystemExit(f"nivel '{nivel}' desconhecido — use: {', '.join(LEVELS)}")
-    if nivel:
-        deep.update(LEVELS[nivel])
-    if not overrides.get("nivel"):  # nível escolhido no comando vale mais que o deep: do yaml
-        deep.update(data.get("deep", {}) or {})
-    if overrides.get("deep_all"):
+    deep.update(data.get("deep", {}) or {})  # ajuste fino (avançado)
+    off = [k for k, v in DEEP_DEFAULTS.items() if v is True and deep.get(k) is False]
+    if off:  # yaml copiado de versão antiga (bloco deep: explícito) desliga parte do núcleo sem querer
+        print(f"[dvinv] aviso: deep: do yaml desliga parte do núcleo ({', '.join(off)}) — o inventário fica "
+              "incompleto. Remova essas linhas se não for intencional.")
+    raw = overrides.get("extras")
+    raw = raw if raw is not None else data.get("extras") or []
+    extras = []
+    for x in ([y for y in str(raw).split(",")] if isinstance(raw, str) else raw):
+        x = str(x).strip().lower()
+        x = EXTRA_ALIASES.get(x, x)
+        if not x:
+            continue
+        if x not in EXTRAS:
+            raise SystemExit(f"extra '{x}' desconhecido — use: {', '.join(EXTRAS)}")
+        if x not in extras:
+            extras.append(x)
+        for k in EXTRAS[x]:
+            deep[k] = True
+    if overrides.get("deep_all"):  # testes: tudo ligado (o perfil ainda trava abaixo)
         deep = {k: (True if isinstance(v, bool) else v) for k, v in deep.items()}
     if deep.get("field_usage"):  # a matriz precisa dos campos citados em workflows/BRs e nos formulários
         deep["process_definitions"] = True
@@ -189,7 +200,7 @@ def load(path, overrides=None):
     profile = PROFILE_ALIASES.get(profile, profile)
     if profile not in PROFILES:
         raise SystemExit(f"profile '{profile}' desconhecido — use: {', '.join(PROFILES)}")
-    for k in PROFILES[profile]:  # por último: nem deep.* do yaml, nem --deep, nem field_usage religam
+    for k in PROFILES[profile]:  # por último: nem deep.* do yaml, nem extras, nem field_usage religam
         deep[k] = False
     fu = data.get("field_usage", {}) or {}
     repos = []
@@ -226,11 +237,9 @@ def load(path, overrides=None):
         env_file=env_file,
         tenant_id=auth.get("tenant_id") or os.environ.get("TENANT_ID"),
         config_path=path.resolve(),
-        sqlite=bool(overrides.get("sqlite") or out.get("sqlite", False)),
-        xlsx=bool(out.get("xlsx", not out.get("repo", False))),  # em modo repositório, sem planilha por padrão
         repo=bool(out.get("repo", False)),
         completar=(str(data["completar"]) if data.get("completar") else None),
-        nivel=nivel,
+        extras=extras,
     )
     if not (cfg.prefixes or cfg.solutions or cfg.include_unmanaged or cfg.scope_all):
         raise SystemExit("Defina scope.prefixes, scope.solutions, scope.include_unmanaged ou scope.all")

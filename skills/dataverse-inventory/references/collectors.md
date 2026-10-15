@@ -20,7 +20,7 @@ escopo) e depois os demais.
 | forms | `systemforms` + `systemforms(id)?$select=formxml` (ativos; inativos também com `deep.field_usage`, só para colunas) | forms.json | forms de tabelas do escopo |
 | views | `savedqueries` | views.json | views de tabelas do escopo |
 | pcf | `customcontrols` + `customcontrols(id)?$select=manifest`; vínculos coluna → controle vêm do formxml (coletor forms) | pcf.json | critério de escopo, ou de terceiros usado em formulário de tabela do escopo; controles nativos (`MscrmControls.*`) fora |
-| ribbons\* | `RetrieveEntityRibbon` (zip base64 → RibbonXml.xml) | ribbons.json | botões cujo comando chama biblioteca do escopo |
+| ribbons | `RetrieveEntityRibbon` (zip base64 → RibbonXml.xml) | ribbons.json | botões cujo comando chama biblioteca do escopo |
 | apps | `appmodules`, `canvasapps`, `bots` | apps.json | critério de escopo |
 | sitemaps | `sitemaps` com `$filter=isappaware eq true` **e** `eq false` (sem filtro a API só devolve o clássico) + `sitemapxml` (Área → Grupo → SubÁrea: tabela, web resource em Url/Icon, dashboard, URL externa, privilégios) | sitemaps.json | critério de escopo ou site map de app do escopo (via `appmodulecomponents`, tipo 62) |
 | slas | `slas`, `slaitems` (FetchXML de aplicável quando / sucesso / pausa → colunas citadas), `msdyn_slakpis` (campo de KPI, aplicável a partir de), `calendars` (só o nome do horário comercial) | slas.json | SLA de tabela do escopo ou critério de escopo |
@@ -29,20 +29,20 @@ escopo) e depois os demais.
 | serviceendpoints | `serviceendpoints` | serviceendpoints.json | critério de escopo |
 | processes | `workflows` (`type eq 1 or category eq 5`) + `workflows(id)?$select=clientdata` para flows | processes.json | nome/solução/não gerenciado, ou tabela do escopo + não gerenciado |
 | alm | `environmentvariabledefinitions` (+valores), `connectionreferences`, `connectors` | alm.json | critério de escopo |
-| security | `businessunits`, `roles`, `teams`, `teamrolescollection` (papéis das equipes), `fieldsecurityprofiles`, `systemusers` (só contagens: tipo, status, BU), `RetrieveRolePrivilegesRole`\*, FetchXML aggregate em `teammemberships`\* | security.json | papéis da BU raiz |
-| users\* | `systemusers` (nome, UPN, BU, status, modo de acesso, licença, application id), `systemuserrolescollection`, `teammemberships` | users.json | org inteira — **dado pessoal**, só com `deep.users` (bloqueado em `metadata_only`) |
+| security | `businessunits`, `roles`, `teams`, `teamrolescollection` (papéis das equipes), `fieldsecurityprofiles`, `systemusers` (só contagens: tipo, status, BU), `RetrieveRolePrivilegesRole`, FetchXML aggregate em `teammemberships`\* | security.json | papéis da BU raiz |
+| users\* | `systemusers` (nome, UPN, BU, status, modo de acesso, licença, application id), `systemuserrolescollection`, `teammemberships` | users.json | org inteira — **dado pessoal**, só com extra `usuarios` (bloqueado em `metadata_only`) |
 | health\* | `plugintracelogs` (todas e `exceptiondetails ne null`) | health.json | janela `plugin_trace_days` |
 | repos (`repos:`) | arquivos dos clones locais + `git rev-parse`/`log -1`; `ilspycmd` nas DLLs (se instalado) | repos.json, decompiled/ | web resources e classes do escopo |
-| field_usage\* | FetchXML `countcolumn` (≤ 50 mil registros) ou paginação `$select`; cruza forms, views (`savedqueries(id)` fetchxml/layoutxml), processos, steps, JS, repos | field_usage.json | colunas custom das tabelas do escopo ou `field_usage.tables` |
-| platform_dependencies | tabela `dependency` inteira (`dependencies?$select=…`, página a página — ESAB-TEST: 844 mil linhas em 3 min, sem 429); se negada, `RetrieveDependentComponents` por componente do escopo (comportamento até a 0.5). `RetrieveMissingDependencies` por solução não gerenciada/do escopo | platform_dependencies.json (compacto: nós + arestas) | org inteira no snapshot e no índice; a matriz do vault usa só as arestas cujo exigido está no escopo |
+| field_usage | FetchXML `countcolumn` (≤ 50 mil registros) ou paginação `$select`; cruza forms, views (`savedqueries(id)` fetchxml/layoutxml), processos, steps, JS, repos | field_usage.json | colunas custom das tabelas do escopo ou `field_usage.tables` |
+| platform_dependencies | tabela `dependency` inteira (`dependencies?$select=…`, página a página — ESAB-TEST: 844 mil linhas em 3 min, sem 429); se negada, `RetrieveDependentComponents` por componente do escopo (comportamento até a 0.5). `RetrieveMissingDependencies` por solução não gerenciada/do escopo | platform_dependencies.json (compacto: nós + arestas) | org inteira no snapshot; a matriz do vault usa só as arestas cujo exigido está no escopo |
 | storage\* | `RetrieveTotalRecordCount` (todas), `annotations`/`activitymimeattachments`/`audits` com `$apply` groupby/aggregate | storage.json | org inteira |
 
-Além disso, com `deep.process_definitions` o coletor `processes` lê `workflows(id)?$select=xaml,clientdata`
+Além disso, o coletor `processes` lê `workflows(id)?$select=xaml,clientdata`
 de workflows/BRs/actions/BPFs (colunas citadas + segredos), e para cloud flows monta a árvore de ações
 (`outline`), contagem por tipo, condições e tratamentos de erro (`runAfter` em Failed/TimedOut). O
 coletor `webresources` faz análise estática de todo JS baixado (`js`).
 
-\* só com `deep`.
+\* só com um extra (`extras:` no yaml ou `--extras`): `health` = `saude`, `storage` = `armazenamento`, `users` e membros de equipe = `usuarios`, DLLs de `plugins` = `binarios`, `solution_history` = `historico`, `solution_layers` = `camadas`. O resto é o núcleo e sempre roda (o perfil `metadata_only` ainda trava leitura de conteúdo e registros).
 
 ## Matriz de dependências (render)
 
@@ -51,8 +51,7 @@ Montada em `dvinv/dependencies.py` a partir do snapshot (não exige coleta extra
 step → tabela/assembly/service endpoint · processo → tabela primária · flow → tabelas, referências de
 conexão, variáveis de ambiente, Custom APIs, child flows, conectores e hosts HTTP · formulário → tabela e
 bibliotecas JS · botão de ribbon → JS · JS → tabelas e Custom APIs citadas **entre aspas** e hosts externos
-· Custom API → tabela e assembly · app → tabelas (`appmodulecomponents`) · papel → tabelas (privilégios,
-deep) · tabela filha → tabela pai (lookup). Com `deep.platform_dependencies`, soma as arestas da
+· Custom API → tabela e assembly · app → tabelas (`appmodulecomponents`) · papel → tabelas (privilégios) · tabela filha → tabela pai (lookup). Com `platform_dependencies` (núcleo), soma as arestas da
 plataforma, resolvendo os ids para componentes conhecidos quando possível.
 
 ## Armadilhas resolvidas no código

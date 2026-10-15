@@ -95,34 +95,34 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    prefixo): em ambientes de DEV/TEST, `include_unmanaged` costuma trazer milhares de bibliotecas de
    terceiros — mova o prefixo para `scope.exclude_prefixes`, e prefixos do próprio cliente (ex. de outra
    operação regional) para `scope.prefixes`.
-5. **Conferir o escopo e extrair em fases:** `dvinv.py escopo -c inventory.yaml` mostra quantas tabelas entrariam
-   e por quê, sem extrair; ajuste `scope:` se vier largo. Depois, em fases: `extract --nivel rapido` (minutos),
-   `extract --nivel padrao --completar ultimo`, `extract --nivel diagnostico --completar ultimo` — cada fase refaz
-   só as etapas cujas opções mudaram e herda o resto. Ou de uma vez:
-   **Extrair:** `python3 <skill>/scripts/dvinv.py extract -c inventory.yaml`. `--deep` liga tudo:
-   privilégios por papel, ribbons, plugin trace, membros de equipe, DLLs de plugin, definições de
-   processos, **uso de campos** (preenchimento real + matriz + candidatos a investigação de remoção) e **armazenamento/
-   auditoria**. Se o cliente tiver repositórios Git, liste os clones locais em `repos:` — o pacote compara
+5. **Conferir o escopo e extrair (dois passos):** `dvinv.py escopo -c inventory.yaml` mostra quantas tabelas
+   entrariam e por quê, sem extrair; ajuste `scope:` se vier largo. Depois
+   `python3 <skill>/scripts/dvinv.py all -c inventory.yaml` extrai o **núcleo** e gera o vault: tudo o que foi
+   customizado (com código, definições, eventos de formulário, privilégios, ribbons, catálogo de 100%,
+   dependências) e se está em uso (contagem de registros e **uso de campos**: preenchimento real + matriz +
+   candidatos a investigação de remoção). Se cair no meio, o mesmo comando com `--completar ultimo` refaz só o que
+   falhou. Diagnóstico é opt-in por **extras** (`--extras` ou `extras:` no yaml): `saude` (plugin trace),
+   `armazenamento`, `historico` (importações de soluções), `camadas`, `binarios` (DLLs), `usuarios`; para
+   acrescentar a um inventário pronto, `--extras <...> --completar ultimo`. Se o cliente tiver repositórios Git, liste os clones locais em `repos:` — o pacote compara
    web resources e classes de plugin publicados com o código, procura segredos versionados e usa o
-   código como evidência de uso de campo. Com `ilspycmd` no PATH e `plugin_binaries`, compara métodos
+   código como evidência de uso de campo. Com `ilspycmd` no PATH e o extra `binarios`, compara métodos
    da DLL de produção com o repo. Coletores
    que falham (403, coluna inexistente) viram **lacunas declaradas** no manifest — não aborte;
    reporte-as. Cada extração vira um snapshot imutável `<raw_dir>/<run_id>/` (manifesto com status por
    coletor e sha256 por arquivo); coletor que falhou não tem arquivo e nunca herda dado de outra extração.
-   BUs, equipes (com papéis) e componentes PCF entram sempre; a lista nominal de usuários só com
-   `deep.users` (dado pessoal — confirme com o usuário antes de ligar).
+   BUs, equipes (com papéis) e componentes PCF entram sempre; a lista nominal de usuários só com o extra
+   `usuarios` (dado pessoal — confirme com o usuário antes de ligar).
    Se o cliente só autoriza leitura de metadados, use `--profile metadata_only` (ou `profile: metadata_only`
    no YAML): conteúdo de web resources/flows/processos, binários, uso de campos, storage, plugin trace e
-   membros de equipe ficam desligados mesmo com `--deep`.
+   membros de equipe ficam desligados mesmo que o núcleo ou um extra peça.
    O **catálogo** (`catalog`, ligado por padrão) lê todas as linhas de `solutioncomponent` e dá nome a
    cada tipo e componente (só id + nome, nunca conteúdo). As **dependências da plataforma**
-   (`deep.platform_dependencies`, ligado por padrão) vêm da tabela `dependency` lida em lote — todas as
+   (`platform_dependencies`, no núcleo) vêm da tabela `dependency` lida em lote — todas as
    do ambiente; se a leitura em lote for negada, o kit cai para RetrieveDependentComponents por
    componente do escopo e declara a lacuna. A matriz no vault mostra só o que aponta para o escopo; o
-   conjunto completo vai para o índice.
+   conjunto completo fica no snapshot.
 6. **Renderizar:** `python3 <skill>/scripts/dvinv.py render -c inventory.yaml` (último snapshot íntegro;
-   `--snapshot <run_id>` para outro). Achados e dependências vão para `_derived/<run_id>/` (com `--sqlite`,
-   também o cache `inventario.sqlite`); o vault ganha `AGENT-INDEX.md` (entrada para agentes), `09 Catálogo de
+   `--snapshot <run_id>` para outro). Achados e dependências vão para `_derived/<run_id>/`; o vault ganha `AGENT-INDEX.md` (entrada para agentes), `09 Catálogo de
    Componentes.md`, `Componentes.csv`, `Dependências.csv` e `Mapas/` (um hub + canvas por tipo de componente,
    para navegar e ver o grafo por tipo; `.obsidian/graph.json` com cores por tipo, se ainda não existir). Notas de extrações anteriores sem curadoria são
    removidas; com curadoria, ficam listadas em `Notas fora do inventário atual.md`. Na raiz do vault, o bloco `dvinv` do `AGENTS.md` é atualizado e o

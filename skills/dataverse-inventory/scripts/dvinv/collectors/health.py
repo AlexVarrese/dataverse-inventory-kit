@@ -1,4 +1,4 @@
-"""Saúde de execução: plugin trace log dos últimos N dias (deep.plugin_trace).
+"""Saúde de execução: plugin trace log dos últimos N dias (extra saude).
 
 Só tem dado se plugintracelogsetting estiver em Exception/All; retenção padrão é curta (24h).
 Paginado manualmente (agregação nativa para em 50k registros).

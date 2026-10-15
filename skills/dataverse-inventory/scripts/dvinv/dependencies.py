@@ -8,7 +8,7 @@ Aresta = "A depende de B" (se B mudar ou sumir, A é afetado). Duas origens:
   tabela pai (lookup).
 - plataforma — tabela `dependency` (deep.platform_dependencies): o que o Dataverse registra e usa
   para bloquear exclusão. No grafo entram as arestas que tocam o escopo (nos dois sentidos), sem as internas
-  de metadados; o conjunto completo fica no snapshot (e no cache SQLite opcional, `dvinv indice`).
+  de metadados; o conjunto completo fica no snapshot.
 
 Saídas: _derived/<run_id>/dependencies.json (render; o diff recalcula), matriz por tabela, matriz tipo × tipo, fan-in/fan-out, órfãos.
 """
@@ -442,7 +442,7 @@ def build(d):
         if ("view", v["id"]) not in g.nodes:
             g.node("view", v["id"], f"{v['entity']} / {v['name']}", sub=v["entity"])
 
-    g.guid_index = {}  # nó do kit → GUID (o índice SQLite casa catálogo e kit por aqui)
+    g.guid_index = {}  # nó do kit → GUID (catálogo e Dependências.csv casam o kit por aqui)
     for oid, node in id_index.items():
         g.guid_index.setdefault(node, oid)  # setdefault: assembly fica com o próprio id, não o de uma classe
     for oid, (t, c) in col_ids.items():

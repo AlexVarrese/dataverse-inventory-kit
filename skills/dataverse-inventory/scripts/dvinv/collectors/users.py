@@ -1,7 +1,7 @@
-"""Usuários do ambiente (deep.users — opt-in; bloqueado no perfil metadata_only).
+"""Usuários do ambiente (extra usuarios — opt-in; bloqueado no perfil metadata_only).
 
 Contém dado pessoal (nome e UPN): só ligue quando o levantamento de acesso fizer parte do escopo
-acordado com o cliente, e trate o vault como confidencial. Sem deep.users, o coletor `security`
+acordado com o cliente, e trate o vault como confidencial. Sem o extra usuarios, o coletor `security`
 continua trazendo só contagens (ativos, aplicação, por BU).
 
 Lê: systemusers (nome, UPN, BU, status, modo de acesso, licença, usuário de aplicação),

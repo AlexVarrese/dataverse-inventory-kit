@@ -4,8 +4,8 @@
   (web resource + função) ou Power Fx (biblioteca de componente). Substituem o ribbon clássico.
 - mappings: `entitymaps` + `attributemaps` — ao criar um registro a partir de outro (ex. contato a partir da conta),
   a plataforma copia campos: coluna de destino depende da coluna de origem.
-- solution_history: `msdyn_solutionhistories` — importações/exportações/upgrades com resultado e mensagem de erro.
-- solution_layers (deep, desligado por padrão): `msdyn_componentlayers` por tabela do escopo — quem sobrescreve o
+- solution_history (extra `historico`): `msdyn_solutionhistories` — importações/exportações/upgrades com resultado e mensagem de erro.
+- solution_layers (extra `camadas`): `msdyn_componentlayers` por tabela do escopo — quem sobrescreve o
   quê (camada "Active" = customização não gerenciada por cima das gerenciadas). Tabela virtual que exige uma
   consulta por componente (~3 s cada): ligue só quando for diagnosticar ALM.
 """
@@ -76,6 +76,8 @@ def collect_mappings(ctx):
 def collect_solution_history(ctx):
     from .. import secrets
     c = ctx.client
+    if not ctx.cfg.deep.get("solution_history"):
+        return
     rows = c.get_all("msdyn_solutionhistories?$select=msdyn_name,msdyn_operation,msdyn_suboperation,msdyn_result,"
                      "msdyn_status,msdyn_starttime,msdyn_endtime,msdyn_totaltime,msdyn_solutionversion,msdyn_ismanaged,"
                      "msdyn_ispatch,msdyn_isoverwritecustomizations,msdyn_publishername,msdyn_errorcode,msdyn_exceptionmessage"

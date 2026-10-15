@@ -1,4 +1,4 @@
-"""Uso real de colunas customizadas (deep.field_usage).
+"""Uso real de colunas customizadas (núcleo; deep.field_usage).
 
 1. Preenchimento: quantos registros têm valor em cada coluna. Primeiro tenta agregação nativa
    (FetchXML countcolumn, rápida); acima do limite de ~50 mil registros da agregação, pagina os

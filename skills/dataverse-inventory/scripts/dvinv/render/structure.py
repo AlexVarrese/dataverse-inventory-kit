@@ -2,7 +2,7 @@
 
 - Business Units/  uma nota por BU (pai, filhas, equipes, usuários ativos)
 - Equipes/         equipes owner e de grupo Entra ID (equipes de acesso, criadas por registro, só contam)
-- Usuários/        usuários ATIVOS — só com deep.users (dado pessoal; opt-in)
+- Usuários/        usuários ATIVOS — só com o extra usuarios (dado pessoal; opt-in)
 - Componentes PCF/ controles de código do escopo, com manifesto e onde são usados
 """
 
@@ -72,7 +72,7 @@ def role_assignments(v, d, role_name):
             b += [f"… +{len(teams) - TEAM_LIST_MAX} — ver [[{v.folder}/Equipes.csv|Equipes.csv]] ou `dvinv onde-usa "
                   f"\"{role_name}\"`.", ""]
     if d.get("users") is None:
-        b += ["> [!info] Usuários com o papel: ligue `deep.users` (lista nominal — dado pessoal).", ""]
+        b += ["> [!info] Usuários com o papel: ligue o extra `usuarios` (lista nominal — dado pessoal).", ""]
     else:
         us = users_by_role.get(role_name, [])
         b += [f"**{len(us)}** usuário(s) ativo(s) com o papel atribuído diretamente", "", _user_list(v, us), ""]
@@ -135,7 +135,7 @@ def write_notes(v, d, findings_block, sol_links):
         body.append(findings_block("team", t["id"]))
         v.write(v.paths[("team", t["id"])], props, "\n".join(body))
 
-    # ---- usuários (deep.users) ----
+    # ---- usuários (extra usuarios) ----
     for u in users:
         props = {"tipo": "usuario", "nome": u["name"], "upn": u.get("upn"), "ativo": u["active"],
                  "tipo_usuario": u["kind"], "modo_acesso": u.get("access_mode"), "licenca": u.get("license"),
@@ -257,7 +257,7 @@ def write_security(v, d):
                         ", ".join((x.get("roles") or []) + (x.get("roles_via_team") or []))]
                        for x in users if x["kind"] == "aplicação"])]
     else:
-        b += ["> [!info] Lista nominal de usuários não coletada — ligue `deep.users` (dado pessoal; bloqueado no "
+        b += ["> [!info] Lista nominal de usuários não coletada — ligue o extra `usuarios` (dado pessoal; bloqueado no "
               "perfil `metadata_only`).", ""]
     b += ["## Perfis de segurança de campo", "", mdtable(["Perfil", "Gerenciado"],
           [[f["name"], f.get("managed")] for f in sec.get("field_security_profiles") or []])]

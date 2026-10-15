@@ -69,12 +69,12 @@ NOT_SECRETS = [
 
 
 def all_text_under(root):
-    """Texto de todos os arquivos (xlsx/zip descompactados) — para procurar vazamento."""
+    """Texto de todos os arquivos (zip descompactados) — para procurar vazamento."""
     out = []
     for p in Path(root).rglob("*"):
         if not p.is_file():
             continue
-        if p.suffix in (".xlsx", ".zip"):
+        if p.suffix == ".zip":
             with zipfile.ZipFile(p) as z:
                 out += [(f"{p}!{n}", z.read(n).decode("utf-8", "replace")) for n in z.namelist()]
         elif p.suffix != ".dll":

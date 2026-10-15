@@ -5,6 +5,13 @@
 Inventário de **100% dos componentes** e camada de consulta para agentes de IA (impacto de evolutivas e
 rastreamento de problemas sem ler o vault inteiro). Construído sobre a 0.5.0 (ainda sem tag).
 
+Removido
+- Cache SQLite (`--sqlite`, `output.sqlite`, `inventario.sqlite`) e a planilha `Matriz de Dependências.xlsx`
+  (`output.xlsx`): as consultas (`buscar`, `onde-usa`, `impacto`, `depende`) usam só o vault (`Componentes.csv` +
+  `Dependências.csv`), que abre também no Excel. `output.sqlite`/`output.xlsx` num yaml antigo geram um aviso e são
+  ignorados; a planilha deixada por versão anterior some do vault no próximo render. Lista de componentes sem
+  dependente que passa do limite da nota 08 vai para `Sem dependentes.csv`.
+
 Catálogo de 100% (coletor `catalog`, ligado por padrão)
 - Lê todas as linhas de `solutioncomponent` (todas as soluções, inclusive as gerenciadas da Microsoft). No
   ESAB-TEST: 225 mil linhas, 121 mil componentes, 299 tipos.
@@ -14,7 +21,7 @@ Catálogo de 100% (coletor `catalog`, ligado por padrão)
 - Vault: `09 Catálogo de Componentes.md` (por tipo) e `Componentes.csv` (um por linha). Fora do escopo,
   componente não vira nota — fica no CSV e no índice.
 
-Dependências da plataforma em lote (`deep.platform_dependencies`, agora ligado por padrão)
+Dependências da plataforma em lote (`platform_dependencies`, agora no núcleo)
 - Lê a tabela `dependency` inteira em vez de `RetrieveDependentComponents` por componente (ESAB-TEST:
   844 mil arestas em ~3 min, sem throttling). Se a leitura em lote for negada, volta ao método antigo e
   declara a lacuna. Snapshot em formato compacto (nós + arestas).
@@ -29,10 +36,10 @@ O vault é o produto (consulta sem binário, em qualquer clone do repositório)
 - Uso de campos no grafo para todas as tabelas do escopo: evento de formulário, controle PCF, filtering
   attribute e imagem de plugin, campos de workflow/flow e `getAttribute` em JS → `onde-usa tabela.coluna`.
 - `buscar`/`onde-usa`/`impacto`/`depende` leem os CSVs do vault (`consulta.py`); `--vault <pasta>` dispensa
-  `inventory.yaml` e credenciais. O SQLite virou cache opcional (`render --sqlite` / `output.sqlite`).
+  `inventory.yaml` e credenciais.
 - `chave` e `id` (GUID) no frontmatter de toda nota de componente; `AGENT-INDEX` e `AGENTS.md` com receitas de grep.
 - Notas órfãs de extrações anteriores: removidas sem curadoria; com curadoria, listadas em
-  `Notas fora do inventário atual.md`. Aviso de arquivo > 50 MB; `output.xlsx: false` para não versionar a planilha.
+  `Notas fora do inventário atual.md`. Aviso de arquivo > 50 MB.
 
 Vault como repositório de conhecimento (`output.repo: true`)
 - Um repositório por unidade de negócio (ex. `<programa>-<unidade>-knowledge`), com os ambientes em
@@ -91,11 +98,14 @@ Validação real (ESAB-TEST, 2026-10-14)
   no índice); arestas internas de metadados ("Solution Internal") fora da matriz; GUID não duplicado no
   índice + VACUUM; Complex Control (sem RetrieveMultiple) fora do catálogo de nomes.
 
-Níveis e execução em fases
-- `nivel:` / `--nivel rapido|padrao|diagnostico`: presets de coleta (o rápido não baixa conteúdo, catálogo nem
-  dependências; o diagnóstico liga tudo menos a lista nominal de usuários). Em fases com `--completar ultimo`, cada
-  fase refaz só as etapas cujas opções `deep.*` mudaram em relação ao snapshot base — e as que dependem delas.
-  ESAB-TEST: rápido do zero em 8,8 min.
+Núcleo e extras (uso em dois passos: `escopo`, depois `all`)
+- O **núcleo** sempre roda e traz tudo o que foi customizado e se está em uso: entram por padrão privilégios por
+  papel, ribbons, definições de processos e uso de campos (antes opt-in em `deep.*`). Sem níveis nem fases.
+- **Extras** de diagnóstico, opt-in por `extras:` no yaml ou `--extras`: `saude` (plugin trace), `armazenamento`,
+  `historico` (histórico de soluções, antes sempre ligado), `camadas`, `binarios`, `usuarios` (dado pessoal).
+  Acrescentar a um inventário pronto: `--extras <...> --completar ultimo` refaz só as etapas dos extras.
+- Saem `--deep` e `nivel:`/`--nivel` (yaml antigo com `nivel:` gera aviso e é ignorado). `deep:` fica como ajuste
+  fino; se desligar parte do núcleo (bloco `deep:` copiado do exemplo antigo), o `dvinv` avisa.
 - `dvinv escopo`: pré-visualização (tabelas no escopo por motivo e prefixo + CSV) sem extrair — 58 s no ESAB-TEST.
 
 Extração por partes e novos componentes

@@ -17,9 +17,9 @@ Se o servidor MCP do Dataverse estiver disponível, use-o só para consultas pon
 1. `dvinv.py check -c inventory.yaml`. Se falhar, diagnostique pela tabela de problemas do `INSTALL.md` e pare.
 2. Se o escopo não estiver definido, rode `extract --only solutions`, liste as soluções não
    gerenciadas com `publisher_prefix` e **pergunte** quais prefixos e soluções entram no escopo.
-3. `dvinv.py extract -c inventory.yaml` (`--deep` se eu pedir análise de segurança, ribbons, trace,
-   binários, uso de campos, armazenamento ou dependências registradas pela plataforma) e depois
-   `dvinv.py render -c inventory.yaml`.
+3. `dvinv.py escopo -c inventory.yaml` (confira o tamanho do escopo) e `dvinv.py all -c inventory.yaml` (núcleo:
+   tudo o que é customizado + uso). `--extras` só se eu pedir diagnóstico: `saude`, `armazenamento`,
+   `historico`, `camadas`, `binarios`, `usuarios` (dado pessoal). Se cair, repita com `--completar ultimo`.
 4. Leia `AGENT-INDEX.md`, `00 Índice.md`, `01 Ambiente.md` (lacunas) e as notas de `Achados/`. Para
    perguntas de impacto ("o que quebra se eu mudar X?", "onde o campo Y é usado?"), consulte o índice —
    `grep ";<chave>;" Dependências.csv` / `grep -i <nome> Componentes.csv` na pasta do ambiente, ou
@@ -45,5 +45,5 @@ Se o servidor MCP do Dataverse estiver disponível, use-o só para consultas pon
   tipadas, Bases (`.base`) para visões tabulares e JSON Canvas (`.canvas`) para diagramas.
 
 **Entregue no final**: o caminho do vault, os números principais (escopo × org), as tabelas de maior
-impacto segundo a matriz de dependências (com o caminho de `Matriz de Dependências.xlsx`), os achados
+impacto segundo a matriz de dependências (com o caminho de `08 Matriz de Dependências.md` e `Dependências.csv`), os achados
 validados por severidade, as lacunas e os próximos passos sugeridos.

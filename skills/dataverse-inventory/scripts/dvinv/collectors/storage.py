@@ -1,4 +1,4 @@
-"""Armazenamento e auditoria (deep.storage).
+"""Armazenamento e auditoria (extra armazenamento).
 
 - Maiores tabelas por nº de registros (RetrieveTotalRecordCount em todas as tabelas).
 - Anexos: annotation (notas) e activitymimeattachment (anexos de e-mail) — quantidade por tabela,

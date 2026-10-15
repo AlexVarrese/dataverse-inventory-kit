@@ -16,7 +16,7 @@ skills, há um prompt equivalente.
 ## O que você recebe
 
 - **Catálogo de 100% dos componentes** do ambiente (todas as soluções, inclusive as gerenciadas), com
-  tipo e nome, em `Componentes.csv` e no índice — sem virar dezenas de milhares de notas.
+  tipo e nome, em `Componentes.csv` — sem virar dezenas de milhares de notas.
 - **Vault publicável em repositório, consultável por qualquer agente**: `Dependências.csv` e `Componentes.csv`
   (chave e GUID do Dataverse) respondem "o que é impactado se eu mudar X?" com um grep ou com
   `dvinv onde-usa|impacto|depende|buscar --vault <pasta>`, em poucas linhas e com o caminho da nota — sem ler
@@ -31,13 +31,13 @@ skills, há um prompt equivalente.
   de ambiente e conexões, com properties para Obsidian Bases.
 - **Matriz de dependências entre componentes**: quem depende de cada tabela (formulários, JS, plugins,
   processos, flows, Custom APIs, apps, papéis, tabelas filhas), seção *Depende de / Usado por* em cada
-  nota e **`Matriz de Dependências.xlsx`** para entregar ao cliente. Opcionalmente inclui as dependências
+  nota e **`Dependências.csv`** (abre no Excel) para entregar ao cliente. Opcionalmente inclui as dependências
   registradas pelo próprio Dataverse e as que faltam em cada solução.
 - **Uso de campos**: preenchimento real × onde cada coluna é usada, com candidatos a *investigação* de
   remoção (só com contagem completa e todas as fontes medidas; o resto fica como inconclusivo).
 - **Estrutura de segurança e PCF**: nota por business unit, equipe (com papéis) e componente PCF
   (manifesto, domínios externos, formulários e colunas onde é usado); lista nominal de usuários opcional
-  (`deep.users`).
+  (extra `usuarios`).
 - **Achados automáticos** (segredos expostos, JS quebrado ou obsoleto, plugins sem filtro, automações
   de dono desativado, drift entre ambiente e repositório Git, soluções com dependências faltando…).
 - **Comparação** entre ambientes (TEST × PRD) ou entre datas.

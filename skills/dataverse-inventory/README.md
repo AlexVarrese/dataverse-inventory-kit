@@ -17,21 +17,21 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
 
 | Família | Componentes |
 |---|---|
-| Ambiente e ALM | versão, organização, auditoria, plugin trace, soluções e componentes por solução, publishers, variáveis de ambiente, referências de conexão, conectores customizados |
+| Ambiente e ALM | versão, organização, auditoria, plugin trace\*, soluções e componentes por solução, publishers, variáveis de ambiente, referências de conexão, conectores customizados |
 | Dados | tabelas custom e nativas customizadas, colunas (tipo, obrigatoriedade, auditoria), chaves alternativas, relacionamentos 1:N/N:N, option sets globais, contagem de registros |
-| Interface | formulários (bibliotecas JS, handlers por evento/campo, controles PCF por coluna), views, web resources (com código-fonte redigido e funções), botões de ribbon\*, apps model-driven, canvas apps, agentes Copilot Studio |
+| Interface | formulários (bibliotecas JS, handlers por evento/campo, controles PCF por coluna), views, web resources (com código-fonte redigido e funções), botões de ribbon, apps model-driven, canvas apps, agentes Copilot Studio |
 | Componentes PCF | controles de código (`customcontrols`): manifesto (namespace, versão, tipo, propriedades, Web API, domínios externos), formulários e colunas onde são usados |
 | Código e integração | plugin assemblies, classes, steps, imagens, binários\*, Custom APIs (parâmetros/respostas), service endpoints (webhook/Service Bus) |
 | Automação | workflows clássicos, business rules, actions, BPFs, cloud flows (gatilho, conectores, hosts HTTP, tabelas tocadas), desktop flows, proprietário e status |
-| Segurança | árvore de BUs (nota por BU), papéis (deduplicados pela BU raiz) e a quem estão atribuídos, privilégios por tabela\*, equipes com papéis (nota por equipe) e membros\*, perfis de segurança de campo, contagem de usuários por tipo e BU; lista nominal de usuários (nome, UPN, BU, licença, papéis, equipes)\* com `deep.users` |
+| Segurança | árvore de BUs (nota por BU), papéis (deduplicados pela BU raiz) e a quem estão atribuídos, privilégios por tabela, equipes com papéis (nota por equipe) e membros\*, perfis de segurança de campo, contagem de usuários por tipo e BU; lista nominal de usuários (nome, UPN, BU, licença, papéis, equipes)\* com o extra `usuarios` |
 | Saúde | plugin trace log: execuções, erros e tempo por classe\* |
-| Uso de campos\* | preenchimento real por coluna, matriz de uso (forms ativos e inativos, eventos, views, processos, flows, plugins, JS, repo), candidatos a investigação de remoção e inconclusivos |
+| Uso de campos | preenchimento real por coluna, matriz de uso (forms ativos e inativos, eventos, views, processos, flows, plugins, JS, repo), candidatos a investigação de remoção e inconclusivos |
 | Qualidade de código | JS: APIs obsoletas (Xrm.Page, SOAP 2011), eval, XHR síncrono, libs legadas, hosts fixos · flows: estrutura, condições, tratamento de erro |
 | Armazenamento e auditoria\* | maiores tabelas, notas e anexos de e-mail (qtd, bytes, tipos), auditoria por tabela/ação e retenção efetiva |
-| Dependências | matriz componente × componente: quem depende de cada tabela (forms, JS, plugins, business rules, workflows, BPFs, flows, Custom APIs, apps, papéis, tabelas filhas), tipo × tipo, mais dependidos, externos, órfãos; dependências registradas pela plataforma e ausentes por solução\*; exportação em Excel e CSV |
+| Dependências | matriz componente × componente: quem depende de cada tabela (forms, JS, plugins, business rules, workflows, BPFs, flows, Custom APIs, apps, papéis, tabelas filhas), tipo × tipo, mais dependidos, externos, órfãos; dependências registradas pela plataforma e ausentes por solução; exportação em CSV |
 | Repositórios Git (`repos:`) | web resources e classes de plugin × código versionado, métodos só em produção (DLL decompilada), segredos no repo |
 
-\* com `--deep` ou a chave correspondente em `deep:` no YAML.
+\* extras (fora do núcleo): `extras:` no YAML ou `--extras` — ver *Como usar*. Todo o resto é o núcleo e sempre roda.
 
 ## O que é gerado no vault
 
@@ -41,14 +41,13 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
   01 Ambiente.md        versão, critério de escopo, LACUNAS declaradas, soluções, tempos
   03 Integrações.md     conectores, hosts HTTP, endpoints, Custom APIs, variáveis, conexões
   04 Segurança.md       árvore de BUs, papéis, equipes, perfis de campo
-  05 Uso de Campos.md   preenchimento × uso, candidatos a investigação, inconclusivos (deep.field_usage)
-  06 Armazenamento e Auditoria.md                                          (deep.storage)
+  05 Uso de Campos.md   preenchimento × uso, candidatos a investigação, inconclusivos                  
+  06 Armazenamento e Auditoria.md                                          (extra armazenamento)
   07 Repositórios.md    ambiente × Git: divergências, sem fonte, segredos  (repos:)
   08 Matriz de Dependências.md   impacto por tabela, tipo × tipo, órfãos, externos
-  Matriz de Dependências.xlsx    matriz por tabela, arestas, tipo × tipo, componentes (fan-in/out)
-  Dependências.csv               lista de arestas (A depende de B)
+  Dependências.csv               lista de arestas (A depende de B) — abre no Excel
   Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/  Componentes PCF/
-  Custom APIs/  Apps/  Soluções/  Papéis/  Business Units/  Equipes/  Usuários/ (deep.users)
+  Custom APIs/  Apps/  Soluções/  Papéis/  Business Units/  Equipes/  Usuários/ (extra usuarios)
   Achados/  Comparações/
   Bases/                Tabelas · Automações · Plugin Steps · Web Resources · Achados · Componentes ·
                         Componentes PCF · Segurança (BUs, equipes, usuários)
@@ -75,8 +74,8 @@ SKILL=<pasta onde a skill foi instalada>     # ver INSTALL.md §2
 mkdir -p inventario/CLIENTE && cd inventario/CLIENTE
 cp $SKILL/scripts/inventory.example.yaml inventory.yaml     # ajustar url, prefixos, saída
 python3 $SKILL/scripts/dvinv.py check   -c inventory.yaml   # testa a conexão
+python3 $SKILL/scripts/dvinv.py escopo  -c inventory.yaml   # confere quantas tabelas entram (sem extrair)
 python3 $SKILL/scripts/dvinv.py all     -c inventory.yaml   # extrai + gera o vault
-python3 $SKILL/scripts/dvinv.py extract -c inventory.yaml --deep
 python3 $SKILL/scripts/dvinv.py diff    -c inventory.yaml --a out/PRD/_raw --b out/TEST/_raw
 python3 $SKILL/scripts/dvinv.py all     -c inventory.yaml --profile metadata_only   # só metadados
 ```
@@ -89,10 +88,10 @@ out/<AMBIENTE>/
     20261009T203200Z/           um snapshot por extração (run_id em UTC); vários no mesmo dia coexistem
       manifest.json             run_id, perfil, status por coletor, arquivos + sha256, lacunas, chamadas
       tables.json  forms.json … um arquivo por coletor que terminou (coletor que falhou não tem arquivo)
-      bin/  decompiled/         DLLs/decompilados de plugin (deep.plugin_binaries)
+      bin/  decompiled/         DLLs/decompilados de plugin (extra binarios)
     .staging-<run_id>-*/        extração em andamento — ignorada; removida se a extração falhar
   _derived/                     saídas do render por snapshot (output.derived_dir)
-    20261009T203200Z/findings.json  dependencies.json  inventario.sqlite (cache opcional, --sqlite)
+    20261009T203200Z/findings.json  dependencies.json
 ```
 
 - `extract` grava em `.staging-*` e só publica (rename atômico) no fim, depois de varrer segredos.
@@ -109,60 +108,54 @@ out/<AMBIENTE>/
 Comandos a partir da pasta do cliente (onde está o `inventory.yaml`). No Windows sem PowerShell, use o CMD e o
 Python do venv (ex. `C:\temp\dvinv-venv\Scripts\python.exe`); `<skill>` = pasta da skill.
 
+**Dois passos:**
+
+| Passo | Comando | O que faz |
+|---|---|---|
+| 1. Conferir o escopo | `python <skill>/scripts/dvinv.py escopo -c inventory.yaml` | ~1 min, sem extrair: quantas tabelas/soluções entram e por quê (CSV em `out/<amb>/escopo-*.csv`). Escopo largo demais = extração lenta: ajuste `scope:` antes |
+| 2. Inventariar | `python <skill>/scripts/dvinv.py all -c inventory.yaml` | extrai o **núcleo** e gera o vault |
+
+O **núcleo** sempre roda e traz tudo o que foi customizado e se está em uso: tabelas, colunas, fórmulas, chaves,
+relacionamentos, option sets, mapeamentos, formulários (eventos e PCF), views, web resources (com código), ribbons,
+comandos, apps, site maps, processos (com definição), plugins, Custom APIs, service endpoints, SLAs, variáveis e
+conexões, papéis (com privilégios), catálogo de 100% dos componentes das soluções, dependências da plataforma,
+contagem de registros e preenchimento real dos campos.
+
+**Se cair no meio** (proxy, tempo limite): o mesmo comando com `--completar ultimo` refaz só o que falhou e herda o
+resto. Um vault por ambiente, sempre do último snapshot — não há passo de consolidação.
+
+**Extras** (diagnóstico, desligados): `--extras historico,saude` ou `extras: [historico, saude]` no yaml. Para
+acrescentar a um inventário pronto sem refazer o núcleo: `all -c inventory.yaml --extras <...> --completar ultimo`.
+
+| Extra | O que traz |
+|---|---|
+| `saude` | plugin trace dos últimos `plugin_trace_days` dias: execuções, erros, tempo |
+| `armazenamento` | maiores tabelas, anexos, auditoria (lê tabelas de dados) |
+| `historico` | importações/exportações/upgrades de soluções e falhas |
+| `camadas` | camadas de solução por tabela (~3 s por tabela) |
+| `binarios` | DLLs dos plugins (para decompilar) |
+| `usuarios` | lista nominal de usuários e membros de equipe — **dado pessoal**: só com autorização do cliente |
+
+O perfil `metadata_only` (`profile:` no yaml) continua valendo por cima de tudo: trava a leitura de conteúdo e
+registros (código, definições, uso de campos, extras de dados), mesmo que o núcleo ou um extra peça.
+
+**Outros comandos:**
+
 | Objetivo | Comando |
 |---|---|
-| Testar acesso | `python <skill>/scripts/dvinv.py check -c inventory.yaml` |
-| Extrair e gerar o vault | `python <skill>/scripts/dvinv.py all -c inventory.yaml` (`--deep` liga tudo — veja o aviso abaixo) |
+| Testar acesso | `... check -c inventory.yaml` |
 | Só gerar o vault de novo | `... render -c inventory.yaml` |
 | Ver os snapshots e o que cada um tem | `... snapshots -c inventory.yaml` |
-| Rodar só algumas etapas | `... extract -c inventory.yaml --only webresources,forms` |
-| Completar um snapshot (herda o resto) | `... extract -c inventory.yaml --completar <run_id> [--only …]` — sem `--only`, refaz só o que falhou/faltou |
+| Rodar só algumas etapas | `... extract -c inventory.yaml --only webresources,forms --completar ultimo` |
 | Consultar impacto (sem config, em qualquer clone do vault) | `... onde-usa account.campo --vault Dataverse/<AMB>` · `impacto` · `depende` · `buscar` |
 | Comparar ambientes/datas | `... diff -c inventory.yaml --a <snapshot> --b <snapshot>` |
-
-**Equivalentes no `inventory.yaml`:**
-
-```yaml
-parallel: 3                      # chamadas simultâneas (2–4 em VDI/proxy; até 8 se o log não mostrar 429/tentativas)
-collectors: [webresources, forms]  # = --only
-completar: 20261014T120424Z        # = --completar (run_id, pasta ou "ultimo") — remova depois
-deep:
-  webresource_content_types: [1, 3]   # 1 HTML, 3 JS (padrão); 2 CSS, 4 XML, 9 XSL, 11 SVG, 12 RESX
-  webresource_skip_names: []          # [] desliga o filtro de bibliotecas de terceiros pelo nome
-  webresource_max_bytes: 1000000      # acima disso: segredos verificados, conteúdo não guardado
-  webresource_reuse: true             # reaproveita conteúdo que não mudou (modifiedon)
-  solution_layers: false              # camadas de solução por tabela (~3 s por tabela)
-output:
-  repo: true                          # vault como repositório de conhecimento (README/.gitignore/.gitattributes)
-  xlsx: false                         # sem a planilha binária (padrão em modo repositório)
-```
 
 **Acompanhar:** o log com hora e cada chamada à API fica em `out/<ambiente>/logs/dvinv-<data>-<comando>.log`.
 Cada etapa termina com "N na org · M no escopo · processado"; etapas em lote mostram `N/total · ~restante`;
 tempo limite e nova tentativa aparecem na tela; o fim da extração traz a tabela-resumo (também no `01 Ambiente`).
 
-**Em fases (recomendado para ambiente grande):** níveis `rapido` → `padrao` → `diagnostico`; cada fase completa
-a anterior e refaz só as etapas cujas opções mudaram (e as que dependem delas):
-
-| Fase | Comando | O que acrescenta |
-|---|---|---|
-| 0. Conferir o escopo | `... escopo -c inventory.yaml` | lista quantas tabelas entrariam e por quê (CSV em `out/<amb>/escopo-*.csv`) — ajuste `scope:` antes |
-| 1. Rápido (minutos) | `... all -c inventory.yaml --nivel rapido` | estrutura: tabelas, colunas, relacionamentos, formulários e views (lista), processos, plugins, web resources (sem conteúdo), apps, site maps, SLAs, comandos, mapeamentos, histórico, segurança |
-| 2. Padrão | `... all -c inventory.yaml --nivel padrao --completar ultimo` | código JS/HTML, eventos de formulário, definições de flows/workflows, catálogo de 100%, dependências da plataforma |
-| 3. Diagnóstico | `... all -c inventory.yaml --nivel diagnostico --completar ultimo` | privilégios, ribbons, trace, membros, DLLs, uso de campos (lê registros), armazenamento, camadas de solução |
-
-Cada fase gera um vault já utilizável; pare na que bastar. No yaml: `nivel: padrao` (o `--nivel` do comando vale
-mais que o `deep:` do yaml). Lista nominal de usuários nunca é ligada por nível (só `deep.users: true`).
-
-**Ambiente grande ou rede lenta — extração por partes:**
-1. `extract` sem `--deep` (estrutura); confira em `01 Ambiente` a tabela *De onde veio o escopo* e ajuste
-   `scope.prefixes` / `scope.exclude_prefixes` se o número de tabelas no escopo for maior que o esperado.
-2. `extract --completar <run_id> --only <etapas pesadas>` aos poucos (ex. `webresources`, depois `forms,views`).
-3. `extract --completar <run_id>` sem `--only` refaz só o que falhou; `render` no fim.
-
-**Atenção ao `--deep`:** liga também a lista nominal de usuários (dado pessoal), leitura de registros para uso de
-campos, DLLs de plugin, plugin trace e camadas de solução. Confirme o que está autorizado no ambiente e prefira
-ligar só as opções necessárias em `deep:`.
+**Ajuste fino (avançado):** `parallel: 3` (2–4 em VDI/proxy), e as chaves `deep:` comentadas no fim do
+`inventory.example.yaml` (tipos de web resource baixados, tetos de linhas etc.).
 
 Instalação, Service Principal e MCP: **[INSTALL.md](INSTALL.md)**.
 Com agente (Hermes/Claude Code): basta pedir "faça o inventário do ambiente X". A skill

@@ -21,16 +21,16 @@ antes de afirmar.
 | PRC-03 | baixo | workflow clássico síncrono (tempo real) | — |
 | PRC-04 | info | workflows/dialogs clássicos ativos (legado) | candidatos a migração |
 | PRC-05 | baixo | cloud flow desligado | obsoleto ou desligado por falha? |
-| SEG-01 | alto | tabela custom sem privilégio de Read em nenhum dos papéis analisados (`deep.role_privileges`) | só cobre papéis do escopo; o acesso pode vir de papel gerenciado/ISV fora da análise |
-| SEG-02 | médio | equipe com 1.000+ membros (`deep.team_members`) | equipes grandes com papel atribuído degradam o motor de autorização |
+| SEG-01 | alto | tabela custom sem privilégio de Read em nenhum dos papéis analisados (núcleo) | só cobre papéis do escopo; o acesso pode vir de papel gerenciado/ISV fora da análise |
+| SEG-02 | médio | equipe com 1.000+ membros (extra `usuarios`) | equipes grandes com papel atribuído degradam o motor de autorização |
 | ALM-01 | médio | variável de ambiente sem valor e sem default | — |
 | ALM-02 | médio | referência de conexão sem conexão vinculada | — |
 | ALM-03 | baixo | Custom API sem plugin de implementação | pode ser só uma mensagem para steps/flows |
 | ALM-04 | baixo | processo não gerenciado fora de qualquer solução | customização direta no ambiente, não migra por ALM |
 
 | SEG-03 | baixo | equipe proprietária (não padrão da BU) sem nenhum papel | pode ser equipe usada só para compartilhamento — confirmar |
-| SEG-04 | alto | usuário de aplicação ativo com System Administrator (direto ou via equipe) | exige `deep.users`; aplicar menor privilégio |
-| SEG-05 | baixo | papel do escopo sem usuário ativo nem equipe | exige `deep.users`; pode ser atribuído por processo externo |
+| SEG-04 | alto | usuário de aplicação ativo com System Administrator (direto ou via equipe) | exige extra `usuarios`; aplicar menor privilégio |
+| SEG-05 | baixo | papel do escopo sem usuário ativo nem equipe | exige extra `usuarios`; pode ser atribuído por processo externo |
 | PCF-01 | info | componente PCF declara domínios externos (`external-service-usage`) | confirmar finalidade, dono do serviço e licenciamento premium |
 | PCF-02 | baixo | PCF não gerenciado sem uso em formulário ativo | pode ser controle padrão de coluna/tabela ou de view (não visível pela Web API) |
 | FLD-01 | médio | coluna custom com zero registros (contagem **completa**) e nenhuma referência (form ativo ou inativo, view, processo, flow, plugin, JS, repo), com **todas** essas fontes medidas — candidata a **investigação** de remoção | nunca afirma que remover é seguro: confirmar integrações externas (ETL, Power BI, portais, APIs), flows fora de solução e código não versionado |
@@ -51,7 +51,7 @@ antes de afirmar.
 | REPO-03 | alto | web resource/classe publicada sem fonte no repo | pode estar noutro repositório não informado em `repos:` |
 | REPO-04 | alto | métodos só em PRD ou só no repo (DLL decompilada) | ler os dois arquivos; compiladores geram métodos auxiliares (`<>c`), ignorados pela heurística |
 
-| DEP-01 | alto | solução exige componentes que não estão nela (RetrieveMissingDependencies, `deep.platform_dependencies`) | o componente pode vir de outra solução instalada antes — documentar a ordem de instalação |
+| DEP-01 | alto | solução exige componentes que não estão nela (RetrieveMissingDependencies) | o componente pode vir de outra solução instalada antes — documentar a ordem de instalação |
 | DEP-02 | info | tabela com 20+ componentes dependentes | indicador de impacto de mudança, não problema |
 | DEP-03 | baixo | variável de ambiente, referência de conexão ou Custom API sem uso encontrado no escopo | uso por integração externa, app fora do Dataverse ou flow fora de solução não é visível |
 

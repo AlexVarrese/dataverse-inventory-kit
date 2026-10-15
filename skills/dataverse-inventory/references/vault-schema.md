@@ -25,7 +25,7 @@ arquivos e o diff do Git mostra só mudança real): a data e o `snapshot` ficam 
 | `pcf` | `Componentes PCF/` | `namespace`, `construtor`, `versao`, `tipo_controle`, `gerenciado`, `formularios`, `campos`, `dominios_externos`, `web_api` |
 | `business-unit` | `Business Units/` | `pai` (link), `filhas`, `equipes`, `usuarios_ativos`, `desativada` |
 | `equipe` | `Equipes/` | `tipo_equipe`, `business_unit` (link), `grupo_entra`, `membros`, `papeis` (links), `administrador` |
-| `usuario` | `Usuários/` (só `deep.users`, só ativos) | `upn`, `tipo_usuario`, `modo_acesso`, `licenca`, `business_unit` (link), `papeis`, `papeis_via_equipe`, `equipes` |
+| `usuario` | `Usuários/` (só extra `usuarios`, só ativos) | `upn`, `tipo_usuario`, `modo_acesso`, `licenca`, `business_unit` (link), `papeis`, `papeis_via_equipe`, `equipes` |
 | `achado` | `Achados/` | `id_achado`, `severidade`, `titulo`, `metrica`, **`status`**, **`responsavel`** |
 | `comparacao` | `Comparações/` | `ambiente_a`, `ambiente_b`, `data_a`, `data_b` |
 
@@ -66,7 +66,7 @@ e a janela de contexto de um agente sofrem com notas de vários MB):
 |---|---|
 | `Componentes.csv` | 100% dos componentes do ambiente (chave, tipo, nome, pai, GUID, escopo, soluções, nota) |
 | `Dependências.csv` | **índice textual**: uma linha por aresta que toca o escopo, com chave, GUID, tipo, nome e nota das duas pontas, em ordem estável |
-| `Matriz de Dependências.xlsx` | entrega ao cliente (binário; `output.xlsx: false` para não versionar) |
+| `Sem dependentes.csv` | lista completa de componentes sem dependente (só quando passa do limite da nota 08) |
 | `Dependências ausentes.csv` | RetrieveMissingDependencies por solução, com nomes do catálogo |
 | `Equipes.csv` | todas as equipes estruturais; com mais de 1.000, só as que têm papel ou grupo do Entra viram nota |
 
@@ -77,8 +77,8 @@ snapshot, `_raw/<run_id>/webresources.json`); a análise estática e as funçõe
 
 - Texto com LF e ordem estável: o diff entre extrações mostra só o que mudou no ambiente.
 - O render avisa quando algum arquivo passa de 50 MB (o GitHub alerta nesse ponto e recusa acima de 100 MB).
-- `output.xlsx: false` evita versionar a planilha (binário regenerável).
-- Snapshot bruto, derivados e o cache SQLite ficam em `out/`, fora do vault — não vão para o repositório.
+- Só texto: sem planilha nem banco binário (a `Matriz de Dependências.xlsx` de versões anteriores é removida no render).
+- Snapshot bruto e derivados ficam em `out/`, fora do vault — não vão para o repositório.
 - `output.repo: true` (repositório de conhecimento): o render mantém blocos `dvinv` no `README.md` (ambientes,
   snapshot, como consultar, o que não está no repositório), no `.gitignore` (estado local do Obsidian, cópias de
   trabalho, `.env`) e no `.gitattributes` (LF; CSVs marcados como gerados), e imprime o resumo do `git status`.

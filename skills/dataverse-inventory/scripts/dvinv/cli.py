@@ -192,7 +192,7 @@ def cmd_render(cfg, snapshot=None):
     v = render(cfg, snapshot)
     print(f"[dvinv] snapshot: {v.snapshot}")
     print(f"[dvinv] vault: {len(v.written)} arquivo(s) em {cfg.vault_dir}")
-    print(f"[dvinv] derivados: {v.derived_dir}" + (" (+ cache inventario.sqlite)" if getattr(cfg, "sqlite", False) else ""))
+    print(f"[dvinv] derivados: {v.derived_dir}")
     print(f"[dvinv] abrir: {cfg.vault_dir / '00 Índice.md'}")
     print(f"[dvinv] instruções para agentes: {cfg.vault_root / 'AGENTS.md'} (bloco dvinv) · CLAUDE.md")
     if getattr(v, "pruned", None):
@@ -214,7 +214,8 @@ def main(argv=None):
     ap.add_argument("termo", nargs="?", help="buscar/onde-usa/impacto/depende: componente (nome, tabela.coluna, chave ou GUID)")
     ap.add_argument("-c", "--config", default="inventory.yaml")
     ap.add_argument("--only", help="lista de coletores separada por vírgula (ver 'collectors')")
-    ap.add_argument("--deep", action="store_true", help="liga todas as coletas pesadas (respeita o perfil)")
+    ap.add_argument("--extras", help="liga coletas de diagnóstico além do núcleo, separadas por vírgula: "
+                    + ", ".join(config_mod.EXTRAS) + " (sobrepõe extras: do yaml)")
     ap.add_argument("--profile", choices=sorted(config_mod.PROFILES), help="perfil de coleta (sobrepõe o yaml)")
     ap.add_argument("--snapshot", help="render: diretório do snapshot ou run_id (padrão: último íntegro)")
     ap.add_argument("--no-snapshot", action="store_true", help=argparse.SUPPRESS)  # obsoleto desde 0.5.0
@@ -222,15 +223,10 @@ def main(argv=None):
     ap.add_argument("--b", help="diff: snapshot B")
     ap.add_argument("--profundidade", type=int, help="impacto/depende: níveis (padrão 2 / 1)")
     ap.add_argument("--limite", type=int, default=150, help="consultas: máximo de linhas listadas")
-    ap.add_argument("--nivel", choices=["rapido", "padrao", "diagnostico"],
-                    help="nível de coleta (sobrepõe deep: do yaml): rapido (minutos) → padrao → diagnostico. Em fases: "
-                         "a 1ª sem --completar, as seguintes com --completar ultimo")
     ap.add_argument("--completar", metavar="SNAPSHOT",
                     help="extract/all: completa um snapshot anterior (run_id, pasta ou 'ultimo') — roda o --only (ou, "
                          "sem --only, só o que falhou/faltou) e herda os demais coletores, declarando a origem")
     ap.add_argument("--vault", help="consultas: pasta do ambiente no vault (ex. vault/Dataverse/PRD); dispensa -c")
-    ap.add_argument("--sqlite", action="store_true",
-                    help="render/all: gera também o cache SQLite com todas as arestas (SQL ad hoc; fora do vault)")
     args = ap.parse_args(argv)
 
     if args.command == "collectors":
@@ -269,7 +265,7 @@ def main(argv=None):
             print(consulta.cmd_walk(inv, args.termo, direction, depth, args.limite))
         return 0
 
-    overrides = {"deep_all": args.deep, "sqlite": args.sqlite, "nivel": args.nivel}
+    overrides = {"extras": args.extras}
     if args.profile:
         overrides["profile"] = args.profile
     if args.only:

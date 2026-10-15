@@ -6,7 +6,7 @@ Estrutura (``raw_dir`` = raiz dos snapshots, padrão ``out/<ambiente>/_raw``)::
       20261009T203200Z/          snapshot publicado (um por extração; vários no mesmo dia coexistem)
         manifest.json            run_id, status por coletor, arquivos + sha256, lacunas
         tables.json ...          um arquivo por coletor que terminou (ok/parcial)
-        bin/ decompiled/         binários de plugin (deep.plugin_binaries), quando houver
+        bin/ decompiled/         binários de plugin (extra binarios), quando houver
       .staging-<run_id>-xxxx/    extração em andamento (ignorada; removida se a extração falhar)
     _derived/
       20261009T203200Z/          saídas do render para aquele snapshot (findings.json, dependencies.json)

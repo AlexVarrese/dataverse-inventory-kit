@@ -24,9 +24,7 @@ from .. import dependencies as deps_mod
 from .. import findings as findings_mod
 from .. import secrets
 from .. import snapshot as snapshot_mod
-from .. import xlsx
 from ..config import SYSTEM_SOLUTIONS
-from .. import index as index_mod
 from .. import resumo
 from . import agents, bases, canvas, catalog, maps, navigation, structure
 
@@ -168,14 +166,11 @@ def render(cfg, snapshot=None):
             shutil.copytree(final_dir, stage_dir)  # preserva edições do analista e notas antigas
         v = Vault(stage_root, cfg.vault_folder, cfg.name)
         v.snapshot, v.run_id = snap, run_id
-        v.xlsx = getattr(cfg, "xlsx", True)
         if getattr(cfg, "config_path", None):
             v.config_rel = os.path.relpath(cfg.config_path, Path(cfg.vault_root).resolve()).replace(os.sep, "/")
         fnd, deps_json = _render_into(v, d)
         derived.write_json("findings", fnd)
         derived.write_json("dependencies", deps_json)
-        if getattr(cfg, "sqlite", False):  # cache opcional para SQL ad hoc (varre segredos do banco)
-            index_mod.build(derived.dir / index_mod.DB_NAME, d, v.graph, v, fnd)
         secrets.assert_clean(list(v.written) + derived.paths, f"render {run_id}")
         # publicação: troca a pasta do vault inteira (rename) e os derivados do run
         final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -263,7 +258,7 @@ def _render_into(v, d):
     for r in sec.get("roles") or []:
         if r.get("scope_reason"):
             v.reserve("role", r["name"], "Papéis", r["name"])
-    structure.reserve(v, d)  # BUs, equipes, usuários (deep.users) e componentes PCF
+    structure.reserve(v, d)  # BUs, equipes, usuários (extra usuarios) e componentes PCF
     navigation.reserve(v, d)  # site maps e SLAs
     for kind, section in (("envvar", "Variáveis de ambiente"), ("connref", "Referências de conexão"),
                           ("endpoint", "Service endpoints")):
@@ -722,7 +717,7 @@ def _render_into(v, d):
             b += ["## Privilégios em tabelas do escopo", "",
                   mdtable(["Tabela"] + acts, [[v.link("table", t, t, in_table=True)] + [p.get(a) for a in acts] for t, p in sorted(mine.items())])]
         else:
-            b += ["> [!info] Privilégios não coletados — rode com `deep.role_privileges: true`.", ""]
+            b += ["> [!info] Privilégios não coletados (`deep.role_privileges: false` no yaml ou perfil).", ""]
         b.append(structure.role_assignments(v, d, r["name"]))
         b.append(findings_block("role", r["name"]))
         v.write(v.paths[("role", r["name"])], props, "\n".join(b))
@@ -782,7 +777,8 @@ def _rename_retry(src, dst, tries=6):
                                  "Explorer, editores ou terminais abertos nela e rode o render de novo). O vault "
                                  "anterior foi mantido.") from None
             time.sleep(min(2 ** i, 10))
-GENERATED_FILES = {"Componentes.csv", "Dependências.csv", "Dependências ausentes.csv", "Equipes.csv"}
+GENERATED_FILES = {"Componentes.csv", "Dependências.csv", "Dependências ausentes.csv", "Equipes.csv", "Sem dependentes.csv",
+                   "Matriz de Dependências.xlsx"}  # a planilha saiu na 0.6: some do vault no próximo render
 ORPHANS_NOTE = "Notas fora do inventário atual"
 
 
@@ -978,7 +974,6 @@ def write_dependencies(v, d, g, dsum, node_link):
          "para dimensionar impacto de mudança e as listas de órfãos para limpeza.", "",
          f"**{len(g.nodes)}** componentes · **{len(g.edges)}** dependências ({n_inf} inferidas pelo kit, "
          f"{n_plat} registradas pela plataforma) · exportação: "
-         + (f"[[{v.folder}/Matriz de Dependências.xlsx|Excel]] · " if getattr(v, "xlsx", True) else "")
          + f"[[{v.folder}/Dependências.csv|CSV]] (uma linha por aresta, com chave e GUID das duas pontas)", ""]
     if not plat_on:
         b += ["> [!info] Dependências da plataforma não coletadas",
@@ -998,7 +993,7 @@ def write_dependencies(v, d, g, dsum, node_link):
     pst = ((d.get("manifest") or {}).get("stats") or {}).get("platform_dependencies") or {}
     if pst.get("edges"):
         b += [f"> [!info] Plataforma: {pst['edges']} dependências lidas ({pst.get('source')}); aqui entram só as que "
-              "apontam para componentes do escopo. O conjunto completo está no índice SQLite — `dvinv impacto <alvo>`.", ""]
+              "apontam para componentes do escopo. O conjunto completo fica no snapshot (`_raw/<run_id>/platform_dependencies.json`).", ""]
     top_in = [n for n, c in dsum["fan_in"].most_common(25) if c]
     top_out = [n for n, c in dsum["fan_out"].most_common(25) if c]
     b += ["## Mais dependidos (maior impacto de mudança)", "",
@@ -1016,7 +1011,7 @@ def write_dependencies(v, d, g, dsum, node_link):
               "Candidatos a limpeza — confirme chamadas de fora do Dataverse (integrações, apps externos, Power BI).", "",
               mdtable(["Componente", "Tipo"], [[node_link(n), kinds.get(n[0], n[0])] for n in unused[:LIST_MAX]])]
         if len(unused) > LIST_MAX:
-            b += [f"… +{len(unused) - LIST_MAX} — lista completa na aba *Componentes* do Excel (dependentes = 0).", ""]
+            b += [f"… +{len(unused) - LIST_MAX} — lista completa em [[{v.folder}/Sem dependentes.csv|Sem dependentes.csv]].", ""]
     if dsum["missing"]:
         cat_names = ((d.get("catalog") or {}).get("names") or {})
 
@@ -1039,29 +1034,9 @@ def write_dependencies(v, d, g, dsum, node_link):
                            for m in dsum["missing"]])
     v.write(f"{v.folder}/08 Matriz de Dependências", {"tipo": "secao", "tags": v.tags("secao")}, "\n".join(b))
 
-    # ---- exportações: Excel e CSV ----
-    rows_edges = [["Componente", "Tipo", "Depende de", "Tipo (destino)", "Relação", "Origem"]] + sorted(
-        [[g.nodes[s]["label"], kinds.get(g.nodes[s]["kind"]), g.nodes[t]["label"], kinds.get(g.nodes[t]["kind"]), r, e["source"]]
-         for (s, t, r), e in g.edges.items()], key=lambda x: tuple(str(c) for c in (x[1] or "", x[0], x[2], x[4], x[3])))
-    rows_tables = [["Tabela"] + [c for _, c in cols] + ["Total dependentes", "Depende de"]] + [
-        [r["table"]] + [r[k] for k, _ in cols] + [r["total"], r["depends_on"]] for r in dsum["per_table"]]
-    rows_tt = [["Depende ↓ / de →"] + [kinds.get(k, k) for k in dst_k]] + [
-        [kinds.get(a, a)] + [tt.get((a, c), 0) for c in dst_k] for a in src_k]
-    rows_nodes = [["Componente", "Tipo", "Dependentes (fan-in)", "Dependências (fan-out)"]] + sorted(
-        [[nd["label"], kinds.get(nd["kind"]), dsum["fan_in"][k], dsum["fan_out"][k]] for k, nd in g.nodes.items()],
-        key=lambda x: (-x[2], str(x[0]), str(x[1]), x[3]))
-    sheets = [("Matriz por tabela", rows_tables), ("Arestas", rows_edges), ("Tipo x tipo", rows_tt), ("Componentes", rows_nodes)]
-    if dsum["missing"]:
-        sheets.append(("Ausentes na solução", [["Solução", "Exige (id)", "Tipo", "Exigido (id)", "Tipo"]] + [
-            [m["solution"], m["dependent_id"], m.get("dependent_type_label"), m["required_id"], m.get("required_type_label")]
-            for m in dsum["missing"]]))
-    if not getattr(v, "xlsx", True):  # desligado: não deixa a planilha de uma extração anterior no vault
-        (v.root / v.folder / "Matriz de Dependências.xlsx").unlink(missing_ok=True)
-    else:
-        path = v.root / v.folder / "Matriz de Dependências.xlsx"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        xlsx.write(path, sheets)
-        v.written.append(path)
+    if len(dsum["unused"]) > LIST_MAX:
+        catalog.write_csv(v, "Sem dependentes.csv", [["Componente", "Tipo"]] + sorted(
+            [[g.nodes[n]["label"], kinds.get(n[0], n[0])] for n in dsum["unused"]], key=lambda x: (str(x[1]), str(x[0]))))
     # Dependências.csv = índice textual do vault (grep/Copilot/Claude/`dvinv onde-usa` leem daqui): chave, GUID,
     # tipo, nome e nota das duas pontas; ordem estável para o diff do Git mostrar só mudança real
     cat_names = ((d.get("catalog") or {}).get("names")) or {}
@@ -1161,11 +1136,13 @@ def write_environment(v, d, manifest):
     b += ["## Soluções", "", mdtable(["Solução", "Versão", "Gerenciada", "Publisher", "Componentes"],
           [[v.link("solution", s["uniquename"], s["uniquename"], in_table=True), s.get("version"), s.get("managed"),
             s.get("publisher"), s.get("component_total")] for s in d.get("solutions") or []])]
-    b += ["## Coleta (deep)", "", mdtable(["Opção", "Ligada"], list((manifest.get("deep") or {}).items())),
+    b += ["## Coleta", "", "**Extras:** " + (", ".join(f"`{x}`" for x in manifest.get("extras") or []) or
+                                     "nenhum (só o núcleo: tudo o que é customizado e o uso)"), "",
+          mdtable(["Opção (deep)", "Ligada"], list((manifest.get("deep") or {}).items())),
           "## Tempo por coletor (s)", "", mdtable(["Coletor", "s"], list((manifest.get("timings_s") or {}).items()))]
     v.write(f"{v.folder}/01 Ambiente", {"tipo": "secao", "url": env.get("url"), "versao": env.get("version"),
                                         "snapshot": manifest.get("run_id"), "perfil": manifest.get("profile") or "padrao",
-                                        "tags": v.tags("secao")}, "\n".join(b))
+                                        "extras": manifest.get("extras") or [], "tags": v.tags("secao")}, "\n".join(b))
 
 
 def write_index(v, d, manifest, fnd, has_catalog=False):
@@ -1223,7 +1200,7 @@ def write_index(v, d, manifest, fnd, has_catalog=False):
          *([f"- {v.link_path('06 Armazenamento e Auditoria', 'Armazenamento e auditoria')}"] if d.get("storage") else []),
          *([f"- {v.link_path('07 Repositórios', 'Repositórios × ambiente')}"] if d.get("repos") else []),
          f"- {v.link_path('08 Matriz de Dependências', 'Matriz de dependências')}"
-         + (f" ([[{v.folder}/Matriz de Dependências.xlsx|Excel]])" if getattr(v, "xlsx", True) else ""),
+,
          *([f"- {v.link_path('09 Catálogo de Componentes', 'Catálogo de componentes (100%)')}"] if has_catalog else []),
          f"- {v.link_path('Mapa do Ambiente.canvas', 'Mapa do ambiente (canvas)')}",
          *([f"- {v.link_path('Mapas/00 Mapas por tipo', 'Mapas por tipo de componente (grafo por tipo)')}"]

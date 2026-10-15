@@ -568,14 +568,7 @@ def check_dependencies(cfg, derived):
     assert any(n["kind"] == "sitemap" and n["label"] == "contoso_Vendas" for n in dep["nodes"])
     acc = next(r for r in dep["per_table"] if r["table"] == "account")
     assert acc["form"] == 1 and acc["step"] == 2 and acc["app"] == 1 and acc["role"] == 1 and acc["child_table"] == 1, acc
-    # Excel abre: XML válido e as planilhas esperadas
-    import xml.dom.minidom as minidom
-    z = zipfile.ZipFile(cfg.vault_dir / "Matriz de Dependências.xlsx")
-    for n in z.namelist():
-        minidom.parseString(z.read(n))
-    wb = z.read("xl/workbook.xml").decode()
-    for sheet in ("Matriz por tabela", "Arestas", "Tipo x tipo", "Componentes", "Ausentes na solução"):
-        assert f'name="{sheet}"' in wb, sheet
+    assert not list(cfg.vault_dir.glob("*.xlsx")), "o vault é só texto (planilha removida na 0.6)"
     note = (cfg.vault_dir / "Tabelas" / "account.md").read_text()
     assert "### Usado por" in note and "dependentes:" in note
 
@@ -621,8 +614,7 @@ def check_security_pcf(cfg, snap, fnd):
 
 
 def check_catalog_index(cfg, snap, derived):
-    """0.6: catálogo de 100%, dependências em lote, índice SQLite, tabelas virtuais e notas enxutas."""
-    from dvinv import index as index_mod
+    """0.6: catálogo de 100%, dependências em lote, consultas pelo vault, tabelas virtuais e notas enxutas."""
     cat = json.loads((snap / "catalog.json").read_text())
     assert "\n" not in (snap / "catalog.json").read_text().strip(), "catalog.json deveria ser compacto"
     assert cat["types"]["10249"]["name"] == "connectionreference" and cat["types"]["62"]["name"] == "Site Map"
@@ -644,12 +636,7 @@ def check_catalog_index(cfg, snap, derived):
     assert ("contoso_virtual", "dados via provedor virtual", "Contoso OData Provider") in edges
     assert ("Contoso OData Provider", "executa Retrieve", "Contoso.Plugins") in edges
 
-    # cache SQLite (opcional, `--sqlite`): conjunto completo, inclusive nativo → nativo e internas
-    db = derived / "inventario.sqlite"
-    assert db.exists()
-    con = index_mod.connect(db)
-    assert con.execute("SELECT count(*) FROM dependencias WHERE fonte = 'plataforma'").fetchone()[0] == 5
-    assert con.execute("SELECT count(*) FROM dependencias WHERE interna = 1").fetchone()[0] == 1
+    assert not list(derived.glob("*.sqlite")), "sem cache SQLite (removido na 0.6)"
 
     # consultas sobre o próprio vault (CSV) — o que o time usa num clone do repositório
     from dvinv import consulta
@@ -823,9 +810,14 @@ def main():
             "repos": [{"path": "repo", "kind": "any", "name": "contoso-crm"}],
             "environment": {"name": "CONTOSO-PRD", "url": "https://contoso.crm.dynamics.com"},
             "scope": {"prefixes": ["contoso_"], "solutions": ["ContosoCore", "NaoExiste"]},
-            "output": {"raw_dir": "out/_raw", "vault_root": "vault", "vault_folder": "Dataverse/CONTOSO-PRD"},
+            "output": {"raw_dir": "out/_raw", "vault_root": "vault", "vault_folder": "Dataverse/CONTOSO-PRD",
+                       "sqlite": True, "xlsx": True},  # opções removidas na 0.6: yaml antigo não pode quebrar
         }))
-        cfg = config_mod.load(tmp / "inventory.yaml", {"deep_all": True, "sqlite": True})
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cfg = config_mod.load(tmp / "inventory.yaml", {"deep_all": True})
+        assert "output.sqlite foi removido" in buf.getvalue() and "output.xlsx foi removido" in buf.getvalue(), buf.getvalue()
         cfg.deep["plugin_binaries"] = False
         ctx = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
         ctx.client._bearer = lambda: "fake"
@@ -937,7 +929,7 @@ def main():
         note = next(achado.glob("SEC-01*.md"))
         txt = note.read_text().replace("status: aberto", "status: em análise") + "\nRotacionado em 06/10.\n"
         note.write_text(txt)
-        cfg.xlsx = False
+        (cfg.vault_dir / "Matriz de Dependências.xlsx").write_bytes(b"PK")  # planilha de versão anterior do kit
         cfg.repo = True  # modo repositório de conhecimento (um por unidade/avenida)
         (cfg.vault_root / "README.md").write_text("# Base de conhecimento\n\nTexto do time.\n")
         v2 = render(cfg)
@@ -952,9 +944,9 @@ def main():
         assert (cfg.vault_dir / "Tabelas" / "old_com_curadoria.md").exists() and v2.orphans_kept == ["Tabelas/old_com_curadoria.md"]
         assert "old_com_curadoria" in (cfg.vault_dir / "Notas fora do inventário atual.md").read_text()
         assert (cfg.vault_dir / "Tabelas" / "nota do time.md").exists(), "nota sem marcador do dvinv não pode ser apagada"
-        assert not (cfg.vault_dir / "Matriz de Dependências.xlsx").exists(), "xlsx desligado: planilha antiga removida"
+        assert not (cfg.vault_dir / "Matriz de Dependências.xlsx").exists(), "planilha de versão anterior removida"
         assert json.loads((cfg.vault_root / ".obsidian" / "graph.json").read_text()) == {"search": "minha busca"}
-        assert "Matriz de Dependências.xlsx" not in (cfg.vault_dir / "00 Índice.md").read_text()
+        assert "Excel" not in (cfg.vault_dir / "00 Índice.md").read_text()
         assert any("CLAUDE.md" in w and "@AGENTS.md" in w for w in v2.agent_warnings), v2.agent_warnings
         txt2 = note.read_text()
         assert "status: em análise" in txt2 and "Rotacionado em 06/10." in txt2 and txt2.count(MANUAL) == 1
@@ -1052,26 +1044,34 @@ def main():
         finally:
             cfg.prefixes.remove("outro_")
 
-        # níveis em fases: rapido (do zero) → padrao (--completar) refaz só o que mudou de opção + dependentes
-        cfg_r = config_mod.load(tmp / "inventory.yaml", {"nivel": "rapido"})
-        ctx_r = Context(cfg_r, FakeClient(cfg_r, credential=None), Scope(cfg_r))
-        ctx_r.client._bearer = lambda: "fake"
-        m_r = run(ctx_r)
-        assert m_r["nivel"] == "rapido" and m_r["collectors"]["catalog"]["status"] == "sem-dados"
-        assert not any("webresourceset(" in q["path"] or "webresourceid eq" in q["path"] for q in m_r["queries"]), \
-            "nível rápido não baixa conteúdo de web resources"
-        cfg_p = config_mod.load(tmp / "inventory.yaml", {"nivel": "padrao"})
-        ctx_p = Context(cfg_p, FakeClient(cfg_p, credential=None), Scope(cfg_p))
-        ctx_p.client._bearer = lambda: "fake"
-        m_p = run(ctx_p, [], base=ctx_r.snapshot_dir)
-        orig = {k: st.get("origem", "") for k, st in m_p["collectors"].items()}
-        for k in ("catalog", "webresources", "forms", "processes", "platform_dependencies", "pcf"):
-            assert orig[k] == "coletado nesta execução", (k, orig[k])  # opção mudou ou depende de quem mudou
-        for k in ("tables", "relationships", "plugins", "security", "slas"):
+        # núcleo sem extras: tudo o que é customizado + uso; diagnóstico fica de fora
+        cfg_n = config_mod.load(tmp / "inventory.yaml")
+        assert cfg_n.extras == [] and cfg_n.deep["field_usage"] and cfg_n.deep["ribbons"] and cfg_n.deep["role_privileges"]
+        ctx_n = Context(cfg_n, FakeClient(cfg_n, credential=None), Scope(cfg_n))
+        ctx_n.client._bearer = lambda: "fake"
+        m_n = run(ctx_n)
+        assert m_n["extras"] == []
+        for k in ("catalog", "webresources", "field_usage", "ribbons", "platform_dependencies"):
+            assert m_n["collectors"][k]["status"] in ("ok", "parcial"), (k, m_n["collectors"][k])
+        for k in ("solution_history", "health", "storage", "users", "solution_layers"):
+            assert m_n["collectors"][k]["status"] == "sem-dados", (k, m_n["collectors"][k])
+        # extras depois, completando o snapshot do núcleo: só as etapas dos extras rodam
+        cfg_x = config_mod.load(tmp / "inventory.yaml", {"extras": "historico,saúde"})
+        assert cfg_x.extras == ["historico", "saude"] and cfg_x.deep["solution_history"] and cfg_x.deep["plugin_trace"]
+        ctx_x = Context(cfg_x, FakeClient(cfg_x, credential=None), Scope(cfg_x))
+        ctx_x.client._bearer = lambda: "fake"
+        m_x = run(ctx_x, [], base=ctx_n.snapshot_dir)
+        orig = {k: st.get("origem", "") for k, st in m_x["collectors"].items()}
+        for k in ("solution_history", "health"):
+            assert orig[k] == "coletado nesta execução", (k, orig[k])
+        for k in ("tables", "webresources", "forms", "processes", "catalog", "field_usage"):
             assert orig[k].startswith("herdado de"), (k, orig[k])
-        wr_p = {w["name"]: w for w in json.loads((ctx_p.snapshot_dir / "webresources.json").read_text())}
-        assert wr_p["contoso_/js/account.js"]["content_source"] in ("baixado",) or \
-            wr_p["contoso_/js/account.js"]["content_source"].startswith("reaproveitado")
+        assert m_x["collectors"]["solution_history"]["status"] in ("ok", "parcial")
+        try:
+            config_mod.load(tmp / "inventory.yaml", {"extras": "tudo"})
+            raise AssertionError("extra desconhecido deveria falhar")
+        except SystemExit as e:
+            assert "desconhecido" in str(e)
         # pré-visualização do escopo (sem detalhar colunas)
         from dvinv.collectors import environment as env_c, tables as tab_c
         ctx_e = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))

@@ -106,8 +106,7 @@ GITIGNORE = """# estado local do Obsidian (cada pessoa tem o seu)
 GITATTRIBUTES = """*.md text eol=lf
 *.csv text eol=lf linguist-generated=true
 *.base text eol=lf
-*.canvas text eol=lf linguist-generated=true
-*.xlsx binary"""
+*.canvas text eol=lf linguist-generated=true"""
 
 
 def _managed(path, begin, end, body, header=""):
@@ -151,7 +150,7 @@ def readme_block(root, envs):
         "- Agentes (Copilot, Claude): seguem o `AGENTS.md` desta pasta.",
         "",
         "**Não está neste repositório**: snapshot bruto da extração (código completo de web resources, definições de",
-        "flows), credenciais e o cache SQLite — ficam na máquina/pipeline que extraiu. Atualizações chegam por um novo",
+        "flows) e credenciais — ficam na máquina/pipeline que extraiu. Atualizações chegam por um novo",
         "`render`; revise o diff antes do commit (componentes novos, alterados e removidos do ambiente).",
     ])
 
