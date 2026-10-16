@@ -102,6 +102,18 @@ class Staging:
 
     def publish(self, manifest):
         """Fecha o manifesto (lista + sha256), varre segredos (fail-closed) e publica por rename."""
+        # arquivos que não passaram pela conferência do write_json (fontes decompiladas, binários): limpa no lugar;
+        # o que não der para limpar sai do snapshot como lacuna — a extração nunca é descartada por um arquivo
+        rest = [p for p in sorted(self.dir.rglob("*")) if p.is_file() and p not in self.verified and p.name != MANIFEST]
+        fixed, failed = secrets.sanitize_paths(rest)
+        for p in failed:
+            p.unlink(missing_ok=True)
+        if fixed or failed:
+            print(f"[dvinv]   varredura final: {len(fixed)} arquivo(s) redigido(s) no lugar, {len(failed)} removido(s) "
+                  "(possível segredo)", flush=True)
+            manifest = dict(manifest, gaps=list(manifest.get("gaps") or []) + [
+                {"collector": "snapshot", "what": f"{p.relative_to(self.dir).as_posix()} removido: possível segredo "
+                 "não redigido", "error": "", "kind": "falha"} for p in failed])
         files = {}
         for p in sorted(self.dir.rglob("*")):
             if p.is_file() and p.name != MANIFEST:
@@ -253,14 +265,19 @@ class DerivedStaging:
         self.run_id = run_id
         self.dir = Path(tempfile.mkdtemp(prefix=f".staging-{run_id}-", dir=self.root))
         self.paths = []
+        self.verified = set()  # conferidos ao gravar: o render não varre de novo (dependencies.json: ~1 min/70 MB)
 
     def write_json(self, name, data):
         p = self.dir / f"{name}.json"
+        data = secrets.redact_tree(data)  # derivados também carregam texto do ambiente (detalhe de achado)
         text = _dump(data)
         if secrets.scan(text):  # achados/dependências: mesma passada sobre a forma gravada do snapshot
             text = _dump(secrets.redact_serialized(data)[0])
+        clean = not secrets.scan(text)
         p.write_text(text, encoding="utf-8")
         self.paths.append(p)
+        if clean:
+            self.verified.add(p)
         return p
 
     def publish(self):

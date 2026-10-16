@@ -171,7 +171,22 @@ def render(cfg, snapshot=None):
         fnd, deps_json = _render_into(v, d)
         derived.write_json("findings", fnd)
         derived.write_json("dependencies", deps_json)
-        secrets.assert_clean(list(v.written) + derived.paths, f"render {run_id}")
+        # nota com trecho que só casa padrão de segredo na forma final (ex. entidades HTML decodificadas): limpa no
+        # lugar; se não der, a nota vira um aviso e o arquivo de dados sai — o vault é publicado mesmo assim
+        unverified = list(v.written) + [p for p in derived.paths if p not in derived.verified]
+        fixed, failed = secrets.sanitize_paths(unverified)
+        for p in failed:
+            if p.suffix == ".md":
+                p.write_text("---\ntipo: aviso\n---\n\n> [!danger] Conteúdo removido na publicação: possível segredo "
+                             "não redigido. Consulte o componente no ambiente.\n", encoding="utf-8", newline="\n")
+            else:
+                p.unlink(missing_ok=True)
+        if fixed or failed:
+            print(f"[dvinv] varredura do vault: {len(fixed)} arquivo(s) redigido(s) no lugar, {len(failed)} "
+                  "substituído(s)/removido(s) (possível segredo)", flush=True)
+        v.written = [p for p in v.written if Path(p).exists()]
+        derived.paths = [p for p in derived.paths if Path(p).exists()]
+        secrets.assert_clean(list(v.written) + [p for p in derived.paths if p not in derived.verified], f"render {run_id}")
         # publicação: troca a pasta do vault inteira (rename) e os derivados do run
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         old = None

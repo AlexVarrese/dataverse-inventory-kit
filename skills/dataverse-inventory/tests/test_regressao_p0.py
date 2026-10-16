@@ -325,14 +325,15 @@ class TestP002Segredos(unittest.TestCase):
         finally:
             env.close()
 
-    def test_scanner_final_bloqueia_render_e_preserva_vault(self):
+    def test_vazamento_no_render_e_redigido_e_vault_publicado(self):
+        """Caminho de código que esqueceu de redigir: o vault sai mesmo assim, com o valor redigido no lugar; se nem
+        isso der, a nota vira aviso. Em nenhum caso o valor chega ao vault ou aos derivados."""
+        from unittest import mock
         env = Env()
         try:
             cfg = env.cfg()
-            ctx, m, _ = env.extract(cfg)
+            env.extract(cfg)
             env.render(cfg)
-            idx = cfg.vault_dir / "00 Índice.md"
-            before = idx.read_text()
             orig = findings_mod.compute
 
             def leaky(d):  # simula um caminho de código que esqueceu de redigir
@@ -341,14 +342,16 @@ class TestP002Segredos(unittest.TestCase):
                 return out
             obsidian.findings_mod.compute = leaky
             try:
-                with self.assertRaises(secrets.SecretLeakError) as cm:
-                    env.render(cfg)
+                v, out = env.render(cfg)
+                self.assertIn("varredura do vault", out)
+                with mock.patch.object(secrets, "sanitize_file", lambda p: False):  # limpeza no lugar também falha
+                    v2, out2 = env.render(cfg)
             finally:
                 obsidian.findings_mod.compute = orig
-            self.assertNotIn("FAKEleak0099", str(cm.exception), "a mensagem de erro não pode repetir o valor")
-            self.assertEqual(idx.read_text(), before, "vault publicado foi alterado mesmo com vazamento")
+            self.assertIn("substituído(s)/removido(s)", out2)
             self.assertFalse(any("FAKEleak0099" in t for _, t in all_text_under(env.tmp / "vault")))
             self.assertFalse(any("FAKEleak0099" in t for _, t in all_text_under(cfg.derived_dir)))
+            self.assertTrue((cfg.vault_dir / "00 Índice.md").exists())
             self.assertEqual(list(cfg.vault_root.glob(".dvinv-render-*")), [])
         finally:
             env.close()
@@ -378,20 +381,28 @@ class TestP002Segredos(unittest.TestCase):
         finally:
             env.close()
 
-    def test_scanner_final_bloqueia_snapshot(self):
-        """Arquivo que não passa por write_json (ex. fonte decompilada) com segredo: a publicação é abortada."""
+    def test_arquivo_fora_do_write_json_e_limpo_ou_removido(self):
+        """Fonte decompilada com segredo: redigida no lugar e publicada; se não der para limpar, sai do snapshot como
+        lacuna. A extração nunca é descartada por um arquivo."""
+        from unittest import mock
         env = Env()
         try:
-            stg = snapshot_mod.Staging(env.tmp / "raw")
-            (stg.dir / "decompiled").mkdir()
-            (stg.dir / "decompiled" / "x.cs").write_text('var u = "https://h/?api_key=FAKEapikey0001";')
-            with self.assertRaises(secrets.SecretLeakError):
-                stg.publish({"tool": "dvinv"})
-            self.assertEqual(snapshot_mod.list_snapshots(env.tmp / "raw"), [])
-            self.assertEqual(list((env.tmp / "raw").glob(".staging-*")), [])
+            for limpa in (True, False):
+                stg = snapshot_mod.Staging(env.tmp / "raw")
+                (stg.dir / "decompiled").mkdir()
+                (stg.dir / "decompiled" / "x.cs").write_text('var u = "https://h/?api_key=FAKEapikey0001";')
+                if limpa:
+                    final, man = stg.publish({"tool": "dvinv"})
+                    self.assertIn(secrets.REDACTED, (final / "decompiled" / "x.cs").read_text())
+                else:
+                    with mock.patch.object(secrets, "sanitize_file", lambda p: False):
+                        final, man = stg.publish({"tool": "dvinv"})
+                    self.assertFalse((final / "decompiled" / "x.cs").exists())
+                    self.assertIn("removido", " ".join(g["what"] for g in man["gaps"]))
+                self.assertFalse(any("FAKEapikey0001" in t for _, t in all_text_under(final)))
+                self.assertTrue(snapshot_mod.verify(final)[0])
         finally:
             env.close()
-
 
 # ================================================================================================
 class TestSegredoSoNaFormaGravada(unittest.TestCase):

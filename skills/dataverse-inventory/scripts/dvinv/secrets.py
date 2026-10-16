@@ -229,6 +229,18 @@ TEXT_SUFFIXES = {".json", ".md", ".csv", ".base", ".canvas", ".txt", ".yaml", ".
 ZIP_SUFFIXES = {".xlsx", ".zip"}
 
 
+def _strings(obj, out):
+    if isinstance(obj, str):
+        out.append(obj)
+    elif isinstance(obj, list):
+        for x in obj:
+            _strings(x, out)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            out.append(k)
+            _strings(v, out)
+
+
 def _texts(path):
     path = Path(path)
     suf = path.suffix.lower()
@@ -240,6 +252,13 @@ def _texts(path):
     elif suf in TEXT_SUFFIXES:
         text = path.read_text(encoding="utf-8", errors="replace")
         yield str(path), text
+        if suf in (".json", ".canvas"):  # no texto do JSON as aspas vêm escapadas (password=\"x\") e o padrão não casa
+            try:
+                vals = []
+                _strings(json.loads(text), vals)
+                yield f"{path} (valores decodificados)", "\n".join(vals)
+            except ValueError:
+                pass
         if suf in (".xml", ".html", ".md", ".cs", ".csv"):
             un = html.unescape(text)
             if un != text:
@@ -258,6 +277,57 @@ def scan_paths(paths):
             for label, text in _texts(f):
                 hits += [(label, h) for h in scan(text)]
     return hits
+
+
+def _file_hits(path):
+    return [h for _label, text in _texts(path) for h in scan(text)]
+
+
+def sanitize_file(path):
+    """Último recurso antes de abortar uma publicação: limpa o arquivo no lugar → True se ficou limpo.
+
+    JSON/canvas: redact_tree + redact_serialized (estrutura preservada). Texto (nota, CSV, fonte): redige o texto e,
+    se ainda casar (ex. só na forma com entidades HTML decodificadas, `&quot;apiKey&quot;: …`), troca a linha
+    acusada por «REDACTED». Arquivo binário ou zip: não mexe (a varredura final decide)."""
+    path = Path(path)
+    if path.suffix.lower() not in TEXT_SUFFIXES or not path.exists() or not _file_hits(path):
+        return not (path.exists() and _file_hits(path))
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if path.suffix.lower() in (".json", ".canvas"):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
+        if data is not None:
+            data, _n = redact_serialized(redact_tree(data))
+            path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8", newline="\n")
+            return not _file_hits(path)
+    text = redact(text)
+    for _ in range(3):
+        path.write_text(text, encoding="utf-8", newline="\n")
+        hits = _file_hits(path)
+        if not hits:
+            return True
+        lines = text.split("\n")
+        for h in hits:
+            if 0 < h["line"] <= len(lines):
+                lines[h["line"] - 1] = f"{REDACTED} (linha removida na publicação: possível segredo)"
+        text = "\n".join(lines)
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return not _file_hits(path)
+
+
+def sanitize_paths(paths):
+    """sanitize_file em cada arquivo com achado → (limpos, que não deu para limpar). Nunca levanta."""
+    fixed, failed = [], []
+    for p in paths:
+        p = Path(p)
+        try:
+            if p.exists() and p.suffix.lower() in TEXT_SUFFIXES and _file_hits(p):
+                (fixed if sanitize_file(p) else failed).append(p)
+        except Exception:  # noqa: BLE001 — erro ao limpar = não limpo (quem chama remove o arquivo)
+            failed.append(p)
+    return fixed, failed
 
 
 def assert_clean(paths, label):
