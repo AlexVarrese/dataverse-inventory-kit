@@ -353,29 +353,96 @@ class TestP002Segredos(unittest.TestCase):
         finally:
             env.close()
 
-    def test_scanner_final_bloqueia_snapshot(self):
+    def test_redacao_quebrada_perde_so_a_etapa_sem_vazar(self):
+        """Redação estruturada E passada da forma gravada quebradas: a etapa com segredo não é gravada (lacuna), o
+        resto da extração é publicado e nenhum arquivo em disco tem o valor."""
         env = Env()
         try:
             cfg = env.cfg()
-            orig = snapshot_mod.secrets.redact_tree
+            orig_tree, orig_ser = snapshot_mod.secrets.redact_tree, snapshot_mod.secrets.redact_serialized
             snapshot_mod.secrets.redact_tree = lambda x: x  # redação "quebrada"
+            snapshot_mod.secrets.redact_serialized = lambda x: (x, 0)
             try:
                 def inject(p):  # nome de solução não é redigido na origem — só no redact_tree (desligado aqui)
                     if p.startswith("solutions"):
                         return [{"solutionid": G(11), "uniquename": "ContosoCore", "version": "1.0.0.0",
                                  "friendlyname": "Contoso https://x.contoso.example/?api_key=FAKEapikey0001",
                                  "ismanaged": False, "publisherid": {"customizationprefix": "contoso"}}]
-                with patched_route(inject), self.assertRaises(secrets.SecretLeakError):
-                    env.extract(cfg)
+                with patched_route(inject):
+                    ctx, m, out = env.extract(cfg)
             finally:
-                snapshot_mod.secrets.redact_tree = orig
-            self.assertEqual(snapshot_mod.list_snapshots(cfg.raw_dir), [])
+                snapshot_mod.secrets.redact_tree, snapshot_mod.secrets.redact_serialized = orig_tree, orig_ser
+            self.assertEqual(m["collectors"]["solutions"]["status"], "falhou", out)
+            self.assertFalse(any("FAKEapikey0001" in t for _, t in all_text_under(cfg.raw_dir)))
             self.assertEqual(list(cfg.raw_dir.glob(".staging-*")), [])
+        finally:
+            env.close()
+
+    def test_scanner_final_bloqueia_snapshot(self):
+        """Arquivo que não passa por write_json (ex. fonte decompilada) com segredo: a publicação é abortada."""
+        env = Env()
+        try:
+            stg = snapshot_mod.Staging(env.tmp / "raw")
+            (stg.dir / "decompiled").mkdir()
+            (stg.dir / "decompiled" / "x.cs").write_text('var u = "https://h/?api_key=FAKEapikey0001";')
+            with self.assertRaises(secrets.SecretLeakError):
+                stg.publish({"tool": "dvinv"})
+            self.assertEqual(snapshot_mod.list_snapshots(env.tmp / "raw"), [])
+            self.assertEqual(list((env.tmp / "raw").glob(".staging-*")), [])
         finally:
             env.close()
 
 
 # ================================================================================================
+class TestSegredoSoNaFormaGravada(unittest.TestCase):
+    """Strings vizinhas no JSON gravado (`"Authorization",\n "Content-Type"`) casavam o padrão de header e a
+    varredura final descartava a extração inteira. Agora: redigido ao gravar; se sobrar, perde só a etapa."""
+
+    def setUp(self):
+        self.env = Env()
+
+    def tearDown(self):
+        self.env.close()
+
+    def _with_headers(self, fn):
+        import dvinv.collectors as cols
+
+        def wrapped(ctx):
+            fn(ctx)
+            ctx.data["webresources"][0]["headers"] = ["Accept", "Authorization", "Content-Type"]
+        i = next(k for k, (n, _f) in enumerate(cols.REGISTRY) if n == "webresources")
+        orig = cols.REGISTRY[i]
+        cols.REGISTRY[i] = ("webresources", wrapped)
+        self.addCleanup(cols.REGISTRY.__setitem__, i, orig)
+
+    def test_write_json_redige_vizinhos(self):
+        stg = snapshot_mod.Staging(self.env.tmp / "raw")
+        n = stg.write_json("x", {"h": ["Authorization", "Content-Type"], "ok": "texto"})
+        text = (stg.dir / "x.json").read_text()
+        self.assertGreaterEqual(n, 1)
+        self.assertEqual(secrets.scan(text), [])
+        self.assertEqual(json.loads(text)["ok"], "texto")
+
+    def test_extracao_publica_com_vizinhos_redigidos(self):
+        import dvinv.collectors as cols
+        self._with_headers(dict(cols.REGISTRY)["webresources"])
+        ctx, m, out = self.env.extract(self.env.cfg())
+        self.assertEqual(m["collectors"]["webresources"]["status"], "ok", out)
+        self.assertTrue(ctx.snapshot_dir.exists())
+        self.assertIn("foram redigidos", out)
+
+    def test_sobra_de_segredo_perde_so_a_etapa(self):
+        import dvinv.collectors as cols
+        from unittest import mock
+        self._with_headers(dict(cols.REGISTRY)["webresources"])
+        with mock.patch.object(secrets, "redact_serialized", lambda o: (o, 0)):
+            ctx, m, out = self.env.extract(self.env.cfg())
+        self.assertEqual(m["collectors"]["webresources"]["status"], "falhou", out)
+        self.assertFalse((ctx.snapshot_dir / "webresources.json").exists())
+        self.assertEqual(m["collectors"]["tables"]["status"], "ok")  # o resto da extração foi publicado
+        self.assertIn("extração segue", out)
+
+
 class TestP003UsoDeCampos(unittest.TestCase):
     def setUp(self):
         self.env = Env()

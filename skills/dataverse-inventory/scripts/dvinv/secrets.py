@@ -11,13 +11,17 @@ Três camadas:
    sensíveis (com ou sem aspas), connection strings, SAS, JWT, Bearer.
 2. `redact_tree(obj)` — redação estruturada: além de redigir cada string, redige o valor inteiro de
    chaves de dicionário com nome sensível (`{"x-functions-key": "..."}` não tem contexto na string).
-3. `scan_paths(paths)` / `assert_clean(paths)` — varredura final (fail-closed) dos arquivos gerados;
+3. `redact_serialized(obj)` — passada sobre a forma GRAVADA: no JSON, strings vizinhas ficam lado a lado
+   (`"Authorization",\n "Content-Type"`) e podem casar um padrão que nenhuma casa sozinha (aqui, o de
+   `setRequestHeader("Authorization", valor)`). Redige o valor vizinho; chaves nunca mudam.
+4. `scan_paths(paths)` / `assert_clean(paths)` — varredura final (fail-closed) dos arquivos gerados;
    se algum padrão casar com valor não redigido, a publicação é abortada com `SecretLeakError`.
 
 Na dúvida, redige a mais: falso positivo custa um «REDACTED» numa nota; falso negativo vaza credencial.
 """
 
 import html
+import json
 import re
 import zipfile
 from pathlib import Path
@@ -148,6 +152,63 @@ def redact_tree(obj):
                 out[k] = redact_tree(v)
         return out
     return obj
+
+
+def _dirty(x):
+    return bool(scan(json.dumps(x, indent=1, ensure_ascii=False))
+                or scan(json.dumps(x, ensure_ascii=False, separators=(",", ":"))))
+
+
+def redact_serialized(obj):
+    """Redige o que só casa um padrão depois de serializado (vizinhos numa lista ou num dicionário, escape do JSON).
+
+    Só desce nos contêineres cuja forma gravada casa algum padrão; em cada par vizinho que casa, redige o valor de
+    baixo e, se não bastar, o de cima. Chaves não mudam (a estrutura continua a mesma). → (obj, quantos redigidos)."""
+    n = 0
+
+    def fix_pair(get, set_, slots):
+        nonlocal n
+        for j in reversed(slots):
+            if not _dirty(get()):
+                return
+            v = set_(j, None)
+            if isinstance(v, str) and v != REDACTED:
+                set_(j, REDACTED)
+                n += 1
+
+    def fix(o):
+        nonlocal n
+        if isinstance(o, str):
+            if not _dirty(o):
+                return o
+            n += 1
+            try:  # o escape do JSON expôs o padrão: redige a forma gravada e volta ao texto
+                back = json.loads(redact(json.dumps(o, ensure_ascii=False)))
+                return back if isinstance(back, str) and not _dirty(back) else REDACTED
+            except ValueError:
+                return REDACTED
+        if not isinstance(o, (list, dict)) or not _dirty(o):
+            return o
+        if isinstance(o, list):
+            o = [fix(x) for x in o]
+            for i in range(len(o) - 1):
+                def set_(j, v, i=i):
+                    if v is not None:
+                        o[i + j] = v
+                    return o[i + j]
+                fix_pair(lambda i=i: o[i:i + 2], set_, [0, 1])
+            return o
+        o = {k: fix(v) for k, v in o.items()}
+        keys = list(o)
+        for a, b in zip(keys, keys[1:]):
+            def set_(j, v, ab=(a, b)):
+                if v is not None:
+                    o[ab[j]] = v
+                return o[ab[j]]
+            fix_pair(lambda a=a, b=b: {a: o[a], b: o[b]}, set_, [0, 1])
+        return o
+
+    return fix(obj), n
 
 
 # ---------------------------------------------------------------------------------------------

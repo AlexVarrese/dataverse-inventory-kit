@@ -117,6 +117,13 @@ Núcleo e extras (uso em dois passos: `escopo`, depois `all`)
   contar como customizada — não põe tabela nativa no escopo e não entra no uso de campos (que já ignorava colunas
   de sistema e virtuais).
   `escopo` e `01 Ambiente` mostram quantos componentes o filtro descartou por prefixo.
+- Varredura de segredos sem perder a extração: o JSON gravado junta strings vizinhas (`"Authorization",\n
+  "Content-Type"`) e isso casava o padrão de header de autenticação — falso positivo que só existe no arquivo, e a
+  varredura final descartava horas de coleta. Agora cada arquivo é conferido ao ser gravado: o que só casa na forma
+  gravada é redigido ali (`redact_serialized`, o valor vizinho vira «REDACTED»; chaves não mudam); se ainda sobrar,
+  perde-se só aquela etapa (status `falhou`, lacuna declarada) e a extração segue. A varredura final cobre só o que
+  não passou por essa conferência (fontes decompiladas, manifesto) — sem varrer de novo os ~140 MB de catálogo e
+  dependências (ESAB-TEST: ~2 min a menos na publicação).
 - `$batch` (OData) nas etapas de uma leitura por item — ribbons, privilégios por papel (antes em sequência),
   colunas e chaves por tabela, fórmulas, dependências por solução/componente: 20 GETs por requisição
   (`deep.batch_size`; 0 desliga), pacotes em paralelo. Recusado pelo proxy/serviço → uma chamada por item.

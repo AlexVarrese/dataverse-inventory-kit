@@ -77,12 +77,28 @@ class Staging:
         self.run_id = rid
         self.dir = Path(tempfile.mkdtemp(prefix=f".staging-{rid}-", dir=self.root))
         self.published = None
+        self.verified = set()  # arquivos já conferidos ao gravar (write_json): a varredura final não repete
 
     def write_json(self, name, data):
-        """Grava <name>.json já redigido (redact_tree)."""
+        """Grava <name>.json já redigido (redact_tree) e conferido na forma gravada.
+
+        A conferência é por arquivo, logo ao gravar: o que só aparece no JSON serializado é redigido aqui
+        (redact_serialized). Se ainda sobrar algo, levanta SecretLeakError SEM gravar — o chamador perde só esta
+        etapa, não a extração inteira (antes, a varredura final descartava horas de coleta).
+        → quantos valores a passada sobre a forma gravada redigiu."""
         path = self.dir / f"{name}.json"
-        path.write_text(_dump(secrets.redact_tree(data), compact=name in COMPACT), encoding="utf-8")
-        return path
+        data = secrets.redact_tree(data)
+        text = _dump(data, compact=name in COMPACT)
+        n = 0
+        if secrets.scan(text):
+            data, n = secrets.redact_serialized(data)
+            text = _dump(data, compact=name in COMPACT)
+            hits = secrets.scan(text)
+            if hits:
+                raise secrets.SecretLeakError(f"{name}.json", [(f"{name}.json", h) for h in hits])
+        path.write_text(text, encoding="utf-8")
+        self.verified.add(path)
+        return n
 
     def publish(self, manifest):
         """Fecha o manifesto (lista + sha256), varre segredos (fail-closed) e publica por rename."""
@@ -91,9 +107,12 @@ class Staging:
             if p.is_file() and p.name != MANIFEST:
                 files[p.relative_to(self.dir).as_posix()] = sha256_file(p)
         manifest = secrets.redact_tree(dict(manifest, schema=SCHEMA, run_id=self.run_id, files=files))
+        if secrets.scan(_dump(manifest)):  # lacunas e chamadas também viram JSON: mesma passada da forma gravada
+            manifest, _n = secrets.redact_serialized(manifest)
         (self.dir / MANIFEST).write_text(_dump(manifest), encoding="utf-8")
-        try:
-            secrets.assert_clean([self.dir], f"snapshot {self.run_id}")
+        try:  # o que write_json já conferiu não é varrido de novo (catálogo/dependências: ~1 min por 70 MB)
+            rest = [p for p in sorted(self.dir.rglob("*")) if p.is_file() and p not in self.verified]
+            secrets.assert_clean(rest, f"snapshot {self.run_id}")
         except secrets.SecretLeakError:
             self.discard()
             raise
@@ -237,7 +256,10 @@ class DerivedStaging:
 
     def write_json(self, name, data):
         p = self.dir / f"{name}.json"
-        p.write_text(_dump(data), encoding="utf-8")
+        text = _dump(data)
+        if secrets.scan(text):  # achados/dependências: mesma passada sobre a forma gravada do snapshot
+            text = _dump(secrets.redact_serialized(data)[0])
+        p.write_text(text, encoding="utf-8")
         self.paths.append(p)
         return p
 

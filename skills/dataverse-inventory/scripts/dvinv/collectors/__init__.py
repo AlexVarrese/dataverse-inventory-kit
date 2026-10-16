@@ -15,6 +15,7 @@ import traceback
 from datetime import datetime, timezone
 
 from .. import secrets
+from ..snapshot import COMPACT
 from . import alm, apps, catalog, code, customization, navigation, environment, health, pcf, processes, repos, security, storage, tables, ui, usage, users
 from . import dependencies as deps
 
@@ -263,10 +264,26 @@ def run(ctx, only=None, base=None):
             print(line(name, ctx.stats.get(name), timings[name], st["status"]), flush=True)
             st["origem"] = "coletado nesta execução"
             st["arquivos"] = []
-            for key in keys:
-                if key in ctx.data:
-                    stg.write_json(key, ctx.data[key])
-                    st["arquivos"].append(f"{key}.json")
+            try:
+                for key in keys:
+                    if key in ctx.data:
+                        if key in COMPACT:  # dezenas de MB: a gravação + varredura de segredos leva ~1 min
+                            print(f"[dvinv]   gravando {key}.json e conferindo segredos…", flush=True)
+                        if stg.write_json(key, ctx.data[key]):
+                            print(f"[dvinv]   {key}.json: valores vizinhos que só casam padrão de segredo depois de "
+                                  "gravados foram redigidos", flush=True)
+                        st["arquivos"].append(f"{key}.json")
+            except secrets.SecretLeakError as e:  # perde só esta etapa, não a extração
+                for f in st["arquivos"] + [f"{k}.json" for k in keys]:
+                    (stg.dir / f).unlink(missing_ok=True)
+                for key in keys:
+                    ctx.data.pop(key, None)
+                ctx.stats.pop(name, None)
+                ctx.gap(name, "dados não gravados: possível segredo não redigido", str(e).splitlines()[0])
+                print(f"[dvinv]   FALHOU ao gravar: {str(e).splitlines()[0]} — etapa descartada, extração segue",
+                      flush=True)
+                st = {"status": "falhou", "motivo": "possível segredo não redigido nos dados gravados",
+                      "origem": "coletado nesta execução", "arquivos": []}
             ctx.status[name] = st
 
         manifest = {
