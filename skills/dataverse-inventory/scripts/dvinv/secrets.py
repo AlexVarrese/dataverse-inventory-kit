@@ -109,16 +109,41 @@ def _matches(text):
     return out
 
 
+def _decoded(text):
+    """Forma com entidades HTML decodificadas, se diferente (HTML de web resource: `&quot;apiKey&quot;: …`)."""
+    if "&" not in text:
+        return None
+    un = unescape_all(text)
+    return un if un != text else None
+
+
 def scan(text):
-    """Lista de {kind, line} sem o valor (um item por segredo, mesmo que vários padrões casem)."""
+    """Lista de {kind, line} sem o valor (um item por segredo, mesmo que vários padrões casem). Considera também a
+    forma com entidades HTML decodificadas — vale a que acusar mais."""
     if not text or not isinstance(text, str):
         return []
-    return [{"kind": name, "line": text.count("\n", 0, s) + 1} for s, _e, name in _matches(text)]
+    hits = [{"kind": name, "line": text.count("\n", 0, s) + 1} for s, _e, name in _matches(text)]
+    un = _decoded(text)
+    if un is not None:
+        enc = [{"kind": name, "line": un.count("\n", 0, s) + 1} for s, _e, name in _matches(un)]
+        if len(enc) > len(hits):
+            return enc
+    return hits
 
 
 def redact(text):
+    """Redige os padrões; se ainda sobrar segredo escondido em entidades HTML, devolve a forma decodificada, redigida
+    (só nesse caso o texto muda além do «REDACTED»)."""
     if not text or not isinstance(text, str):
         return text
+    text = _redact_plain(text)
+    un = _decoded(text)
+    if un is not None and _matches(un):
+        text = _redact_plain(un)
+    return text
+
+
+def _redact_plain(text):
     # repete até estabilizar: um valor redigido pode expor outro padrão (ex. header com URL dentro)
     for _ in range(4):
         spans = _matches(text)
@@ -225,6 +250,7 @@ class SecretLeakError(RuntimeError):
                          f"(valores não exibidos):\n" + "\n".join(lines) + more)
 
 
+UNESCAPE_SUFFIXES = {".xml", ".html", ".md", ".cs", ".csv"}  # varridos também com as entidades decodificadas
 TEXT_SUFFIXES = {".json", ".md", ".csv", ".base", ".canvas", ".txt", ".yaml", ".yml", ".cs", ".js", ".xml", ".html"}
 ZIP_SUFFIXES = {".xlsx", ".zip"}
 
@@ -239,6 +265,16 @@ def _strings(obj, out):
         for k, v in obj.items():
             out.append(k)
             _strings(v, out)
+
+
+def unescape_all(text):
+    """Decodifica entidades HTML até estabilizar: `&amp;quot;` (dupla codificação) também vira `"`."""
+    for _ in range(4):
+        un = html.unescape(text)
+        if un == text:
+            break
+        text = un
+    return text
 
 
 def _texts(path):
@@ -259,8 +295,8 @@ def _texts(path):
                 yield f"{path} (valores decodificados)", "\n".join(vals)
             except ValueError:
                 pass
-        if suf in (".xml", ".html", ".md", ".cs", ".csv"):
-            un = html.unescape(text)
+        if suf in UNESCAPE_SUFFIXES:
+            un = unescape_all(text)
             if un != text:
                 yield f"{path} (entidades decodificadas)", un
 
@@ -303,6 +339,11 @@ def sanitize_file(path):
             path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8", newline="\n")
             return not _file_hits(path)
     text = redact(text)
+    path.write_text(text, encoding="utf-8", newline="\n")
+    if _file_hits(path) and path.suffix.lower() in UNESCAPE_SUFFIXES:
+        # o padrão só aparece com as entidades decodificadas (`&quot;apiKey&quot;: …`): grava a forma decodificada,
+        # redigida — a numeração de linhas passa a ser a mesma da varredura (`&#10;` não desalinha mais)
+        text = redact(unescape_all(text))
     for _ in range(3):
         path.write_text(text, encoding="utf-8", newline="\n")
         hits = _file_hits(path)

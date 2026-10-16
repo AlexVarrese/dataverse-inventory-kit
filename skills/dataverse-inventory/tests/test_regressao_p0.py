@@ -37,6 +37,8 @@ G = tp.G
 # ------------------------------------------------------------------------------------------------
 # Vetores de segredo (valores fictícios). Cada valor carrega o marcador FAKE para a busca final.
 SECRET_VECTORS = {
+    "HTML com entidades": '<script>var cfg = {&quot;apiKey&quot;: &quot;FAKEhtmlkey0001&quot;};</script>',
+    "HTML com dupla codificação": '<p>password = &amp;quot;FAKEhtmlkey0002&amp;quot;;</p>',
     "query api_key": "https://api.contoso.example/v1/orders?api_key=FAKEapikey0001&page=2",
     "query access_token": "https://app.contoso.example/cb?state=x&access_token=FAKEaccess0002",
     "query client_secret": "https://login.contoso.example/t?client_id=abc&client_secret=FAKEclisec0003",
