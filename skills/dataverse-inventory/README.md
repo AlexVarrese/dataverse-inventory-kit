@@ -36,22 +36,32 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
 ## O que é gerado no vault
 
 ```
-<vault>/Dataverse/<AMBIENTE>/
-  00 Índice.md          números (escopo × org), achados, Bases embutidas
-  01 Ambiente.md        versão, critério de escopo, LACUNAS declaradas, soluções, tempos
-  03 Integrações.md     conectores, hosts HTTP, endpoints, Custom APIs, variáveis, conexões
-  04 Segurança.md       árvore de BUs, papéis, equipes, perfis de campo
-  05 Uso de Campos.md   preenchimento × uso, candidatos a investigação, inconclusivos                  
-  06 Armazenamento e Auditoria.md                                          (extra armazenamento)
-  07 Repositórios.md    ambiente × Git: divergências, sem fonte, segredos  (repos:)
-  08 Matriz de Dependências.md   impacto por tabela, tipo × tipo, órfãos, externos
-  Dependências.csv               lista de arestas (A depende de B) — abre no Excel
-  Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/  Componentes PCF/
-  Custom APIs/  Apps/  Soluções/  Papéis/  Business Units/  Equipes/  Usuários/ (extra usuarios)
-  Achados/  Comparações/
-  Bases/                Tabelas · Automações · Plugin Steps · Web Resources · Achados · Componentes ·
-                        Componentes PCF · Segurança (BUs, equipes, usuários)
-  Mapa do Ambiente.canvas
+<vault_root>/
+  AGENTS.md  CLAUDE.md          instruções para agentes (bloco dvinv + texto do time)
+  README.md  .gitignore  .gitattributes   blocos dvinv quando output.repo: true
+  Dataverse/<AMBIENTE>/
+    AGENT-INDEX.md        entrada para agentes: mapa, receitas de busca, o que não ler inteiro
+    00 Índice.md          números (escopo × org), achados, Bases embutidas
+    01 Ambiente.md        versão, critério e origem do escopo, status por etapa, LACUNAS, soluções, tempos
+    03 Integrações.md     conectores, hosts HTTP, endpoints, Custom APIs, variáveis, conexões
+    04 Segurança.md       árvore de BUs, papéis, matriz papel × tabela, equipes, perfis de campo
+    05 Uso de Campos.md   preenchimento × uso, candidatos a investigação, inconclusivos
+    06 Armazenamento e Auditoria.md                                (extra armazenamento)
+    07 Repositórios.md    ambiente × Git: divergências, sem fonte, segredos (repos:)
+    08 Matriz de Dependências.md   impacto por tabela, tipo × tipo, mais dependidos, órfãos, externos
+    09 Catálogo de Componentes.md  100% dos componentes das soluções, por tipo
+    10 Histórico de Soluções.md    importações e falhas (extra historico)
+    Componentes.csv       um componente por linha (chave, tipo, nome, GUID, escopo, nota)
+    Dependências.csv      uma linha por relação "A depende de B" — abre no Excel
+    Dependências ausentes.csv  Sem dependentes.csv  Equipes.csv
+    Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/  Componentes PCF/
+    Custom APIs/  Apps/  Site Maps/  SLAs/  Comandos/  Soluções/  Papéis/  Business Units/  Equipes/
+    Usuários/ (extra usuarios)  Achados/  Comparações/
+    Mapas/                um hub + um canvas por tipo de componente
+    Bases/                Tabelas · Automações · Plugin Steps · Web Resources · Achados · Componentes ·
+                          Componentes PCF · Segurança · Site Maps · SLAs
+    Mapa do Ambiente.canvas
+    Notas fora do inventário atual.md   notas com curadoria de componentes que deixaram de existir
 ```
 
 Cada nota tem properties tipadas (`tipo`, `ambiente`, `tabela`, `ativo`, `modo`…) que alimentam as
@@ -177,9 +187,11 @@ Com agente (Hermes/Claude Code): basta pedir "faça o inventário do ambiente X"
 ## Garantias
 
 - **Somente leitura**: o cliente HTTP só implementa GET.
-- **Segredos redigidos** antes de qualquer gravação (raw, fontes decompiladas, notas, planilhas, mensagens
-  de erro e lacunas). O achado informa onde está o segredo, nunca o valor. Varredura final fail-closed:
-  se algum padrão de segredo aparecer numa saída, o snapshot/vault não é publicado.
+- **Segredos redigidos** antes de qualquer gravação (raw, fontes decompiladas, notas, mensagens de erro e
+  lacunas), também quando escritos com entidades HTML. O achado informa onde está o segredo, nunca o valor.
+  Cada arquivo é conferido ao ser gravado; o que só aparece na forma gravada é redigido ali. Se algo não puder
+  ser limpo, perde-se só aquela etapa ou arquivo (lacuna declarada; nota vira aviso) — a extração e o vault
+  nunca são descartados inteiros, e nenhum valor chega ao disco em claro.
 - **Snapshots imutáveis**: cada extração tem seu `run_id`; nada de outra extração é reaproveitado.
 - **Lacunas declaradas**: o que falhou ou não é visível pela API vai para o manifest (status por coletor)
   e para `01 Ambiente.md`.

@@ -14,8 +14,12 @@ Três camadas:
 3. `redact_serialized(obj)` — passada sobre a forma GRAVADA: no JSON, strings vizinhas ficam lado a lado
    (`"Authorization",\n "Content-Type"`) e podem casar um padrão que nenhuma casa sozinha (aqui, o de
    `setRequestHeader("Authorization", valor)`). Redige o valor vizinho; chaves nunca mudam.
-4. `scan_paths(paths)` / `assert_clean(paths)` — varredura final (fail-closed) dos arquivos gerados;
-   se algum padrão casar com valor não redigido, a publicação é abortada com `SecretLeakError`.
+4. `sanitize_paths(paths)` — antes de publicar, limpa no lugar o que não passou pela gravação conferida (fontes
+   decompiladas, notas); quem chama remove o arquivo que não der para limpar e declara a lacuna.
+5. `scan_paths(paths)` / `assert_clean(paths)` — varredura final (fail-closed) do que sobrou; se algum padrão
+   ainda casar com valor não redigido, a publicação é abortada com `SecretLeakError`.
+
+Toda detecção considera também a forma com entidades HTML decodificadas (`&quot;apiKey&quot;`).
 
 Na dúvida, redige a mais: falso positivo custa um «REDACTED» numa nota; falso negativo vaza credencial.
 """

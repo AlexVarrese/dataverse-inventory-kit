@@ -336,9 +336,9 @@ milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service 
 3. Comece por `Dataverse/<AMBIENTE>/00 Índice.md`.
 4. **Matriz de dependências**: `08 Matriz de Dependências.md` (impacto por tabela, tipo × tipo, mais
    dependidos, externos, órfãos) e a seção *Dependências* de cada nota. Para o cliente, entregue
-   `Dependências.csv` (mesma pasta; abre no Excel, separador `;`). A matriz sai sempre;
-   `deep.platform_dependencies: true` acrescenta as dependências registradas pelo Dataverse e as
-   dependências ausentes de cada solução.
+   `Dependências.csv` (mesma pasta; abre no Excel, separador `;`). A matriz inclui as dependências
+   registradas pelo Dataverse e as dependências ausentes de cada solução (núcleo; `deep.platform_dependencies:
+   false` deixa só as que o kit deduz).
 
 ## 7. Problemas comuns
 
@@ -349,7 +349,8 @@ milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service 
 | `HTTP 403` só em um coletor (ex. canvasapps) | papel sem Read naquela tabela | vira lacuna em `01 Ambiente.md`; ampliar o papel se precisar |
 | device code bloqueado / AADSTS53003 | Conditional Access | usar SPN (3A) |
 | device code pede login a cada execução | o token fica só em memória por padrão | `auth.devicecode_cache: true` (cache criptografado do sistema; sem cofre disponível, falha — não há fallback em texto puro) |
-| `possível segredo não redigido … publicação abortada` | a varredura final achou padrão de segredo numa saída | nada foi publicado. Se o arquivo apontado for uma nota do vault, confira também a parte manual (abaixo do marcador), que é varrida junto; se for falso positivo do kit, abra uma issue com o tipo/linha (o valor não é exibido) |
+| etapa `falhou` com `possível segredo não redigido` | um trecho casou padrão de segredo e não pôde ser redigido na gravação | só aquela etapa ficou sem arquivo (lacuna); o resto foi publicado. Informe o tipo e a linha da mensagem (o valor não é exibido) |
+| `varredura do vault: N arquivo(s) redigido(s) no lugar` | nota com trecho que só casa padrão na forma final (ex. entidades HTML) | nada a fazer: o trecho foi redigido; se aparecer "substituído(s)", a nota virou aviso — confira a parte manual dela, que é varrida junto |
 | `URL recusada (host … difere …)` | `@odata.nextLink` ou URL absoluta fora do ambiente configurado | o token não foi enviado; confira `environment.url` (precisa ser `https://`) |
 | `mcp indisponível … libsecret` | keyring ausente (Linux headless) | SPN para o extrator; MCP segue para o agente |
 | MCP `403` após `mcp allow` | consentimento do tenant pendente | URL de admin consent (3B passo 3) |

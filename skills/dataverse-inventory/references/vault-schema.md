@@ -77,7 +77,7 @@ snapshot, `_raw/<run_id>/webresources.json`); a análise estática e as funçõe
 
 - Texto com LF e ordem estável: o diff entre extrações mostra só o que mudou no ambiente.
 - O render avisa quando algum arquivo passa de 50 MB (o GitHub alerta nesse ponto e recusa acima de 100 MB).
-- Só texto: sem planilha nem banco binário (a `Matriz de Dependências.xlsx` de versões anteriores é removida no render).
+- Só texto: sem planilha nem banco binário (a planilha xlsx de versões anteriores é removida no render).
 - Snapshot bruto e derivados ficam em `out/`, fora do vault — não vão para o repositório.
 - `output.repo: true` (repositório de conhecimento): o render mantém blocos `dvinv` no `README.md` (ambientes,
   snapshot, como consultar, o que não está no repositório), no `.gitignore` (estado local do Obsidian, cópias de
