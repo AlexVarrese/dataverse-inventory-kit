@@ -117,6 +117,12 @@ Núcleo e extras (uso em dois passos: `escopo`, depois `all`)
   contar como customizada — não põe tabela nativa no escopo e não entra no uso de campos (que já ignorava colunas
   de sistema e virtuais).
   `escopo` e `01 Ambiente` mostram quantos componentes o filtro descartou por prefixo.
+- Notas de versão automáticas: cada render gera `Mudanças desde a extração anterior.md` e `Mudanças.csv`,
+  comparando com o snapshot completo anterior do ambiente — componentes novos, removidos e alterados (com o que
+  mudou) e achados novos, resolvidos, que melhoraram ou pioraram, com as ocorrências corrigidas; resumo no
+  `00 Índice`. Etapa que falhou ou rodou com opções diferentes (inclusive nas etapas de que depende) vira "não
+  comparado"; campos voláteis e campos novos de uma versão do kit não contam como mudança. Validado no ESAB-TEST:
+  sem falso positivo entre extrações com opções e versões diferentes do kit.
 - Varredura de segredos sem perder a extração: o JSON gravado junta strings vizinhas (`"Authorization",\n
   "Content-Type"`) e isso casava o padrão de header de autenticação — falso positivo que só existe no arquivo, e a
   varredura final descartava horas de coleta. Agora cada arquivo é conferido ao ser gravado: o que só casa na forma

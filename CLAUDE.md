@@ -66,6 +66,9 @@ skills/dataverse-inventory/
   de 100%, dependências da plataforma, contagem de registros, uso de campos). Extras opt-in (`extras:` /
   `--extras`): `saude`, `armazenamento`, `historico`, `camadas`, `binarios`, `usuarios`. `deep:` no yaml é ajuste
   fino; se desligar parte do núcleo, o `dvinv` avisa. Não existem mais níveis nem `--deep`/`--nivel`.
+- **Notas de versão** (`changes.py`): cada render compara com o snapshot completo anterior e gera
+  `Mudanças desde a extração anterior` + `Mudanças.csv`. Nada pode virar "resolvido" ou "alterado" por falha de
+  etapa, opção diferente ou atualização do kit: esses casos são "não comparado" ou ignorados.
 - **Escopo** (`scope.py`): prefixo, palavra-chave, solução, não gerenciado ou `all`; `exclude_prefixes`.
   `exclude_microsoft` (padrão ligado): prefixos de publishers da Microsoft fora do escopo mesmo dentro de solução
   do escopo; plugins da Microsoft identificados pela **chave de assinatura** (`publickeytoken`) ou nome

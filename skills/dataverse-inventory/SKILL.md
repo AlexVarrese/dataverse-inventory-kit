@@ -143,7 +143,11 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
      `obsidian-markdown` (wikilinks, callouts, properties). Para visões novas, use `obsidian-bases`;
      para diagramas, `json-canvas`.
    - Atualize `status` do achado (`aberto` → `confirmado`/`falso-positivo`/`resolvido`).
-8. **Comparar ambientes/snapshots:** `dvinv.py diff -c inventory.yaml --a out/PRD/_raw --b out/TEST/_raw`
+8. **O que mudou desde a última extração:** cada render gera `Mudanças desde a extração anterior.md` e
+   `Mudanças.csv` (componentes novos, removidos e alterados com o que mudou; achados novos e resolvidos, com as
+   ocorrências corrigidas) comparando com o snapshot completo anterior do ambiente. Use-a para notas de versão e
+   para responder "o que mudou/foi corrigido"; tipos marcados "não comparado" não sustentam conclusão.
+   **Comparar ambientes/snapshots quaisquer:** `dvinv.py diff -c inventory.yaml --a out/PRD/_raw --b out/TEST/_raw`
    (raiz → último snapshot íntegro de cada lado) ou `--a <run_id> --b <run_id>` para duas datas do mesmo
    ambiente. Snapshots antigos ficam em `_raw/<run_id>/`; apague os que não precisar mais.
 9. **Reportar ao usuário:** números do índice com a fonte (`_raw/<run_id>/*.json`), achados críticos e altos

@@ -290,6 +290,9 @@ python3 $D render  -c inventory.yaml --snapshot 20261009T203200Z   # renderiza u
 python3 $D all     -c inventory.yaml --profile metadata_only       # só metadados (ver abaixo)
 ```
 
+Na semana seguinte, rode o mesmo comando: o vault é regenerado no lugar e a nota `Mudanças desde a extração
+anterior` mostra o que entrou, saiu e mudou e quais achados foram resolvidos (ver README, "Semana seguinte").
+
 Cada `extract` cria um snapshot imutável em `<raw_dir>/<run_id>/` (run_id = data/hora UTC) com
 `manifest.json` (status de cada coletor, arquivos com sha256, lacunas). A extração grava numa pasta
 `.staging-*` e só publica no fim; se for interrompida, nada fica com cara de snapshot. O `render` usa o

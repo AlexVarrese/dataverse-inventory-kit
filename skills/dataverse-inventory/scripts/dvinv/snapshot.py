@@ -224,8 +224,9 @@ def resolve(path, root=None):
     raise SnapshotError(f"Nenhum snapshot íntegro em {p} — rode 'extract' antes.")
 
 
-def load(snap):
-    """dict nome → conteúdo, só com os arquivos listados no manifesto (e conferidos)."""
+def load(snap, skip=()):
+    """dict nome → conteúdo, só com os arquivos listados no manifesto (e conferidos). `skip`: nomes que não são
+    carregados (ex. o catálogo, quando só se precisa comparar componentes) — a integridade de todos é conferida."""
     snap = Path(snap)
     m = read_manifest(snap)
     if m is None:
@@ -236,7 +237,7 @@ def load(snap):
             raise SnapshotError(f"Snapshot {snap} não está íntegro: {'; '.join(probs[:5])}")
         d = {"manifest": m}
         for rel in m.get("files") or {}:
-            if "/" not in rel and rel.endswith(".json"):
+            if "/" not in rel and rel.endswith(".json") and rel[:-5] not in skip:
                 d[rel[:-5]] = json.loads((snap / rel).read_text(encoding="utf-8"))
         return d
     print(f"[dvinv] AVISO: {snap} está no formato antigo (sem manifesto de integridade); arquivos de outra "

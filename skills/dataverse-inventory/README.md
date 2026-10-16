@@ -62,6 +62,7 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
                           Componentes PCF · Segurança · Site Maps · SLAs
     Mapa do Ambiente.canvas
     Notas fora do inventário atual.md   notas com curadoria de componentes que deixaram de existir
+    Mudanças desde a extração anterior.md  Mudanças.csv   notas de versão: o que entrou, saiu e mudou
 ```
 
 Cada nota tem properties tipadas (`tipo`, `ambiente`, `tabela`, `ativo`, `modo`…) que alimentam as
@@ -166,6 +167,18 @@ registros (código, definições, uso de campos, extras de dados), mesmo que o n
 | Rodar só algumas etapas | `... extract -c inventory.yaml --only webresources,forms --completar ultimo` |
 | Consultar impacto (sem config, em qualquer clone do vault) | `... onde-usa account.campo --vault Dataverse/<AMB>` · `impacto` · `depende` · `buscar` |
 | Comparar ambientes/datas | `... diff -c inventory.yaml --a <snapshot> --b <snapshot>` |
+
+**Semana seguinte (versionamento):** rode o mesmo `all`. Cada execução vira um snapshot novo (os anteriores ficam
+em `_raw/`) e o vault é regenerado no lugar, preservando o que o time escreveu e o status dos achados:
+
+- **`Mudanças desde a extração anterior`** (e `Mudanças.csv`): compara com o snapshot completo anterior do mesmo
+  ambiente — componentes novos, removidos e alterados (dizendo o que mudou: código, colunas, filtro, versão,
+  soluções, data de modificação…) e achados novos, resolvidos, que melhoraram ou pioraram, com as ocorrências
+  corrigidas. O `00 Índice` traz o resumo. Tipo cuja etapa falhou ou rodou com opções diferentes aparece como
+  "não comparado", para nada virar "resolvido" por engano; campos que só uma versão do kit grava não contam.
+- **Git:** a saída é estável, então o `git diff` do repositório mostra só o que mudou no ambiente; o histórico de
+  commits é o versionamento semana a semana.
+- **`diff`:** para comparar quaisquer dois snapshots (outras datas ou HML × PRD), com nota em `Comparações/`.
 
 **Acompanhar:** o log com hora e cada chamada à API fica em `out/<ambiente>/logs/dvinv-<data>-<comando>.log`.
 Cada etapa termina com "N na org · M no escopo · processado"; etapas em lote mostram `N/total · ~restante`;

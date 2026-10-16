@@ -28,6 +28,7 @@ arquivos e o diff do Git mostra só mudança real): a data e o `snapshot` ficam 
 | `usuario` | `Usuários/` (só extra `usuarios`, só ativos) | `upn`, `tipo_usuario`, `modo_acesso`, `licenca`, `business_unit` (link), `papeis`, `papeis_via_equipe`, `equipes` |
 | `achado` | `Achados/` | `id_achado`, `severidade`, `titulo`, `metrica`, **`status`**, **`responsavel`** |
 | `comparacao` | `Comparações/` | `ambiente_a`, `ambiente_b`, `data_a`, `data_b` |
+| `mudancas` | `Mudanças desde a extração anterior.md` | `snapshot`, `snapshot_anterior`, `novos`, `removidos`, `alterados`, `achados_resolvidos`, `achados_novos` |
 
 Notas de componente que participam do grafo também recebem `dependencias` (quantos componentes ela usa)
 e `dependentes` (quantos a usam), e uma seção **Dependências** com *Depende de* / *Usado por* agrupados
@@ -69,9 +70,28 @@ e a janela de contexto de um agente sofrem com notas de vários MB):
 | `Sem dependentes.csv` | lista completa de componentes sem dependente (só quando passa do limite da nota 08) |
 | `Dependências ausentes.csv` | RetrieveMissingDependencies por solução, com nomes do catálogo |
 | `Equipes.csv` | todas as equipes estruturais; com mais de 1.000, só as que têm papel ou grupo do Entra viram nota |
+| `Mudanças.csv` | tipo, situação (novo, removido, alterado, corrigido, nova ocorrência), componente e o que mudou, desde a extração anterior |
 
 Web resource de biblioteca de terceiros ou com mais de 150 KB não tem o código na nota (fica no
 snapshot, `_raw/<run_id>/webresources.json`); a análise estática e as funções continuam na nota.
+
+## Mudanças desde a extração anterior
+
+Gerada a cada render (`dvinv/changes.py`), comparando o snapshot renderizado com o snapshot **íntegro e completo**
+imediatamente anterior da mesma pasta `_raw` (execução parcial — `--only` sem `--completar` — não serve de base):
+
+- por tipo (tabelas, colunas customizadas, relacionamentos, option sets, formulários, views, web resources, PCF,
+  assemblies, steps, processos, Custom APIs, service endpoints, variáveis, conexões, apps, site maps, comandos,
+  SLAs, mapeamentos, papéis): novos, removidos e alterados, com os campos que mudaram;
+- achados: novo, resolvido, melhorou ou piorou (número de ocorrências), mudou, igual ou **não comparável**, e as
+  ocorrências corrigidas e novas (achados `info` não listam ocorrências);
+- resumo no `00 Índice` e tudo em `Mudanças.csv`.
+
+Regras para não acusar mudança que não houve: ignora campos voláteis (contagem de registros, origem do conteúdo,
+análises derivadas, quem modificou); compara só campos que as duas extrações gravam (atualização do kit não vira
+mudança); tipo e achado cuja etapa falhou, ficou desligada ou rodou com opções `deep.*` diferentes — inclusive nas
+etapas de que depende — saem como "não comparado". A data de modificação conta: deploy que regrava sem mudar conteúdo
+aparece como "data de modificação". Primeira extração: a nota diz que não há com o que comparar.
 
 ## Vault em repositório Git
 

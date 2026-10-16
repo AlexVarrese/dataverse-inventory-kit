@@ -113,6 +113,8 @@ def write_agent_index(v, d, has_catalog):
          "- A coluna `Nota` (CSV) ou `nota` (dvinv) dá o caminho. Cada nota tem `chave` e `id` (GUID) no frontmatter "
          "e a seção **Dependências** (depende de / usado por).",
          "- Números e escopo: `00 Índice.md`; lacunas da coleta: `01 Ambiente.md` (*Lacunas declaradas*).",
+         "- O que mudou desde a extração anterior (componentes novos, removidos, alterados; achados resolvidos e "
+         "novos): `Mudanças desde a extração anterior.md` e `Mudanças.csv` — não reconstrua isso pelo histórico.",
          "- Abaixo do marcador `%% dvinv:manual %%` de cada nota está a curadoria humana — fonte de decisões; não sobrescreva.",
          "- Ausência de aresta não prova ausência de uso (integrações externas, Power BI, código fora do Dataverse).", "",
          "## Mapa do vault", "",

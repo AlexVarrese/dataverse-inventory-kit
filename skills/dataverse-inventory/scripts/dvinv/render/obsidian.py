@@ -21,6 +21,7 @@ from pathlib import Path
 import yaml
 
 from .. import dependencies as deps_mod
+from .. import changes as changes_mod
 from .. import findings as findings_mod
 from .. import secrets
 from .. import snapshot as snapshot_mod
@@ -232,6 +233,8 @@ def _render_into(v, d):
     if not d.get("manifest"):
         raise SystemExit("Snapshot sem manifest.json — rode 'extract' antes.")
     fnd = findings_mod.compute(d)
+    # notas de versão: compara com o snapshot anterior do mesmo ambiente (antes de escrever qualquer nota)
+    chg = changes_mod.compare(v.snapshot, d, fnd) if getattr(v, "snapshot", None) else None
 
     tables = d.get("tables") or []
     plugins = d.get("plugins") or {"assemblies": [], "steps": []}
@@ -769,7 +772,8 @@ def _render_into(v, d):
     canvas.write_map(v, d)
     has_catalog = catalog.write_catalog(v, d)
     v.maps = maps.write_maps(v, graph)  # Mapas/<Tipo>.md + .canvas: navegação e grafo por tipo
-    write_index(v, d, manifest, fnd, has_catalog)
+    write_changes(v, chg)
+    write_index(v, d, manifest, fnd, has_catalog, chg)
     catalog.write_agent_index(v, d, has_catalog)  # lista as notas grandes já escritas
     prune_orphans(v)                               # por último: tudo que esta extração escreveu já está em v.written
     return fnd, deps_json
@@ -1163,7 +1167,70 @@ def write_environment(v, d, manifest):
                                         "extras": manifest.get("extras") or [], "tags": v.tags("secao")}, "\n".join(b))
 
 
-def write_index(v, d, manifest, fnd, has_catalog=False):
+CHANGES_LIST_MAX = 200  # itens por lista na nota de mudanças; a lista completa vai para Mudanças.csv
+
+
+def write_changes(v, chg):
+    """`Mudanças desde a extração anterior` + `Mudanças.csv`: notas de versão do ambiente (ver changes.py)."""
+    title = f"{v.folder}/Mudanças desde a extração anterior"
+    csv_rows = [["Tipo", "Situação", "Componente", "O que mudou"]]
+    head = ["# Mudanças desde a extração anterior", ""]
+    if not chg or chg.get("error"):
+        why = (f"A extração anterior (`{chg['prev']}`) não pôde ser lida: {chg['error']}" if chg else
+               "Primeira extração deste ambiente nesta pasta: ainda não há com o que comparar. A partir da próxima, "
+               "esta nota mostra o que entrou, saiu e mudou no ambiente e quais achados foram resolvidos.")
+        v.write(title, {"tipo": "mudancas", "tags": v.tags("mudancas")}, "\n".join(head + [why, ""]))
+        catalog.write_csv(v, "Mudanças.csv", csv_rows)
+        return
+    new, rem, alt, res, nov = changes_mod.summary(chg)
+    lk = lambda name, link: v.link(link[0], link[1], name, in_table=True) if link else name  # noqa: E731
+    b = head + [f"Snapshot `{chg['prev']}` ({chg['prev_at']}) → `{chg['cur']}` ({chg['cur_at']}): **{new}** novo(s), "
+                f"**{rem}** removido(s), **{alt}** alterado(s) · achados: **{res}** resolvido(s), **{nov}** novo(s).", ""]
+    if chg["scope_changed"]:
+        b += ["> [!warning] O critério de escopo mudou entre as duas extrações: parte das diferenças pode vir da "
+              "configuração, não do ambiente.", ""]
+    skipped = [r["label"] for r in chg["types"] if not r["comparable"]]
+    if skipped:
+        b += [f"> [!info] Não comparados (etapa falhou, ficou desligada ou rodou com opções diferentes numa das extrações): {', '.join(skipped)}.", ""]
+    moved = [r for r in chg["types"] if r["comparable"] and (r["new"] or r["removed"] or r["changed"])]
+    b += ["## Resumo por tipo", "", mdtable(["Tipo", "Novos", "Removidos", "Alterados"],
+          [[r["label"], len(r["new"]), len(r["removed"]), len(r["changed"])] for r in moved])]
+    fch = [f for f in chg["findings"] if f["status"] != "igual"]
+    b += ["## Achados", "", mdtable(["Achado", "Severidade", "Antes", "Agora", "Situação"],
+          [[f"{f['id']} {f['title']}" if f["status"] == "resolvido" else
+            v.link("finding", f["id"], f"{f['id']} {f['title']}", in_table=True),
+            f["severity"], f["before"], f["after"], f["status"]] for f in fch])]
+    for label, field in (("Ocorrências corrigidas", "fixed"), ("Ocorrências novas", "added")):
+        occ = [(f["id"], e) for f in chg["findings"] for e in f[field]]
+        if occ:
+            b += [f"### {label} ({len(occ)})", "", mdtable(["Achado", "Ocorrência"], [list(o) for o in occ[:CHANGES_LIST_MAX]])]
+            if len(occ) > CHANGES_LIST_MAX:
+                b += [f"… e mais {len(occ) - CHANGES_LIST_MAX}: ver `Mudanças.csv`.", ""]
+        csv_rows += [["Achado", "corrigido" if field == "fixed" else "nova ocorrência", fid, e] for fid, e in occ]
+    for r in moved:
+        b += [f"## {r['label']}", ""]
+        for label, items in (("Novos", r["new"]), ("Removidos", r["removed"])):
+            if items:
+                b += [f"**{label} ({len(items)}):** " + ", ".join(lk(n, link) for n, link in items[:CHANGES_LIST_MAX])
+                      + (f" … e mais {len(items) - CHANGES_LIST_MAX} (ver `Mudanças.csv`)" if len(items) > CHANGES_LIST_MAX
+                         else ""), ""]
+        if r["changed"]:
+            b += [f"**Alterados ({len(r['changed'])}):**", "", mdtable(["Componente", "O que mudou"],
+                  [[lk(n, link), ", ".join(what)] for n, link, what in r["changed"][:CHANGES_LIST_MAX]])]
+            if len(r["changed"]) > CHANGES_LIST_MAX:
+                b += [f"… e mais {len(r['changed']) - CHANGES_LIST_MAX}: ver `Mudanças.csv`.", ""]
+        csv_rows += [[r["label"], "novo", n, ""] for n, _l in r["new"]]
+        csv_rows += [[r["label"], "removido", n, ""] for n, _l in r["removed"]]
+        csv_rows += [[r["label"], "alterado", n, ", ".join(what)] for n, _l, what in r["changed"]]
+    if not moved and not fch:
+        b += ["Nenhuma mudança nos componentes do escopo nem nos achados.", ""]
+    v.write(title, {"tipo": "mudancas", "snapshot": chg["cur"], "snapshot_anterior": chg["prev"], "novos": new,
+                    "removidos": rem, "alterados": alt, "achados_resolvidos": res, "achados_novos": nov,
+                    "tags": v.tags("mudancas")}, "\n".join(b))
+    catalog.write_csv(v, "Mudanças.csv", csv_rows)
+
+
+def write_index(v, d, manifest, fnd, has_catalog=False, chg=None):
     st = manifest.get("stats") or {}
     procs = d.get("processes") or []
     plugins = d.get("plugins") or {}
@@ -1207,6 +1274,11 @@ def write_index(v, d, manifest, fnd, has_catalog=False):
          "> [!summary] Achados automáticos",
          "> " + " · ".join(f"**{n}** {s}" for s, n in sorted(sev.items(), key=lambda x: findings_mod.SEV_ORDER.get(x[0], 9))) +
          f" — ver {v.link_path('Bases/Achados.base', 'Achados')}" if fnd else "> Nenhum achado automático.", "",
+         *(["> [!info] Desde a extração anterior ({}): {} novo(s) · {} removido(s) · {} alterado(s) · achados: {} "
+            "resolvido(s), {} novo(s) — ver {}".format(
+                (chg.get("prev_at") or chg["prev"])[:10], *changes_mod.summary(chg),
+                v.link_path("Mudanças desde a extração anterior", "Mudanças desde a extração anterior")), ""]
+           if chg and not chg.get("error") else []),
          "## Números", "", mdtable(["Componente", "No escopo", "Total na org"], rows),
          "## Navegação", "",
          f"- {v.link_path('01 Ambiente', 'Ambiente, escopo e lacunas')}",

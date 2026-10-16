@@ -456,6 +456,79 @@ class TestSegredoSoNaFormaGravada(unittest.TestCase):
         self.assertIn("extração segue", out)
 
 
+class TestMudancasEntreExtracoes(unittest.TestCase):
+    """Semana seguinte: a nota de mudanças mostra o que mudou e os achados resolvidos, sem rodar diff."""
+
+    def test_nota_de_mudancas(self):
+        import copy
+        env = Env()
+        try:
+            cfg = env.cfg()
+            env.extract(cfg)
+            env.render(cfg)
+            nota = cfg.vault_dir / "Mudanças desde a extração anterior.md"
+            self.assertIn("Primeira extração", nota.read_text())
+
+            rota = tp.route  # a original: dentro do patch, tp.route é o próprio wrapper
+
+            def corrige(path):  # o time pôs filtro de colunas no step de Update (resolve o PLG-01)
+                if path.startswith("sdkmessageprocessingsteps?"):
+                    steps = copy.deepcopy(rota(path))
+                    for st in steps:
+                        if st.get("sdkmessageprocessingstepid") == G(110):
+                            st["filteringattributes"] = "contoso_tier"
+                    return steps
+                return None
+            with patched_route(corrige):
+                env.extract(cfg)
+            v, out = env.render(cfg)
+            texto = nota.read_text()
+            self.assertIn("filtro de colunas", texto)
+            self.assertRegex(texto, r"PLG-01[^\n]*resolvido")
+            self.assertIn("Desde a extração anterior", (cfg.vault_dir / "00 Índice.md").read_text())
+            csv_txt = (cfg.vault_dir / "Mudanças.csv").read_text(encoding="utf-8-sig")
+            self.assertIn("Plugin steps;alterado;", csv_txt)
+            self.assertIn("Achado;corrigido;PLG-01;", csv_txt)
+            # sem mudança no ambiente: nova extração não acusa nada (ignora contagens e origem do conteúdo)
+            with patched_route(corrige):
+                env.extract(cfg)
+            env.render(cfg)
+            self.assertIn("Nenhuma mudança", nota.read_text())
+            # etapa que falha numa das extrações: seus achados não viram "resolvidos"
+
+            def falha(path):
+                if path.startswith("sdkmessageprocessingsteps?"):
+                    raise DataverseError(503, path, "indisponível")
+                return None
+            with patched_route(falha):
+                env.extract(cfg)
+            env.render(cfg)
+            texto = nota.read_text()
+            self.assertIn("Plugin steps", texto.split("Não comparados")[1].split("\n")[0])
+            self.assertNotRegex(texto, r"PLG-0\d[^\n]*\| resolvido")
+            self.assertRegex(texto, r"PLG-0\d[^\n]*não comparável")
+        finally:
+            env.close()
+
+
+class TestMudancasNuncaDerrubaRender(unittest.TestCase):
+    def test_snapshot_anterior_inesperado(self):
+        from unittest import mock
+        from dvinv import changes
+        env = Env()
+        try:
+            cfg = env.cfg()
+            env.extract(cfg)
+            env.extract(cfg)
+            with mock.patch.object(changes, "_compare", side_effect=KeyError("logical")):
+                env.render(cfg)
+            nota = (cfg.vault_dir / "Mudan\u00e7as desde a extra\u00e7\u00e3o anterior.md").read_text()
+            self.assertIn("n\u00e3o p\u00f4de ser lida", nota)
+            self.assertTrue((cfg.vault_dir / "00 \u00cdndice.md").exists())
+        finally:
+            env.close()
+
+
 class TestP003UsoDeCampos(unittest.TestCase):
     def setUp(self):
         self.env = Env()
