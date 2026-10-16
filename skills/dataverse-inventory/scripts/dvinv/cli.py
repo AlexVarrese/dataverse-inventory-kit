@@ -159,6 +159,10 @@ def cmd_escopo(cfg):
         w = csv.writer(f, delimiter=";")
         w.writerow(["Tabela", "Motivo", "Colunas custom", "Custom", "Gerenciada"])
         w.writerows([[t["logical"], t["reason"], t["custom_columns"], t["custom"], t["managed"]] for t in sel])
+    ms = ctx.scope.excluded_summary()
+    if ms:
+        print(f"\nDescartados por prefixo da Microsoft (scope.exclude_microsoft): {sum(ms.values())} componente(s) — "
+              + ", ".join(f"{p} {n}" for p, n in list(ms.items())[:10]))
     print(f"\nLista completa: {out}")
     print("Motivos: prefix/keyword/solution = critério do yaml · custom-columns = tabela nativa com coluna "
           "customizada · unmanaged = componente não gerenciado. Muitas tabelas por 'custom-columns'/'unmanaged' "

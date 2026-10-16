@@ -319,11 +319,12 @@ privilégios por papel, ribbons, catálogo de 100%, dependências registradas pe
 plugin), `usuarios` (lista nominal e membros de equipe — dado pessoal). As chaves `deep:` ficam para ajuste fino
 (ver o fim do `inventory.example.yaml`); se o YAML desligar parte do núcleo, o `dvinv` avisa.
 
-Desempenho: o kit reaproveita conexões HTTPS (keep-alive), pede respostas comprimidas (gzip), busca
-em lote (até 25 ids por consulta) e faz até `parallel` (padrão 4) chamadas simultâneas nas etapas de uma
-chamada por item. O log mostra o progresso dessas etapas e avisa se o serviço pedir espera (429).
-Referência medida: ambiente com 159 tabelas, 4 mil colunas custom, 1,8 mil views, 900 processos e 1,5 mil
-consultas de dependência — **22 min** com todas as coletas ligadas, a partir de um host a ~200 ms do datacenter.
+Desempenho: o kit reaproveita conexões HTTPS (keep-alive), pede respostas comprimidas (gzip), busca em lote
+(até 25 ids por consulta), empacota leituras de um item em `$batch` (20 por requisição; `deep.batch_size`) e
+faz até `parallel` (padrão 4) chamadas simultâneas nas etapas de uma chamada por item. O log mostra o
+progresso dessas etapas e avisa se o serviço pedir espera (429). Referência medida: ambiente com 159
+tabelas, 4 mil colunas custom, 1,8 mil views, 900 processos e 1,5 mil consultas de dependência — **22 min**
+com todas as coletas ligadas, a partir de um host a ~200 ms do datacenter.
 
 Tempo típico: de minutos (org pequena) até 30–60 min em orgs com centenas de tabelas e
 milhares de processos. O cliente respeita `Retry-After` em caso de 429 (service protection limits).

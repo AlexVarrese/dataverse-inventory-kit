@@ -1105,7 +1105,10 @@ def write_environment(v, d, manifest):
           f"- Palavras-chave: {', '.join(f'`{k}`' for k in sc.get('keywords') or []) or '—'}",
           f"- Soluções: {', '.join(sc.get('solutions') or []) or '—'}",
           f"- Inclui não gerenciados: {sc.get('include_unmanaged')} · tudo: {sc.get('all')}",
-          f"- Prefixos excluídos: {', '.join(f'`{p}`' for p in sc.get('exclude_prefixes') or []) or '—'}", ""]
+          f"- Prefixos excluídos: {', '.join(f'`{p}`' for p in sc.get('exclude_prefixes') or []) or '—'}",
+          f"- Prefixos da Microsoft descartados: {'sim' if sc.get('exclude_microsoft', True) else 'não'}"
+          + (" — " + ", ".join(f"`{p}` {n}" for p, n in (manifest.get("scope_excluded_microsoft") or {}).items())
+             if manifest.get("scope_excluded_microsoft") else ""), ""]
     bd = manifest.get("scope_breakdown") or {}
     if bd:
         b += ["### De onde veio o escopo (componentes únicos por motivo × prefixo)", "",

@@ -318,13 +318,18 @@ def collect_ribbons(ctx):
         return
     out = []
 
-    def fetch(ent):
-        d = c.get(f"RetrieveEntityRibbon(EntityName=@p1,RibbonLocationFilter=@p2)?@p1='{ent}'"
-                  f"&@p2=Microsoft.Dynamics.CRM.RibbonLocationFilters'All'")
+    def unzip(d):
         raw = base64.b64decode(d["CompressedEntityXml"])
         return zipfile.ZipFile(io.BytesIO(raw)).read("RibbonXml.xml").decode("utf-8")
 
-    for ent, xml, err in c.parallel(fetch, sorted(scope.tables), label="ribbons"):
+    ents = sorted(t for t in scope.tables if not scope.is_microsoft(t))  # tabela da Microsoft: ribbon do produto
+    for ent, d, err in c.get_batch(ents, lambda ent: (
+            f"RetrieveEntityRibbon(EntityName=@p1,RibbonLocationFilter=@p2)?@p1='{ent}'"
+            f"&@p2=Microsoft.Dynamics.CRM.RibbonLocationFilters'All'"), label="ribbons", size=10):
+        try:
+            xml = unzip(d) if err is None else None
+        except Exception as e:  # noqa: BLE001 — resposta sem o zip esperado
+            err = e
         if err:
             ctx.gap("ribbons", f"ribbon de {ent}", err)
             continue
@@ -352,5 +357,5 @@ def collect_ribbons(ctx):
                 "entity": ent, "button": (A_ID.search(attrs) or [None, None])[1],
                 "label": (A_LABEL.search(attrs) or [None, None])[1], "command": cmd, "calls": calls,
             })
-    ctx.stats["ribbons"] = {"scope": len(scope.tables), "buttons": len(out)}
+    ctx.stats["ribbons"] = {"scope": len(ents), "microsoft_skipped": len(scope.tables) - len(ents), "buttons": len(out)}
     ctx.data["ribbons"] = out

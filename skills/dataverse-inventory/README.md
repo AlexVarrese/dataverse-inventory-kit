@@ -136,6 +136,10 @@ acrescentar a um inventário pronto sem refazer o núcleo: `all -c inventory.yam
 | `binarios` | DLLs dos plugins (para decompilar) |
 | `usuarios` | lista nominal de usuários e membros de equipe — **dado pessoal**: só com autorização do cliente |
 
+**Componentes da Microsoft** (`msdyn_`, `mscrm_`, `adx_`… — lista em `scripts/dvinv/scope.py`) ficam fora do
+escopo por padrão, mesmo dentro de uma solução do escopo, e o ribbon das tabelas deles não é lido. Tabela da
+Microsoft com coluna do cliente continua no inventário pelas colunas. Para incluir: `scope.exclude_microsoft: false`.
+
 O perfil `metadata_only` (`profile:` no yaml) continua valendo por cima de tudo: trava a leitura de conteúdo e
 registros (código, definições, uso de campos, extras de dados), mesmo que o núcleo ou um extra peça.
 
@@ -155,7 +159,13 @@ Cada etapa termina com "N na org · M no escopo · processado"; etapas em lote m
 tempo limite e nova tentativa aparecem na tela; o fim da extração traz a tabela-resumo (também no `01 Ambiente`).
 
 **Ajuste fino (avançado):** `parallel: 3` (2–4 em VDI/proxy), e as chaves `deep:` comentadas no fim do
-`inventory.example.yaml` (tipos de web resource baixados, tetos de linhas etc.).
+`inventory.example.yaml` (tipos de web resource baixados, tetos de linhas, `batch_size` etc.).
+
+**Rede lenta:** as etapas de uma leitura por item (ribbons, privilégios por papel, colunas e chaves por tabela,
+fórmulas, dependências por solução) vão em pacotes `$batch` de 20 leituras por requisição — poucas idas e voltas
+pelo proxy. Se o proxy ou o serviço recusarem o `$batch`, o kit avisa e segue uma chamada por item. Num host
+perto do datacenter o ganho é pequeno (o serviço executa as leituras do pacote em sequência); `deep.batch_size: 0`
+desliga.
 
 Instalação, Service Principal e MCP: **[INSTALL.md](INSTALL.md)**.
 Com agente (Hermes/Claude Code): basta pedir "faça o inventário do ambiente X". A skill

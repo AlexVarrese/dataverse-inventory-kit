@@ -104,14 +104,13 @@ def collect_security(ctx):
     if cfg.deep.get("role_privileges"):
         schema_to_logical = {t["schema"].lower(): t["logical"] for t in ctx.data.get("tables", []) if t.get("schema")}
         matrix = {}
-        for r in out["roles"]:
-            if not r["scope_reason"]:
+        roles = [r for r in out["roles"] if r["scope_reason"]]
+        for r, res, err in c.get_batch(roles, lambda r: f"RetrieveRolePrivilegesRole(RoleId={r['id']})",
+                                       label="privilégios por papel"):
+            if err is not None:
+                ctx.gap("security", f"privilégios do papel {r['name']}", err)
                 continue
-            try:
-                privs = c.get(f"RetrieveRolePrivilegesRole(RoleId={r['id']})").get("RolePrivileges", [])
-            except Exception as e:  # noqa: BLE001
-                ctx.gap("security", f"privilégios do papel {r['name']}", e)
-                continue
+            privs = (res or {}).get("RolePrivileges", [])
             for p in privs:
                 m = PRV_RE.match(p.get("PrivilegeName", ""))
                 if not m:

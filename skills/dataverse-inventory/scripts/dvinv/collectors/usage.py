@@ -177,18 +177,22 @@ def collect_field_usage(ctx):
     global_missing = source_coverage(ctx)
 
     from ..util import field_refs
+    todo = [(t, [col for col in t.get("columns") or [] if col.get("custom") and col.get("type") not in SKIP_TYPES])
+            for t in tables]
+    todo = [(t, cols) for t, cols in todo if cols]
+    # contagens das tabelas em paralelo (cfg.parallel): antes, uma tabela de cada vez
+    measured = {t["logical"]: (res, err) for (t, _cols), res, err in
+                ctx.client.parallel(lambda tc: measure_fill(ctx, *tc), todo, label="preenchimento dos campos")}
     out = []
-    for t in tables:
+    for t, cols in todo:
         ln = t["logical"]
-        cols = [col for col in t.get("columns") or [] if col.get("custom") and col.get("type") not in SKIP_TYPES]
-        if not cols:
-            continue
         known = {col["logical"] for col in cols}
-        try:
-            counts, total, method = measure_fill(ctx, t, cols)
-        except Exception as e:  # noqa: BLE001
-            ctx.gap("field_usage", f"preenchimento de {ln}", e)
+        res, err = measured[ln]
+        if err is not None:
+            ctx.gap("field_usage", f"preenchimento de {ln}", err)
             counts, total, method = {}, None, "falhou"
+        else:
+            counts, total, method = res
         partial = str(method).startswith("parcial")
 
         # cobertura desta tabela: fontes globais + formulários/views da própria tabela lidos por inteiro

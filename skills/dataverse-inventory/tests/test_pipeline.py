@@ -501,6 +501,27 @@ class FakeClient(Client):
             return out
         return res
 
+    batches = 0          # pacotes $batch recebidos (teste confere que as etapas por item usam $batch)
+    refuse_batch = False  # simula proxy/serviço que recusa o $batch
+
+    def _batch_post(self, payload, boundary):
+        """Simula o POST /$batch: lê os GETs do corpo multipart, responde cada um pela rota fake."""
+        text = payload.decode("utf-8")
+        assert text.count("--" + boundary) == text.count("GET ") + 1 and "POST" not in text.replace("POST /", "")
+        if self.refuse_batch:
+            return 405, "application/json", b'{"error":{"message":"batch bloqueado"}}'
+        type(self).batches += 1
+        rb, parts = "batchresponse_fake", []
+        for url in re.findall(r"^GET (\S+) HTTP/1\.1\r$", text, re.M):
+            try:
+                status, body = 200, json.dumps(self._request(url))
+            except DataverseError as e:
+                status, body = e.status or 500, json.dumps({"error": {"message": e.message}})
+            parts.append(f"--{rb}\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n"
+                         f"HTTP/1.1 {status} X\r\nContent-Type: application/json; odata.metadata=minimal\r\n"
+                         f"OData-Version: 4.0\r\n\r\n{body}\r\n")
+        return 200, f"multipart/mixed; boundary={rb}", ("".join(parts) + f"--{rb}--\r\n").encode("utf-8")
+
 
 def check_vault(vault_dir, vault_root):
     md = list(vault_dir.rglob("*.md"))
@@ -1072,6 +1093,41 @@ def main():
             raise AssertionError("extra desconhecido deveria falhar")
         except SystemExit as e:
             assert "desconhecido" in str(e)
+        # $batch: etapas de uma chamada por item vão em pacotes; recusado (proxy) → uma chamada por item, mesmo resultado
+        assert FakeClient.batches > 0, "ribbons/privilégios/colunas deveriam usar $batch"
+        assert any(q.get("batch") for q in m_n["queries"])
+        fc = FakeClient(cfg, credential=None)
+        fc._bearer = lambda: "fake"
+        roles_paths = [t["logical"] for t in json.loads((ctx_n.snapshot_dir / "tables.json").read_text())]
+        path = lambda ln: f"EntityDefinitions(LogicalName='{ln}')/Keys?$select=LogicalName,KeyAttributes"  # noqa: E731
+        via_batch = fc.get_batch(roles_paths, path, pages=True, size=2)
+        fc2 = FakeClient(cfg, credential=None)
+        fc2._bearer = lambda: "fake"
+        fc2.refuse_batch = True
+        via_single = fc2.get_batch(roles_paths, path, pages=True, size=2)
+        assert fc2.batch_off == "HTTP 405" and not any(q.get("batch") for q in fc2.log)
+        assert [(i, r, e is None) for i, r, e in via_batch] == [(i, r, e is None) for i, r, e in via_single]
+        from dvinv.client import parse_batch
+        raw = (b"--b1\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+               b'{"a":1}\r\n--b1\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 404 Not Found\r\n'
+               b'Content-Type: application/json\r\n\r\n{"error":{}}\r\n--b1--\r\n')
+        assert parse_batch('multipart/mixed; boundary="b1"', raw) == [(200, '{"a":1}'), (404, '{"error":{}}')]
+        assert parse_batch("text/html", b"<html>proxy</html>") is None
+        # prefixos da Microsoft: fora do escopo mesmo dentro de solução do escopo; desligável
+        sc = Scope(cfg)
+        sc.solution_objects.add("ms1")
+        assert sc.reason("msdyn_/Scripts/form.js", True, "ms1") is None and sc.excluded_summary() == {"msdyn_": 1}
+        assert sc.reason("msdyn_outra", True, "nao-esta") is None and sc.excluded_summary() == {"msdyn_": 1}, \
+            "só conta o que entraria sem o filtro"
+        assert sc.reason("contoso_/js/a.js", True, "x") == "prefix"
+        cfg.exclude_microsoft = False
+        try:
+            assert Scope(cfg).reason("msdyn_/Scripts/form.js", True, "ms1") is None  # sem solution_objects
+            sc2 = Scope(cfg)
+            sc2.solution_objects.add("ms1")
+            assert sc2.reason("msdyn_/Scripts/form.js", True, "ms1") == "solution"
+        finally:
+            cfg.exclude_microsoft = True
         # pré-visualização do escopo (sem detalhar colunas)
         from dvinv.collectors import environment as env_c, tables as tab_c
         ctx_e = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))

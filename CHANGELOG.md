@@ -106,6 +106,14 @@ Núcleo e extras (uso em dois passos: `escopo`, depois `all`)
   Acrescentar a um inventário pronto: `--extras <...> --completar ultimo` refaz só as etapas dos extras.
 - Saem `--deep` e `nivel:`/`--nivel` (yaml antigo com `nivel:` gera aviso e é ignorado). `deep:` fica como ajuste
   fino; se desligar parte do núcleo (bloco `deep:` copiado do exemplo antigo), o `dvinv` avisa.
+- Componentes da Microsoft fora do escopo por padrão (`scope.exclude_microsoft: true`): prefixos dos publishers
+  da Microsoft (`msdyn_`, `mscrm_`, `adx_`… — `scope.MICROSOFT_PREFIXES`) não entram nem por solução do escopo;
+  ribbons de tabelas da Microsoft não são lidos. Tabela da Microsoft com coluna do cliente continua pelas colunas.
+  `escopo` e `01 Ambiente` mostram quantos componentes o filtro descartou por prefixo.
+- `$batch` (OData) nas etapas de uma leitura por item — ribbons, privilégios por papel (antes em sequência),
+  colunas e chaves por tabela, fórmulas, dependências por solução/componente: 20 GETs por requisição
+  (`deep.batch_size`; 0 desliga), pacotes em paralelo. Recusado pelo proxy/serviço → uma chamada por item.
+  Validado no ESAB-TEST (respostas idênticas às chamadas avulsas). Uso de campos: tabelas medidas em paralelo.
 - `dvinv escopo`: pré-visualização (tabelas no escopo por motivo e prefixo + CSV) sem extrair — 58 s no ESAB-TEST.
 
 Extração por partes e novos componentes

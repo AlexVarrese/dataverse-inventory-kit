@@ -76,21 +76,19 @@ def collect_tables(ctx):
         ctx.data["_preview_org_tables"] = len(ents)
         return
 
-    # Fase 2 em paralelo: colunas (labels, tipo, obrigatoriedade) e chaves de cada tabela do escopo.
-    def details(ln):
-        attrs = c.get_all(
-            f"EntityDefinitions(LogicalName='{ln}')/Attributes?$select=MetadataId,LogicalName,SchemaName,"
-            "DisplayName,Description,AttributeType,AttributeTypeName,RequiredLevel,IsCustomAttribute,"
-            "IsManaged,AttributeOf,IsAuditEnabled,SourceType")
-        try:
-            keys = c.get_all(f"EntityDefinitions(LogicalName='{ln}')/Keys?$select=LogicalName,KeyAttributes")
-        except Exception as ex:  # noqa: BLE001
-            ctx.gap("tables", f"chaves alternativas de {ln}", ex)
-            keys = []
-        return attrs, keys
-
-    fetched = {it: (res, err) for it, res, err in
-               c.parallel(details, [e["LogicalName"] for e, _, _ in selected], label="colunas das tabelas")}
+    # Fase 2 em pacotes $batch: colunas (labels, tipo, obrigatoriedade) e chaves de cada tabela do escopo.
+    names = [e["LogicalName"] for e, _, _ in selected]
+    attrs = c.get_batch(names, lambda ln: (
+        f"EntityDefinitions(LogicalName='{ln}')/Attributes?$select=MetadataId,LogicalName,SchemaName,"
+        "DisplayName,Description,AttributeType,AttributeTypeName,RequiredLevel,IsCustomAttribute,"
+        "IsManaged,AttributeOf,IsAuditEnabled,SourceType"), label="colunas das tabelas", pages=True, size=10)
+    keys = c.get_batch(names, lambda ln: f"EntityDefinitions(LogicalName='{ln}')/Keys?$select=LogicalName,KeyAttributes",
+                       label="chaves das tabelas", pages=True)
+    fetched = {}
+    for (ln, a, err), (_ln, k, kerr) in zip(attrs, keys):
+        if kerr is not None:
+            ctx.gap("tables", f"chaves alternativas de {ln}", kerr)
+        fetched[ln] = ((a, k or []), err)
     tables = []
     for e, reason, n_custom in selected:
         ln = e["LogicalName"]
@@ -179,7 +177,7 @@ def collect_formulas(ctx, tables):
     """Definição das colunas calculadas, rollup e de fórmula (Power Fx) e as colunas que cada uma usa.
 
     A definição (`FormulaDefinition`) só existe nos tipos derivados do metadado (Decimal, Integer, DateTime…):
-    uma leitura por coluna, com o tipo certo, em paralelo. Calculada/rollup = XAML (pares Attribute/EntityName);
+    uma leitura por coluna, com o tipo certo, em pacotes $batch. Calculada/rollup = XAML (pares Attribute/EntityName);
     fórmula = Power Fx (nomes de coluna da própria tabela)."""
     from ..util import field_refs
     c = ctx.client
@@ -187,13 +185,14 @@ def collect_formulas(ctx, tables):
     if not todo:
         return
 
-    def fetch(item):
+    def path(item):
         t, col = item
         cast = (col.get("type_name") or "").removesuffix("Type") + "AttributeMetadata"
-        return c.get(f"EntityDefinitions(LogicalName='{t['logical']}')/Attributes(LogicalName='{col['logical']}')/"
-                     f"Microsoft.Dynamics.CRM.{cast}?$select=FormulaDefinition").get("FormulaDefinition")
+        return (f"EntityDefinitions(LogicalName='{t['logical']}')/Attributes(LogicalName='{col['logical']}')/"
+                f"Microsoft.Dynamics.CRM.{cast}?$select=FormulaDefinition")
 
-    for (t, col), fd, err in c.parallel(fetch, todo, label="definição das colunas calculadas/rollup/fórmula"):
+    for (t, col), res, err in c.get_batch(todo, path, label="definição das colunas calculadas/rollup/fórmula"):
+        fd = (res or {}).get("FormulaDefinition")
         kind = SOURCE_KIND[col["source_type"]]
         if err is not None or not fd:
             col["formula"] = {"kind": kind, "refs": [], "error": "definição não lida" if err else "sem definição"}

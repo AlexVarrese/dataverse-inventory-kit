@@ -8,7 +8,10 @@ Um componente entra no escopo se qualquer critério bater (motivo fica registrad
   all       — scope.all: true
 
 scope.exclude_prefixes descarta componentes por prefixo de nome (ex. bibliotecas de terceiros não
-gerenciadas), exceto os que pertencem a uma solução do escopo. Cada decisão positiva é contada por
+gerenciadas), exceto os que pertencem a uma solução do escopo. scope.exclude_microsoft (padrão: ligado) descarta
+os prefixos dos publishers da Microsoft (msdyn_, mscrm_, adx_…) mesmo dentro de uma solução do escopo: incluir uma
+tabela da Microsoft na solução traz junto web resources dela, que não são customização do cliente. Tabela da
+Microsoft com coluna do cliente continua no escopo pelas colunas (motivo custom-columns). Cada decisão positiva é contada por
 motivo × prefixo em `breakdown` — vai para o manifest e para `01 Ambiente`, para o analista ver de onde
 veio o volume e ajustar o escopo.
 """
@@ -18,6 +21,11 @@ from collections import defaultdict
 
 _PREFIX_RE = re.compile(r"^([a-z0-9]+_)")
 
+# Prefixos de publishers da Microsoft (apps de primeira parte: Sales, Service, Field Service, Marketing, Portais,
+# USD, Finance & Operations…). Nome de web resource também começa por eles (ex. msdyn_/Scripts/x.js).
+MICROSOFT_PREFIXES = ("msdyn_", "msdynce_", "msdyncrm_", "msdynmkt_", "msdynci_", "msdyusd_", "mscrm_", "msevtmgt_",
+                      "msfp_", "msnfp_", "msemr_", "mserp_", "msiot_", "mspcat_", "msft_", "adx_", "mspp_", "uii_")
+
 
 class Scope:
     def __init__(self, cfg):
@@ -26,6 +34,7 @@ class Scope:
         self.membership = {}            # objectid -> [uniquename de soluções não-sistema]
         self.tables = set()             # logical names das tabelas no escopo (preenchido pelo coletor de tabelas)
         self._seen = defaultdict(set)   # (motivo, prefixo) -> nomes únicos
+        self.excluded_microsoft = defaultdict(set)  # prefixo Microsoft -> nomes descartados
 
     def reason(self, name=None, managed=None, objectid=None, keyword_match=True):
         r = self._reason(name, managed, objectid, keyword_match)
@@ -35,8 +44,15 @@ class Scope:
         return r
 
     def _reason(self, name, managed, objectid, keyword_match):
-        cfg = self.cfg
         n = (name or "").lower()
+        if self.is_microsoft(n):
+            if self._base_reason(n, managed, objectid, keyword_match):  # conta só o que entraria sem o filtro
+                self.excluded_microsoft[_PREFIX_RE.match(n).group(1)].add(n)
+            return None
+        return self._base_reason(n, managed, objectid, keyword_match)
+
+    def _base_reason(self, n, managed, objectid, keyword_match):
+        cfg = self.cfg
         if objectid and objectid.lower() in self.solution_objects:
             return "solution"
         if cfg.exclude_prefixes and any(n.startswith(p) for p in cfg.exclude_prefixes):
@@ -50,6 +66,12 @@ class Scope:
         if cfg.scope_all:
             return "all"
         return None
+
+    def is_microsoft(self, name):
+        return bool(getattr(self.cfg, "exclude_microsoft", True)) and (name or "").lower().startswith(MICROSOFT_PREFIXES)
+
+    def excluded_summary(self):
+        return {p: len(ns) for p, ns in sorted(self.excluded_microsoft.items(), key=lambda kv: -len(kv[1]))}
 
     def breakdown(self):
         out = defaultdict(dict)

@@ -20,7 +20,7 @@ escopo) e depois os demais.
 | forms | `systemforms` + `systemforms(id)?$select=formxml` (ativos; inativos também com `deep.field_usage`, só para colunas) | forms.json | forms de tabelas do escopo |
 | views | `savedqueries` | views.json | views de tabelas do escopo |
 | pcf | `customcontrols` + `customcontrols(id)?$select=manifest`; vínculos coluna → controle vêm do formxml (coletor forms) | pcf.json | critério de escopo, ou de terceiros usado em formulário de tabela do escopo; controles nativos (`MscrmControls.*`) fora |
-| ribbons | `RetrieveEntityRibbon` (zip base64 → RibbonXml.xml) | ribbons.json | botões cujo comando chama biblioteca do escopo |
+| ribbons | `RetrieveEntityRibbon` (zip base64 → RibbonXml.xml), em pacotes `$batch` | ribbons.json | botões cujo comando chama biblioteca do escopo; tabelas da Microsoft (`exclude_microsoft`) não são lidas |
 | apps | `appmodules`, `canvasapps`, `bots` | apps.json | critério de escopo |
 | sitemaps | `sitemaps` com `$filter=isappaware eq true` **e** `eq false` (sem filtro a API só devolve o clássico) + `sitemapxml` (Área → Grupo → SubÁrea: tabela, web resource em Url/Icon, dashboard, URL externa, privilégios) | sitemaps.json | critério de escopo ou site map de app do escopo (via `appmodulecomponents`, tipo 62) |
 | slas | `slas`, `slaitems` (FetchXML de aplicável quando / sucesso / pausa → colunas citadas), `msdyn_slakpis` (campo de KPI, aplicável a partir de), `calendars` (só o nome do horário comercial) | slas.json | SLA de tabela do escopo ou critério de escopo |

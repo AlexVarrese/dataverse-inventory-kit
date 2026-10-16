@@ -129,7 +129,8 @@ ALWAYS = ("environment", "solutions")  # baratos e com efeito no escopo (pertenc
 
 def _scope_signature(cfg):
     return {"prefixes": cfg.prefixes, "keywords": cfg.keywords, "solutions": cfg.solutions,
-            "include_unmanaged": cfg.include_unmanaged, "all": cfg.scope_all, "exclude_prefixes": cfg.exclude_prefixes}
+            "include_unmanaged": cfg.include_unmanaged, "all": cfg.scope_all, "exclude_prefixes": cfg.exclude_prefixes,
+            "exclude_microsoft": getattr(cfg, "exclude_microsoft", True)}
 
 
 def plan_base(ctx, base_dir, requested):
@@ -283,8 +284,10 @@ def run(ctx, only=None, base=None):
                 "prefixes": ctx.cfg.prefixes, "keywords": ctx.cfg.keywords, "solutions": ctx.cfg.solutions,
                 "include_unmanaged": ctx.cfg.include_unmanaged, "all": ctx.cfg.scope_all,
                 "exclude_prefixes": ctx.cfg.exclude_prefixes,
+                "exclude_microsoft": getattr(ctx.cfg, "exclude_microsoft", True),
             },
             "scope_breakdown": ctx.scope.breakdown(),
+            "scope_excluded_microsoft": ctx.scope.excluded_summary(),
             "deep": ctx.cfg.deep,
             "collectors": ctx.status,
             "stats": ctx.stats,

@@ -1,17 +1,20 @@
 """Cliente HTTP read-only para a Dataverse Web API v9.2.
 
-Só expõe GET — não existe caminho de escrita neste pacote, por design.
+Só lê: GET direto ou GETs empacotados num `$batch` (o POST /$batch só transporta leituras montadas aqui) — não
+existe caminho de escrita neste pacote, por design.
 Todas as chamadas ficam registradas em `log` (vai para manifest.json como trilha de evidência).
 """
 
 import gzip
 import http.client
 import json
+import re
 import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
+import uuid
 
 from . import secrets
 
@@ -67,6 +70,26 @@ def progress(label, n, total, t0):
           + (f" · ~{fmt(eta)} restante" if n < total else ""), flush=True)
 
 
+_PART_RE = re.compile(r"HTTP/1\.[01] (\d{3})[^\r\n]*\r?\n(?:.*?\r?\n)?\r?\n(.*)", re.S)
+
+
+def parse_batch(ctype, raw):
+    """Resposta multipart de um `$batch` (sem changesets) → [(status, corpo)] na ordem dos pedidos; None se não for."""
+    m = re.search(r'boundary="?([^";]+)"?', ctype or "")
+    if not m:
+        return None
+    out = []
+    for seg in raw.decode("utf-8", "replace").split("--" + m.group(1))[1:]:
+        if seg.startswith("--"):
+            break
+        _head, _, http = seg.lstrip("\r\n").partition("\r\n\r\n")  # cabeçalhos da parte, depois a resposta HTTP
+        pm = _PART_RE.match(http.lstrip())
+        if not pm:
+            return None
+        out.append((int(pm.group(1)), pm.group(2).strip()))
+    return out
+
+
 def _short(path, n=180):
     p = urllib.parse.unquote(path)
     return p if len(p) <= n else p[:n] + "…"
@@ -86,6 +109,7 @@ class Client:
         self._local = threading.local()   # uma conexão HTTPS persistente por thread (keep-alive)
         self._ssl = ssl.create_default_context()
         self.throttled = 0                # quantas vezes o serviço pediu para esperar (429)
+        self.batch_off = None             # motivo, se o serviço/proxy recusou o $batch nesta execução
         self.workers = max(1, int(getattr(cfg, "parallel", 4) or 1))
         self.log = []
         base = urllib.parse.urlsplit(self.base)
@@ -158,24 +182,29 @@ class Client:
             self._local.conn, self._local.host = c, host
         return c
 
-    def _request(self, url, page_size=5000):
+    def _send(self, url, method="GET", payload=None, headers=None, page_size=5000):
+        """Uma requisição com keep-alive e novas tentativas (conexão caída, 429, 502/503/504) → (status, resp, corpo)."""
         self.check_url(url)  # antes de pedir token: nada de Bearer para host desconhecido
         parts = urllib.parse.urlsplit(url)
         target = parts.path + (f"?{parts.query}" if parts.query else "")
         short = url.replace(self.base, "")
         for attempt in range(self.max_retries + 1):
-            headers = {
+            h = {
                 "Authorization": f"Bearer {self._bearer()}",
                 "Accept": "application/json",
                 "Accept-Encoding": "gzip",
                 "OData-MaxVersion": "4.0",
                 "OData-Version": "4.0",
                 "Prefer": f'odata.include-annotations="*",odata.maxpagesize={page_size}',
+                **(headers or {}),
             }
             t0 = time.time()
             try:
                 conn = self._conn(parts.netloc, fresh=attempt > 0)
-                conn.request("GET", target, headers=headers)
+                if payload is None:
+                    conn.request(method, target, headers=h)
+                else:
+                    conn.request(method, target, body=payload, headers=h)
                 resp = conn.getresponse()
                 body = resp.read()
                 if resp.getheader("Content-Encoding", "").lower() == "gzip":
@@ -190,10 +219,8 @@ class Client:
                     continue
                 print(msg + ", desistindo", flush=True)
                 raise DataverseError(0, short, str(e)) from None
-            _trace(f"GET {_short(short)} → {resp.status} · {len(body) / 1024:,.0f} KB · {time.time() - t0:.1f}s"
+            _trace(f"{method} {_short(short)} → {resp.status} · {len(body) / 1024:,.0f} KB · {time.time() - t0:.1f}s"
                    + (f" · tentativa {attempt + 1}" if attempt else ""))
-            if resp.status == 200:
-                return json.loads(body.decode("utf-8"))
             # 429 = service protection limit; 502/503/504 = transitório
             if resp.status in (429, 502, 503, 504) and attempt < self.max_retries:
                 wait = min(float(resp.getheader("Retry-After") or 2 ** attempt), 300)
@@ -203,7 +230,94 @@ class Client:
                     print(f"[dvinv]   limite do serviço (429): aguardando {wait:.0f}s", flush=True)
                 time.sleep(wait)
                 continue
-            raise DataverseError(resp.status, short, body.decode("utf-8", "replace"))
+            return resp.status, resp, body
+
+    def _request(self, url, page_size=5000):
+        status, _resp, body = self._send(url, page_size=page_size)
+        if status == 200:
+            return json.loads(body.decode("utf-8"))
+        raise DataverseError(status, url.replace(self.base, ""), body.decode("utf-8", "replace"))
+
+    def _batch_post(self, payload, boundary):
+        """POST /$batch → (status, content-type, corpo). Separado para os testes simularem o serviço."""
+        status, resp, body = self._send(f"{self.base}/$batch", "POST", payload, {
+            "Content-Type": f"multipart/mixed; boundary={boundary}", "Prefer": "odata.continue-on-error"})
+        return status, resp.getheader("Content-Type", ""), body
+
+    def get_batch(self, items, path, label=None, pages=False, size=None):
+        """Uma leitura por item, empacotadas em `$batch` → [(item, resposta, erro)] na ordem (como `parallel`).
+
+        Para etapas de uma chamada por item (ribbons, privilégios por papel, colunas por tabela…): cada POST /$batch
+        leva `size` GETs (deep.batch_size, padrão 20) e os pacotes correm em paralelo (`parallel`). Troca centenas
+        de idas e voltas por poucas — o ganho é grande quando o gargalo é a rede (proxy, VDI). O serviço executa
+        cada GET separadamente: limites de serviço e permissões não mudam. Leitura que volta 429/5xx no pacote é
+        refeita sozinha (com espera); se o serviço ou o proxy recusarem o `$batch`, segue uma chamada por item
+        até o fim da execução. `path(item)` → caminho do GET; pages=True segue @odata.nextLink → lista de linhas.
+        """
+        items = list(items)
+        single = (lambda it: self.get_all(path(it))) if pages else (lambda it: self.get(path(it)))
+        size = int(size or (getattr(self.cfg, "deep", None) or {}).get("batch_size", 20) or 0)
+        if size <= 1 or self.batch_off or len(items) < 2:
+            return self.parallel(single, items, label=label)
+        groups = [items[i:i + size] for i in range(0, len(items), size)]
+        out = []
+        for group, res, err in self.parallel(lambda g: self._batch_group(g, path, single, pages), groups,
+                                             label=f"{label} (pacotes de {size})" if label else None):
+            out.extend(res if err is None else self._each(group, single))
+        return out
+
+    @staticmethod
+    def _each(group, single):
+        res = []
+        for it in group:
+            try:
+                res.append((it, single(it), None))
+            except Exception as e:  # noqa: BLE001
+                res.append((it, None, e))
+        return res
+
+    def _batch_group(self, group, path, single, pages):
+        if self.batch_off:
+            return self._each(group, single)
+        paths = [path(it) for it in group]
+        urls = [self._url(p) for p in paths]  # check_url: só a base configurada entra no pacote
+        b = f"batch_{uuid.uuid4().hex}"
+        payload = "".join(
+            f"--{b}\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n"
+            f"GET {u} HTTP/1.1\r\nAccept: application/json\r\n"
+            f'Prefer: odata.include-annotations="*",odata.maxpagesize=5000\r\n\r\n' for u in urls) + f"--{b}--\r\n"
+        t0 = time.time()
+        status, ctype, raw = self._batch_post(payload.encode("utf-8"), b)
+        ms = int((time.time() - t0) * 1000)
+        parts = parse_batch(ctype, raw) if status == 200 else None
+        if not parts or len(parts) != len(group):
+            if status in (400, 403, 404, 405, 413, 414, 501) or status == 200:  # recusado ou resposta irreconhecível
+                with self._lock:
+                    if not self.batch_off:
+                        self.batch_off = f"HTTP {status}"
+                        print(f"[dvinv]   $batch indisponível ({self.batch_off}) — seguindo com uma chamada por item",
+                              flush=True)
+            return self._each(group, single)
+        res = []
+        for it, p, (st, text) in zip(group, paths, parts):
+            if st in (429, 502, 503, 504):  # refeita sozinha: get/get_all esperam o Retry-After
+                res += self._each([it], single)
+                continue
+            self.log.append({"path": p, "status": st, "ms": ms, "batch": True})
+            if st != 200:
+                res.append((it, None, DataverseError(st, p, text)))
+                continue
+            data = json.loads(text)
+            if pages:
+                rows, nxt = data.get("value", []), data.get("@odata.nextLink")
+                while nxt:
+                    self.check_url(nxt)
+                    more = self._request(nxt)
+                    rows += more.get("value", [])
+                    nxt = more.get("@odata.nextLink")
+                data = rows
+            res.append((it, data, None))
+        return res
 
     def get(self, path):
         """Uma única resposta (entidade, função ou primeira página)."""

@@ -28,6 +28,7 @@ DEEP_DEFAULTS = {
     "catalog_max_rows_per_type": 200_000,  # teto de linhas lidas por tipo para dar nome
     "platform_dependencies": True,           # tabela dependency em lote (fallback: RetrieveDependentComponents)
     "platform_dependencies_columns": False,  # idem para cada coluna custom (1 chamada por coluna — pesado)
+    "batch_size": 20,              # leituras por pacote $batch nas etapas de uma chamada por item (0 = sem $batch)
     # extras (desligados; ver EXTRAS)
     "plugin_trace": False,         # plugintracelogs dos últimos N dias
     "storage": False,              # anexos (annotation/activitymimeattachment), auditoria, maiores tabelas
@@ -85,6 +86,7 @@ class Config:
     prefixes: list = field(default_factory=list)
     keywords: list = field(default_factory=list)
     exclude_prefixes: list = field(default_factory=list)
+    exclude_microsoft: bool = True  # descarta prefixos dos publishers da Microsoft (scope.MICROSOFT_PREFIXES)
     solutions: list = field(default_factory=list)
     include_unmanaged: bool = True
     scope_all: bool = False
@@ -217,6 +219,7 @@ def load(path, overrides=None):
         prefixes=prefixes,
         keywords=[k.lower() for k in keywords],
         exclude_prefixes=[p.lower() for p in scope.get("exclude_prefixes", []) or []],
+        exclude_microsoft=bool(scope.get("exclude_microsoft", True)),
         solutions=scope.get("solutions", []) or [],
         include_unmanaged=scope.get("include_unmanaged", True),
         scope_all=scope.get("all", False),

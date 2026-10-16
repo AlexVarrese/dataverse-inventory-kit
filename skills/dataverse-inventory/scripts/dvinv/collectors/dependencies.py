@@ -99,11 +99,9 @@ def collect_platform_dependencies(ctx):
                 "por componente do escopo", e)
         g, source, tg = _Compact(), "RetrieveDependentComponents (por componente do escopo)", targets(ctx)
 
-        def fetch(t):
-            ctype, oid, _ = t
-            return c.get(f"RetrieveDependentComponents(ObjectId=@p1,ComponentType=@p2)?@p1={oid}&@p2={ctype}")
-
-        for (ctype, oid, label_), res, err in c.parallel(fetch, tg, label="dependências da plataforma"):
+        for (ctype, oid, label_), res, err in c.get_batch(
+                tg, lambda t: f"RetrieveDependentComponents(ObjectId=@p1,ComponentType=@p2)?@p1={t[1]}&@p2={t[0]}",
+                label="dependências da plataforma"):
             if err:
                 failed += 1
                 if failed <= 20:
@@ -112,16 +110,14 @@ def collect_platform_dependencies(ctx):
             for r in res.get("value") or []:
                 g.add(r)
 
-    # Uma chamada por solução, em paralelo (cfg.parallel): no ESAB-TEST são ~780 soluções e, com o servidor
+    # Uma leitura por solução, em pacotes $batch em paralelo: no ESAB-TEST são ~780 soluções e, com o servidor
     # lento, a versão sequencial passava de 40 min.
     missing = []
     sols = [s for s in ctx.data.get("solutions") or []
             if s["uniquename"].lower() not in SYSTEM_SOLUTIONS and (s.get("in_scope") or s.get("managed") is False)]
 
-    def fetch_missing(s):
-        return c.get(f"RetrieveMissingDependencies(SolutionUniqueName=@p1)?@p1='{s['uniquename']}'")
-
-    for s, res, err in c.parallel(fetch_missing, sols, label="dependências ausentes por solução"):
+    for s, res, err in c.get_batch(sols, lambda s: f"RetrieveMissingDependencies(SolutionUniqueName=@p1)?@p1='{s['uniquename']}'",
+                                   label="dependências ausentes por solução"):
         if err:
             ctx.gap("platform_dependencies", f"dependências ausentes da solução {s['uniquename']}", err)
             continue
