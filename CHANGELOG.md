@@ -109,6 +109,13 @@ Núcleo e extras (uso em dois passos: `escopo`, depois `all`)
 - Componentes da Microsoft fora do escopo por padrão (`scope.exclude_microsoft: true`): prefixos dos publishers
   da Microsoft (`msdyn_`, `mscrm_`, `adx_`… — `scope.MICROSOFT_PREFIXES`) não entram nem por solução do escopo;
   ribbons de tabelas da Microsoft não são lidos. Tabela da Microsoft com coluna do cliente continua pelas colunas.
+  Plugins do produto: assembly assinado com chave da Microsoft (`publickeytoken` 31bf3856ad364e35 e as do .NET) ou
+  nome `Microsoft.`/`Adxstudio.` sai com classes e steps, inclusive steps não gerenciados registrados pelos apps.
+  No ESAB-TEST: 409 de 437 assemblies da org são da Microsoft (todos com o mesmo token, muitos sem "Microsoft" no
+  nome); os de cliente e de terceiros (assinados com chave própria) continuam pelas regras de escopo.
+  Colunas: coluna criada por app da Microsoft (`msdyn_…` na conta) ou com prefixo de `exclude_prefixes` deixa de
+  contar como customizada — não põe tabela nativa no escopo e não entra no uso de campos (que já ignorava colunas
+  de sistema e virtuais).
   `escopo` e `01 Ambiente` mostram quantos componentes o filtro descartou por prefixo.
 - `$batch` (OData) nas etapas de uma leitura por item — ribbons, privilégios por papel (antes em sequência),
   colunas e chaves por tabela, fórmulas, dependências por solução/componente: 20 GETs por requisição

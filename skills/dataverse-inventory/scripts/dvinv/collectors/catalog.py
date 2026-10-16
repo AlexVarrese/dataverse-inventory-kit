@@ -204,14 +204,16 @@ def collect_catalog(ctx):
         sources.update(_entity_sources(ctx, types, present))
         cap = int(cfg.deep.get("catalog_max_rows_per_type") or 200_000)
         total = len(sources)
-        _step(f"4/4 nomes dos demais componentes: {total} tipos, uma leitura por tipo (em paralelo)")
+        _step(f"4/4 nomes dos demais componentes: {total} tipos, uma leitura por tipo (pacotes $batch em paralelo)")
 
-        def fetch(item):
+        def path(item):
             _ct, (es, idf, namef, parentf) = item
-            return c.get_all(f"{es}?$select={','.join(x for x in (idf, namef, parentf) if x)}", max_rows=cap)
+            return f"{es}?$select={','.join(x for x in (idf, namef, parentf) if x)}"
 
-        for (ct, (es, idf, namef, parentf)), got, err in c.parallel(fetch, sorted(sources.items()),
-                                                                     label="catálogo 4/4 nomes por tipo"):
+        # pacotes de 10: a 1ª página de cada tipo vem inteira na resposta do pacote (até 5.000 linhas id + nome)
+        for (ct, (es, idf, namef, parentf)), got, err in c.get_batch(sorted(sources.items()), path, pages=True,
+                                                                      size=10, max_rows=cap,
+                                                                      label="catálogo 4/4 nomes por tipo"):
             if err is not None:
                 ctx.gap("catalog", f"nomes do tipo {ct} ({(types.get(ct) or {}).get('name') or es})", err)
                 continue

@@ -100,7 +100,8 @@ ENTITIES = [
      "IsManaged": True, "OwnershipType": "UserOwned", "ObjectTypeCode": 1, "DisplayName": {"UserLocalizedLabel": {"Label": "Conta"}},
      "PrimaryIdAttribute": "accountid",
      "Attributes": [attr("name", False), attr("contoso_tier", True, False, "Picklist"), attr("contoso_legacy", True, False),
-                    attr("contoso_revenue", True, False, "Money"), attr("contoso_weird", True, False)]},
+                    attr("contoso_revenue", True, False, "Money"), attr("contoso_weird", True, False),
+                    attr("msdyn_gdproptout", True, False)]},  # coluna de app da Microsoft (custom p/ o Dataverse)
     {"MetadataId": G(2), "LogicalName": "contoso_project", "SchemaName": "contoso_Project", "EntitySetName": "contoso_projects",
      "IsCustomEntity": True, "IsManaged": False, "OwnershipType": "UserOwned", "ObjectTypeCode": 10001,
      "PrimaryIdAttribute": "contoso_projectid",
@@ -113,7 +114,7 @@ ENTITIES = [
      "IsCustomEntity": False, "IsManaged": True, "PrimaryIdAttribute": "msdyn_odatav4dsid", "PrimaryNameAttribute": "msdyn_name",
      "Attributes": []},
     {"MetadataId": G(3), "LogicalName": "contact", "SchemaName": "Contact", "IsCustomEntity": False, "IsManaged": True,
-     "OwnershipType": "UserOwned", "Attributes": [attr("fullname", False)]},
+     "OwnershipType": "UserOwned", "Attributes": [attr("fullname", False), attr("msdyn_segmentid", True, False)]},
 ]
 
 
@@ -847,13 +848,23 @@ def main():
         bd = manifest["scope_breakdown"]
         assert bd["prefix"]["contoso_"] >= 5 and "msdyn_" not in str(bd), bd
         st = manifest["stats"]
-        assert st["tables"]["scope"] == 3 and st["tables"]["custom"] == 2, st["tables"]
+        assert st["tables"]["scope"] == 3 and st["tables"]["custom"] == 2, st["tables"]  # contact: só coluna msdyn_
+        acc = next(t for t in json.loads((ctx.snapshot_dir / "tables.json").read_text()) if t["logical"] == "account")
+        assert [c_["custom"] for c_ in acc["columns"] if c_["logical"] == "msdyn_gdproptout"] == [False]
+        assert "msdyn_" not in (ctx.snapshot_dir / "field_usage.json").read_text(), "uso de campos não mede coluna da Microsoft"
         gaps_txt = json.dumps(manifest["gaps"], ensure_ascii=False)
         assert "contoso_virtual" not in gaps_txt, "tabela virtual não deveria ir para RetrieveTotalRecordCount"
         assert "contagem de registros indisponível em 1 tabela(s)" in gaps_txt and "outro erro: contact" in gaps_txt, gaps_txt
         assert "lote" not in gaps_txt  # lote dividido até isolar a tabela
         assert st["webresources"]["scope"] == 2
-        assert st["plugins"]["steps"] == 4 and st["plugins"]["assemblies"] == 1, st["plugins"]
+        # plugin do produto (Microsoft.Crm.ObjectModel): classe e steps fora, inclusive o step não gerenciado nele
+        assert st["plugins"]["steps"] == 3 and st["plugins"]["assemblies"] == 1, st["plugins"]
+        assert st["plugins"]["microsoft_assemblies"] == 1 and st["plugins"]["microsoft_steps"] == 2, st["plugins"]
+        from dvinv.collectors.code import is_microsoft_assembly
+        assert is_microsoft_assembly({"name": "Qualquer.Nome", "publickeytoken": "31BF3856AD364E35"})
+        assert not is_microsoft_assembly({"name": "MS.Dynamics.CRM.ClientePricing", "publickeytoken": "30af4a796783cb8e"})
+        assert not is_microsoft_assembly({"name": "msdyncrmWorkflowTools", "publickeytoken": "416e876b9bee261e"})
+        assert is_microsoft_assembly({"name": "Adxstudio.Xrm.Plugins", "publickeytoken": "59f189e458044167"})
         assert st["processes"]["scope"] == 5, st["processes"]  # gerenciado de 'contact' fica fora
         assert st["security"]["roles_root_bu"] == 2, st["security"]  # dedupe por BU raiz
         gaps = " ".join(g["what"] for g in manifest["gaps"])
@@ -1107,6 +1118,12 @@ def main():
         via_single = fc2.get_batch(roles_paths, path, pages=True, size=2)
         assert fc2.batch_off == "HTTP 405" and not any(q.get("batch") for q in fc2.log)
         assert [(i, r, e is None) for i, r, e in via_batch] == [(i, r, e is None) for i, r, e in via_single]
+        # max_rows no $batch (catálogo: teto de linhas por tipo) = mesmo corte do get_all
+        sq = lambda _x: "workflows?$select=name"  # noqa: E731 — 6 linhas, páginas de 2 no fake
+        full = fc.get_all(sq(0))
+        assert len(full) >= 3, full
+        capped = fc.get_batch([1, 2], sq, pages=True, size=2, max_rows=3)
+        assert [r for _i, r, _e in capped] == [full[:3], full[:3]] and fc.get_batch([1, 2], sq, pages=True)[0][1] == full
         from dvinv.client import parse_batch
         raw = (b"--b1\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
                b'{"a":1}\r\n--b1\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 404 Not Found\r\n'

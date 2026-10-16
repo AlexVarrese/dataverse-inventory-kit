@@ -244,7 +244,7 @@ class Client:
             "Content-Type": f"multipart/mixed; boundary={boundary}", "Prefer": "odata.continue-on-error"})
         return status, resp.getheader("Content-Type", ""), body
 
-    def get_batch(self, items, path, label=None, pages=False, size=None):
+    def get_batch(self, items, path, label=None, pages=False, size=None, max_rows=None):
         """Uma leitura por item, empacotadas em `$batch` → [(item, resposta, erro)] na ordem (como `parallel`).
 
         Para etapas de uma chamada por item (ribbons, privilégios por papel, colunas por tabela…): cada POST /$batch
@@ -252,16 +252,17 @@ class Client:
         de idas e voltas por poucas — o ganho é grande quando o gargalo é a rede (proxy, VDI). O serviço executa
         cada GET separadamente: limites de serviço e permissões não mudam. Leitura que volta 429/5xx no pacote é
         refeita sozinha (com espera); se o serviço ou o proxy recusarem o `$batch`, segue uma chamada por item
-        até o fim da execução. `path(item)` → caminho do GET; pages=True segue @odata.nextLink → lista de linhas.
+        até o fim da execução. `path(item)` → caminho do GET; pages=True segue @odata.nextLink → lista de linhas
+        (até `max_rows` por item, se informado).
         """
         items = list(items)
-        single = (lambda it: self.get_all(path(it))) if pages else (lambda it: self.get(path(it)))
+        single = (lambda it: self.get_all(path(it), max_rows=max_rows)) if pages else (lambda it: self.get(path(it)))
         size = int(size or (getattr(self.cfg, "deep", None) or {}).get("batch_size", 20) or 0)
         if size <= 1 or self.batch_off or len(items) < 2:
             return self.parallel(single, items, label=label)
         groups = [items[i:i + size] for i in range(0, len(items), size)]
         out = []
-        for group, res, err in self.parallel(lambda g: self._batch_group(g, path, single, pages), groups,
+        for group, res, err in self.parallel(lambda g: self._batch_group(g, path, single, pages, max_rows), groups,
                                              label=f"{label} (pacotes de {size})" if label else None):
             out.extend(res if err is None else self._each(group, single))
         return out
@@ -276,7 +277,7 @@ class Client:
                 res.append((it, None, e))
         return res
 
-    def _batch_group(self, group, path, single, pages):
+    def _batch_group(self, group, path, single, pages, max_rows=None):
         if self.batch_off:
             return self._each(group, single)
         paths = [path(it) for it in group]
@@ -310,12 +311,12 @@ class Client:
             data = json.loads(text)
             if pages:
                 rows, nxt = data.get("value", []), data.get("@odata.nextLink")
-                while nxt:
+                while nxt and not (max_rows and len(rows) >= max_rows):
                     self.check_url(nxt)
                     more = self._request(nxt)
                     rows += more.get("value", [])
                     nxt = more.get("@odata.nextLink")
-                data = rows
+                data = rows[:max_rows] if max_rows else rows
             res.append((it, data, None))
         return res
 

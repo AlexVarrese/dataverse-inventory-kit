@@ -50,7 +50,9 @@ def collect_tables(ctx):
                                   "intersect": e.get("IsIntersect"), "table_type": e.get("TableType")} for e in ents]
 
     def custom_attrs(e):
-        attrs = e.get("Attributes") or []
+        # coluna de app da Microsoft (msdyn_… na conta) ou de prefixo excluído é "custom" para o Dataverse, mas não
+        # é do cliente: não põe a tabela no escopo nem entra no uso de campos
+        attrs = [a for a in e.get("Attributes") or [] if not scope.foreign_column(a["LogicalName"])]
         if cfg.prefixes:
             return [a for a in attrs if any(a["LogicalName"].startswith(p) for p in cfg.prefixes)]
         return [a for a in attrs if a.get("IsCustomAttribute") and a.get("IsManaged") is False]
@@ -121,7 +123,7 @@ def collect_tables(ctx):
             for a in attrs:
                 if a.get("AttributeOf"):  # colunas virtuais derivadas (ex. *name de lookup)
                     continue
-                custom = bool(a.get("IsCustomAttribute"))
+                custom = bool(a.get("IsCustomAttribute")) and not scope.foreign_column(a["LogicalName"])
                 if cfg.prefixes:
                     custom = custom and any(a["LogicalName"].startswith(p) for p in cfg.prefixes) or (
                         custom and a.get("IsManaged") is False)

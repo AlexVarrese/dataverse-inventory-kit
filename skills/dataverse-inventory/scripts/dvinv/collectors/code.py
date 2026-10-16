@@ -8,6 +8,17 @@ MODES = {0: "Síncrono", 1: "Assíncrono"}
 ISOLATION = {1: "None", 2: "Sandbox", 3: "External"}
 SOURCE = {0: "Database", 1: "Disk", 2: "Normal", 3: "AzureWebApp", 4: "FileStore"}
 IMAGE = {0: "PreImage", 1: "PostImage", 2: "Both"}
+# Chaves de assinatura da Microsoft (Dynamics/.NET). Critério principal para plugin do produto: o token vem do
+# binário, igual em qualquer ambiente, e pega assemblies sem "Microsoft" no nome (ActivityFeeds.Plugins…). Nome
+# sozinho não basta: há assembly de cliente chamado "MS.Dynamics.…" e ferramenta da comunidade "msdyncrm…".
+# Exceção conhecida: Adxstudio (portais, hoje Power Pages) assina cada assembly com uma chave própria → pelo nome.
+MICROSOFT_TOKENS = {"31bf3856ad364e35", "b03f5f7f11d50a3a", "b77a5c561934e089"}
+MICROSOFT_ASSEMBLY_NAMES = ("microsoft.", "adxstudio.")
+
+
+def is_microsoft_assembly(a):
+    return ((a.get("publickeytoken") or "").lower() in MICROSOFT_TOKENS
+            or (a.get("name") or "").lower().startswith(MICROSOFT_ASSEMBLY_NAMES))
 
 
 def collect_plugins(ctx):
@@ -30,15 +41,23 @@ def collect_plugins(ctx):
         "sdkmessageprocessingstepimages?$select=name,entityalias,imagetype,attributes,"
         "_sdkmessageprocessingstepid_value&$filter=customizationlevel eq 1")
 
+    # plugin do produto (assembly assinado pela Microsoft): fora do escopo, inclusive classes e steps dele
+    exclude_ms = getattr(cfg, "exclude_microsoft", True)
+    ms_asms = {a["pluginassemblyid"] for a in asms if exclude_ms and is_microsoft_assembly(a)}
+    ms_types = {t["plugintypeid"] for t in types if exclude_ms and (
+                t.get("_pluginassemblyid_value") in ms_asms or (t.get("typename") or "").lower().startswith(MICROSOFT_ASSEMBLY_NAMES))}
     asm_scope = {}
     for a in asms:
         r = scope.reason(a["name"], a.get("ismanaged"), a["pluginassemblyid"])
-        if r:
+        if r and a["pluginassemblyid"] in ms_asms:  # entraria no escopo, mas é do produto: conta e descarta
+            scope.excluded_microsoft["assembly assinado pela Microsoft"].add(a["name"].lower())
+        elif r:
             asm_scope[a["pluginassemblyid"]] = r
     type_by_id = {t["plugintypeid"]: t for t in types}
-    scoped_types = {t["plugintypeid"] for t in types
-                    if t.get("_pluginassemblyid_value") in asm_scope
-                    or scope.reason(t.get("typename"), None, t["plugintypeid"])}
+    scoped_types = {t["plugintypeid"] for t in types if t["plugintypeid"] not in ms_types and (
+                    t.get("_pluginassemblyid_value") in asm_scope
+                    or scope.reason(t.get("typename"), None, t["plugintypeid"]))}
+    ms_steps = 0
     asm_by_id = {a["pluginassemblyid"]: a for a in asms}
 
     imgs_by_step = {}
@@ -54,6 +73,9 @@ def collect_plugins(ctx):
         tid = s.get("_plugintypeid_value")
         entity = (s.get("sdkmessagefilterid") or {}).get("primaryobjecttypecode")
         handler_kind = s.get("_eventhandler_value@Microsoft.Dynamics.CRM.lookuplogicalname")
+        if tid in ms_types:
+            ms_steps += 1
+            continue
         in_scope = (tid in scoped_types
                     or scope.reason(s.get("name"), s.get("ismanaged"), s["sdkmessageprocessingstepid"], keyword_match=False)
                     or (handler_kind == "serviceendpoint" and entity in scope.tables))
@@ -112,6 +134,7 @@ def collect_plugins(ctx):
         "org_assemblies": len(asms), "assemblies": len(out_asms),
         "org_types": len(types), "types": sum(len(a["types"]) for a in out_asms),
         "org_custom_steps": len(steps), "steps": len(out_steps),
+        "microsoft_assemblies": len(ms_asms), "microsoft_steps": ms_steps,
     }
     ctx.data["plugins"] = {"assemblies": sorted(out_asms, key=lambda x: x["name"]),
                            "steps": sorted(out_steps, key=lambda x: (x["entity"] or "", x["message"] or "", x["name"] or ""))}

@@ -67,6 +67,11 @@ class Scope:
             return "all"
         return None
 
+    def foreign_column(self, name):
+        """Coluna que não é do cliente mesmo sendo "custom" para o Dataverse: app da Microsoft ou prefixo excluído."""
+        n = (name or "").lower()
+        return self.is_microsoft(n) or any(n.startswith(p) for p in self.cfg.exclude_prefixes or [])
+
     def is_microsoft(self, name):
         return bool(getattr(self.cfg, "exclude_microsoft", True)) and (name or "").lower().startswith(MICROSOFT_PREFIXES)
 

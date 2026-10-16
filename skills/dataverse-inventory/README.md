@@ -137,7 +137,10 @@ acrescentar a um inventário pronto sem refazer o núcleo: `all -c inventory.yam
 | `usuarios` | lista nominal de usuários e membros de equipe — **dado pessoal**: só com autorização do cliente |
 
 **Componentes da Microsoft** (`msdyn_`, `mscrm_`, `adx_`… — lista em `scripts/dvinv/scope.py`) ficam fora do
-escopo por padrão, mesmo dentro de uma solução do escopo, e o ribbon das tabelas deles não é lido. Tabela da
+escopo por padrão, mesmo dentro de uma solução do escopo, e o ribbon das tabelas deles não é lido. Plugins do
+produto saem pela chave de assinatura do assembly (a mesma em qualquer ambiente) ou pelo nome `Microsoft.`/
+`Adxstudio.`, com classes e steps. Colunas criadas pelos apps da Microsoft (`msdyn_…` na conta) e as de
+`exclude_prefixes` não contam como customizadas: não trazem a tabela para o escopo nem entram no uso de campos. Tabela da
 Microsoft com coluna do cliente continua no inventário pelas colunas. Para incluir: `scope.exclude_microsoft: false`.
 
 O perfil `metadata_only` (`profile:` no yaml) continua valendo por cima de tudo: trava a leitura de conteúdo e
