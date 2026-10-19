@@ -101,10 +101,10 @@ def write_agent_index(v, d, has_catalog):
          "Impacto, onde é usado, do que depende, existe X? Os CSVs desta pasta respondem com poucas linhas:", "",
          "| Pergunta | grep (qualquer agente/terminal) | dvinv (mais legível, faz vários níveis) |",
          "|---|---|---|",
-         "| Existe? Qual a chave/GUID? | `grep -i \"esab_campo\" Componentes.csv` | `dvinv.py buscar esab_campo --vault .` |",
-         "| Quem depende de X? | `grep \";column:account.esab_campo;\" Dependências.csv` | `dvinv.py onde-usa account.esab_campo --vault .` |",
-         "| Impacto em cadeia | repetir o grep para cada origem | `dvinv.py impacto account.esab_campo --profundidade 2 --vault .` |",
-         "| Do que X depende? | `grep \"^webresource:esab_/js/x.js;\" Dependências.csv` | `dvinv.py depende esab_/js/x.js --vault .` |",
+         "| Existe? Qual a chave/GUID? | `grep -i \"contoso_campo\" Componentes.csv` | `dvinv.py buscar contoso_campo --vault .` |",
+         "| Quem depende de X? | `grep \";column:account.contoso_campo;\" Dependências.csv` | `dvinv.py onde-usa account.contoso_campo --vault .` |",
+         "| Impacto em cadeia | repetir o grep para cada origem | `dvinv.py impacto account.contoso_campo --profundidade 2 --vault .` |",
+         "| Do que X depende? | `grep \"^webresource:contoso_/js/x.js;\" Dependências.csv` | `dvinv.py depende contoso_/js/x.js --vault .` |",
          "| Achei um GUID num log/trace | `grep -rl \"id: <guid>\" --include=*.md .` | `dvinv.py buscar <guid> --vault .` |", "",
          "Chave = `<tipo>:<nome>` para o que tem nota (`table:account`, `column:account.x`, `webresource:…`, "
          "`process:<guid>`); fora do escopo, `table:`/`column:` pelo nome lógico e o resto pelo GUID. "

@@ -4,8 +4,8 @@ O vault publicado no repositório é o produto: quem o clona consulta sem `inven
 binário — `dvinv onde-usa X --vault <pasta do ambiente>`. Os mesmos arquivos atendem grep, a busca de código
 do GitHub e qualquer agente (Copilot, Claude, Hermes):
 
-    grep ";column:account.esab_x;" Dependências.csv      # quem depende / do que depende
-    grep -i "esab_x" Componentes.csv                      # existe? tipo, GUID, soluções, nota
+    grep ";column:account.contoso_x;" Dependências.csv      # quem depende / do que depende
+    grep -i "contoso_x" Componentes.csv                      # existe? tipo, GUID, soluções, nota
 
 Saída compacta (tabela de texto), com o caminho da nota de cada resultado.
 """

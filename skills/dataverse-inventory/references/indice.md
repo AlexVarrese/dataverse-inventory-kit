@@ -14,7 +14,7 @@ pelos CSVs da pasta do ambiente, sem ler notas:
 ## Chave
 
 A mesma nos CSVs, no frontmatter (`chave:`) e nos comandos: `<tipo>:<nome>` para o que tem nota
-(`table:account`, `column:account.esab_x`, `webresource:esab_/js/x.js`, `process:<guid>`, `sla:<guid>`…);
+(`table:account`, `column:account.contoso_x`, `webresource:contoso_/js/x.js`, `process:<guid>`, `sla:<guid>`…);
 fora do escopo, `table:`/`column:` pelo nome lógico e o resto pelo GUID. Toda nota tem também `id:` (GUID do
 Dataverse): um GUID tirado de log, plugin trace ou chamado leva à nota com `grep -rl "id: <guid>"`.
 
@@ -22,10 +22,10 @@ Dataverse): um GUID tirado de log, plugin trace ou chamado leva à nota com `gre
 
 | Pergunta | grep (qualquer agente/terminal) | dvinv |
 |---|---|---|
-| Existe? Qual a chave? | `grep -i "esab_x" Componentes.csv` | `dvinv.py buscar esab_x --vault <pasta>` |
-| Quem depende de X? | `grep ";column:account.esab_x;" Dependências.csv` | `dvinv.py onde-usa account.esab_x --vault <pasta>` |
-| Impacto em cadeia | repetir o grep para cada origem | `dvinv.py impacto account.esab_x --profundidade 2 --vault <pasta>` |
-| Do que X depende? | `grep "^webresource:esab_/js/x.js;" Dependências.csv` | `dvinv.py depende esab_/js/x.js --vault <pasta>` |
+| Existe? Qual a chave? | `grep -i "contoso_x" Componentes.csv` | `dvinv.py buscar contoso_x --vault <pasta>` |
+| Quem depende de X? | `grep ";column:account.contoso_x;" Dependências.csv` | `dvinv.py onde-usa account.contoso_x --vault <pasta>` |
+| Impacto em cadeia | repetir o grep para cada origem | `dvinv.py impacto account.contoso_x --profundidade 2 --vault <pasta>` |
+| Do que X depende? | `grep "^webresource:contoso_/js/x.js;" Dependências.csv` | `dvinv.py depende contoso_/js/x.js --vault <pasta>` |
 
 `<pasta>` = pasta do ambiente no vault (ex. `Dataverse/PRD`). `--vault` dispensa `inventory.yaml` e
 credenciais: funciona em qualquer clone do repositório. Com `-c inventory.yaml`, usa o vault do config.

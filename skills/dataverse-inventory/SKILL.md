@@ -67,6 +67,7 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
 - `references/collectors.md` — o que cada coletor lê e as armadilhas da Web API já resolvidas.
 - `references/vault-schema.md` — estrutura do vault e properties de cada tipo de nota.
 - `references/findings.md` — regras dos achados automáticos e como validá-los.
+- `references/boas-praticas.md` — práticas do Microsoft Learn ligadas à evidência no vault, aos achados e às regras do solution checker.
 - `references/indice.md` — consultas de impacto: grep nos CSVs do vault e `buscar`/`onde-usa`/`impacto`/`depende`.
 - `PROMPT.md` — prompt equivalente para agentes sem suporte a skills.
 

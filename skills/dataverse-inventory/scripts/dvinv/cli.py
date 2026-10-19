@@ -9,7 +9,7 @@
 Consultas ao vault (Componentes.csv + Dependências.csv da pasta do ambiente) — funcionam em qualquer clone
 do repositório do vault com --vault <pasta>, sem inventory.yaml nem credenciais:
   buscar <texto>       encontra componentes (chave, tipo, escopo, nº de dependentes, nota)
-  onde-usa <alvo>      quem depende diretamente do alvo (ex. account.esab_campo, account, nome de JS)
+  onde-usa <alvo>      quem depende diretamente do alvo (ex. account.contoso_campo, account, nome de JS)
   impacto <alvo>       cadeia de quem depende do alvo (--profundidade, padrão 2)
   depende <alvo>       do que o alvo depende (--profundidade, padrão 1)
 
@@ -257,7 +257,7 @@ def main(argv=None):
 
     if args.command in ("buscar", "onde-usa", "impacto", "depende"):
         if not args.termo:
-            sys.exit(f"{args.command} exige o termo (ex.: dvinv {args.command} account.esab_campo --vault <pasta>)")
+            sys.exit(f"{args.command} exige o termo (ex.: dvinv {args.command} account.contoso_campo --vault <pasta>)")
         from . import consulta
         vdir = args.vault or config_mod.load(args.config).vault_dir
         inv = consulta.Inventario(vdir)
