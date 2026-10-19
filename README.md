@@ -40,6 +40,10 @@ skills, há um prompt equivalente.
   (extra `usuarios`).
 - **Achados automáticos** (segredos expostos, JS quebrado ou obsoleto, plugins sem filtro, automações
   de dono desativado, drift entre ambiente e repositório Git, soluções com dependências faltando…).
+- **Prompts prontos e boas práticas**: cinco prompts para o GitHub Copilot (`/impacto-evolutiva`,
+  `/diagnostico-erro`, `/revisao-performance`, `/melhorias-arquitetura`, `/planejar-evolucao`), gravados em
+  `.github/prompts/` do vault a cada render, e o catálogo de boas práticas do Microsoft Learn ligado aos achados e
+  ao solution checker. Devin e outros agentes chegam a eles pelo `AGENTS.md`.
 - **Comparação** entre ambientes (TEST × PRD) ou entre datas.
 
 Guia de uso (comandos, extração por partes, opções de desempenho, consultas): [`skills/dataverse-inventory/README.md`](skills/dataverse-inventory/README.md#como-usar-resumo-prático).
@@ -75,13 +79,19 @@ python3 <pasta-da-skill>/scripts/dvinv.py check -c inventory.yaml
 python3 <pasta-da-skill>/scripts/dvinv.py all   -c inventory.yaml
 ```
 
+Depois do inventário, no VS Code com a pasta do vault aberta, Chat em modo Agent: `/impacto-evolutiva`,
+`/diagnostico-erro`, `/revisao-performance`, `/melhorias-arquitetura` ou `/planejar-evolucao`. Em outros agentes:
+*"siga `.github/prompts/impacto-evolutiva.prompt.md` para <mudança>"*.
+
 Documentação: [README da skill](skills/dataverse-inventory/README.md) ·
 [INSTALL](skills/dataverse-inventory/INSTALL.md) ·
 [SKILL.md](skills/dataverse-inventory/SKILL.md) ·
 [PROMPT](skills/dataverse-inventory/PROMPT.md) ·
 [coletores](skills/dataverse-inventory/references/collectors.md) ·
 [esquema do vault](skills/dataverse-inventory/references/vault-schema.md) ·
-[achados](skills/dataverse-inventory/references/findings.md)
+[achados](skills/dataverse-inventory/references/findings.md) ·
+[boas práticas](skills/dataverse-inventory/references/boas-praticas.md) ·
+[padrão de prompts](skills/dataverse-inventory/references/padrao-prompts.md)
 
 ## Dependências
 

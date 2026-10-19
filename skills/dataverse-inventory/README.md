@@ -76,7 +76,25 @@ Exemplos: segredo em texto claro (SEC-01); biblioteca JS inexistente referenciad
 botão (UI-01); handler sem função (UI-02); step de Update sem filtering attributes (PLG-01); plugin com
 taxa de erro ≥ 5% (PLG-04); BPFs concorrentes (PRC-01); automação de dono desativado (PRC-02); tabela
 custom sem privilégio de leitura (SEG-01); equipe gigante (SEG-02); variável de ambiente sem valor
-(ALM-01). Lista completa em [`references/findings.md`](references/findings.md).
+(ALM-01). Lista completa em [`references/findings.md`](references/findings.md); a prática do Microsoft Learn que
+cada regra verifica, em [`references/boas-praticas.md`](references/boas-praticas.md).
+
+## Prompts para o time
+
+A cada render, `prompts/*.prompt.md` e o catálogo de boas práticas são copiados para `.github/prompts/` da raiz do
+vault, e o `AGENTS.md` cita os comandos. Não precisa extrair de novo para recebê-los.
+
+| Comando | Quando usar |
+|---|---|
+| `/impacto-evolutiva` | antes de desenvolver: o que a mudança afeta, o que ajustar e testar |
+| `/diagnostico-erro` | erro em HML ou PRD: causa provável e o que verificar |
+| `/revisao-performance` | lentidão ou revisão periódica: gargalos prováveis e ganho esperado |
+| `/melhorias-arquitetura` | planejamento: melhorias priorizadas por risco e esforço |
+| `/planejar-evolucao` | requisito novo: o que reaproveitar antes de construir |
+
+No Copilot (VS Code), abra a pasta raiz do vault e digite o comando no Chat em modo Agent. Em outros agentes, peça
+para seguir o arquivo. Toda resposta segue [`references/padrao-prompts.md`](references/padrao-prompts.md). Prompt do
+time: copie `prompts/_modelo.prompt.md` para `.github/prompts/` com outro nome; o render não mexe nele.
 
 ## Uso rápido
 
@@ -219,7 +237,8 @@ Com agente (Hermes/Claude Code): basta pedir "faça o inventário do ambiente X"
 ```
 dataverse-inventory/
   SKILL.md  README.md  INSTALL.md  PROMPT.md
-  references/  collectors.md  vault-schema.md  findings.md
+  references/  collectors.md  vault-schema.md  findings.md  indice.md  boas-praticas.md  padrao-prompts.md
+  prompts/     _modelo.prompt.md e os cinco prompts copiados para .github/prompts/ do vault
   scripts/
     dvinv.py                   launcher da CLI
     inventory.example.yaml     configuração modelo

@@ -145,6 +145,9 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
      `obsidian-markdown` (wikilinks, callouts, properties). Para visões novas, use `obsidian-bases`;
      para diagramas, `json-canvas`.
    - Atualize `status` do achado (`aberto` → `confirmado`/`falso-positivo`/`resolvido`).
+   - Pedido de impacto, diagnóstico de erro, performance, arquitetura ou planejamento: siga o prompt
+     correspondente em `prompts/` (no vault, `.github/prompts/`) e responda no formato de
+     `references/padrao-prompts.md`, citando as práticas de `references/boas-praticas.md`.
 8. **O que mudou desde a última extração:** cada render gera `Mudanças desde a extração anterior.md` e
    `Mudanças.csv` (componentes novos, removidos e alterados com o que mudou; achados novos e resolvidos, com as
    ocorrências corrigidas) comparando com o snapshot completo anterior do ambiente. Use-a para notas de versão e
