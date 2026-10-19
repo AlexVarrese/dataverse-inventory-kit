@@ -27,7 +27,7 @@ Escopo "ambiente": comece pelas 5 tabelas com mais automação síncrona e mais 
    ambiente: `grep -l "modo: Síncrono" "Plugin Steps/"*.md`, contando por `tabela:`, e *Maiores tabelas* em
    `06 Armazenamento e Auditoria` (volume).
 3. Servidor: steps síncronos por tabela e mensagem (`modo`, `estagio`, `ordem`, `filtering`), steps em
-   Retrieve/RetrieveMultiple, steps repetidos (mesma classe, mensagem, tabela e estágio), workflows em tempo real.
+   Retrieve/RetrieveMultiple, steps duplicados (PLG-05), workflows em tempo real.
    Com o extra `saude`: achado PLG-04 (taxa de erro por classe).
 4. Formulário: bibliotecas e handlers por evento (*Eventos de formulário* na nota da tabela). Em cada web resource
    carregado no `OnLoad`: `tamanho_bytes`, análise estática (HTTP síncrono, OData v2, `Xrm.Page`) e o código, quando

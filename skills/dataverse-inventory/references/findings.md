@@ -16,6 +16,9 @@ antes de afirmar.
 | PLG-02 | médio | step síncrono em Retrieve/RetrieveMultiple | medir com o trace; pode ser segurança por registro proposital |
 | PLG-03 | baixo | step desativado | confirmar com o time se é desligamento temporário |
 | PLG-04 | alto/crítico | classe com ≥ 5 execuções e taxa de erro ≥ 5% no trace (crítico se ≥ 50%) | ler `exceptiondetails` no ambiente; janela curta = amostra pequena |
+| PLG-05 | alto | steps ativos com mesma classe, mensagem, tabela, estágio, modo e filtering | conferir se não é registro intencional com configuração diferente (o kit não compara a configuração do step) |
+| PLG-06 | alto | step em RetrieveMultiple de `annotation` ou no estágio do CRM 4.0 | medir com o trace; mover a lógica para outra mensagem ou estágio |
+| PLG-07 | baixo | assembly em mais de uma solução (sem contar Default/Active) | definir a solução dona do assembly e tirá-lo das demais |
 | OPS-01 | info | plugin trace desligado | — |
 | OPS-02 | médio | auditoria da organização desligada | — |
 | PRC-01 | médio | mais de um BPF ativo na mesma tabela | podem ser por perfil/BU (intencional) |
@@ -31,6 +34,7 @@ antes de afirmar.
 | ALM-04 | baixo | processo não gerenciado fora de qualquer solução | customização direta no ambiente, não migra por ALM |
 | ALM-06 | médio | operação de solução com falha nos últimos 90 dias (extra `historico`) | ler a mensagem em `10 Histórico de Soluções`; o Power Platform apaga o histórico após 180 dias |
 | ALM-07 | médio | tabela com customização não gerenciada (camada `Active`) por cima das gerenciadas (extra `camadas`) | em DEV é normal; em TEST/PRD levar o ajuste para a solução e remover a camada |
+| ALM-08 | baixo | solução instalada como patch (extra `historico`, últimos 180 dias) | consolidar no próximo upgrade da solução pai |
 
 | SEG-03 | baixo | equipe proprietária (não padrão da BU) sem nenhum papel | pode ser equipe usada só para compartilhamento — confirmar |
 | SEG-04 | alto | usuário de aplicação ativo com System Administrator (direto ou via equipe) | exige extra `usuarios`; aplicar menor privilégio |
@@ -47,7 +51,14 @@ antes de afirmar.
 | JS-04 | médio | XMLHttpRequest síncrono | — |
 | JS-05 | baixo | dependência de XrmServiceToolkit | — |
 | JS-06 | info | hosts externos fixos no JS | — |
+| JS-07 | médio | JS chama `refreshRibbon` | ver se roda no `OnLoad` ou em `EnableRule` (crítico no solution checker) |
+| JS-08 | médio | JS acessa `window.top`, `window.parent` ou `parent.Xrm` | trocar por `formContext` e `Xrm.Navigation` |
+| JS-09 | baixo | JS abre janela (`window.open`, `showModalDialog`) | trocar por `Xrm.Navigation.openForm`/`navigateTo` |
+| JS-10 | baixo | JS com `console.log`, `alert` ou `debugger` | pode ser log intencional de diagnóstico; remover fora de DEV |
+| JS-11 | alto | JS carrega o jQuery interno da plataforma (`/_static/_common/scripts/jquery`) | publicar a própria cópia ou eliminar o jQuery |
 | FLW-01 | baixo | cloud flow ativo com 5+ ações e nenhum tratamento de erro | pode haver monitoramento externo (alerta do admin center, CoE) |
+| FLW-02 | baixo | flow ativo com gatilho do Dataverse em alteração sem colunas de filtro, filtro de linhas nem condição | precisa da definição do flow (`deep.flow_definitions`); extração anterior à regra aparece como não comparável |
+| FLW-03 | médio | flow ativo com o conector Dataverse legado (`commondataservice`) | migrar as ações para o conector Microsoft Dataverse |
 | STO-01 | médio | imagens ≥ 30% dos bytes de anexos de e-mail | padrão de assinatura de e-mail; confirmar tamanho médio por arquivo |
 | AUD-01 | info | volume e retenção efetiva da auditoria | comparar com a política acordada; queda brusca entre extrações = exclusão em massa (use `diff`) |
 | REPO-01 | crítico | segredo em arquivo versionado | valor fica no histórico do Git; rotacionar e limpar o histórico |

@@ -101,7 +101,14 @@ FINDING_SOURCES = {"SEC": ("webresources", "processes", "plugins", "alm", "servi
 # Achados que dependem de uma etapa específica, além (ou no lugar) da família
 FINDING_SOURCES_BY_ID = {"ALM-06": ("solution_history",), "ALM-07": ("solution_layers",), "PLG-04": ("health",),
                          "SEG-02": ("security",), "SEG-04": ("users",), "SEG-05": ("users",), "OPS-01": ("environment",),
-                         "DEP-01": ("platform_dependencies",), "UI-01": ("forms", "webresources", "ribbons")}
+                         "DEP-01": ("platform_dependencies",), "UI-01": ("forms", "webresources", "ribbons"),
+                         "ALM-08": ("solution_history",)}
+# Achados que dependem de um campo que versões antigas do kit não gravavam: (coleção, campo) presente nas duas
+FINDING_FIELDS_BY_ID = {"FLW-02": ("processes", "dv_trigger")}
+
+
+def _has_field(data, coll, field):
+    return any(isinstance(r, dict) and field in r for r in data.get(coll) or [])
 
 
 def _keys(x, out):
@@ -221,6 +228,9 @@ def _compare(d, fnd, prev_dir):
 
     def comparable(fid):
         srcs = FINDING_SOURCES_BY_ID.get(fid) or FINDING_SOURCES.get(fid.split("-")[0], ())
+        need = FINDING_FIELDS_BY_ID.get(fid)
+        if need and not (_has_field(d, *need) and _has_field(p, *need)):
+            return False
         return all(_pair_ok(m, pm, c) for c in srcs)
 
     for fid in sorted(old_f.keys() | cur_f.keys(), key=lambda i: (findings_mod.SEV_ORDER.get(

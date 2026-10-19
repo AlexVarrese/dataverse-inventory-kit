@@ -12,6 +12,11 @@ Prompts e boas práticas
   `/diagnostico-erro`, `/revisao-performance`, `/melhorias-arquitetura`, `/planejar-evolucao`.
 - O render grava os prompts e o catálogo em `.github/prompts/` do vault (o Copilot oferece cada um como `/nome`) e
   cita os comandos no `AGENTS.md` e no README. Arquivos do time na mesma pasta não são tocados.
+- 11 regras novas, vindas das lacunas do catálogo: PLG-05 (step duplicado), PLG-06 (RetrieveMultiple de annotation
+  ou estágio do CRM 4.0), PLG-07 (assembly em várias soluções), JS-07 a JS-11 (`refreshRibbon`, `window.top`,
+  `window.open`, depuração, jQuery de `/_static/`), FLW-02 (gatilho sem filtro), FLW-03 (conector Dataverse legado) e
+  ALM-08 (patch). As de JS leem o código já baixado; FLW-02 precisa de nova extração e, até lá, aparece como não
+  comparável na nota de mudanças.
 
 Removido
 - Cache SQLite (`--sqlite`, `output.sqlite`, `inventario.sqlite`) e a planilha `Matriz de Dependências.xlsx`

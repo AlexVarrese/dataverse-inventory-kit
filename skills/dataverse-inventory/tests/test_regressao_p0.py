@@ -826,6 +826,80 @@ class TestLogDeExecucao(unittest.TestCase):
         self.assertRegex(linhas[1], r"^\d\d:\d\d:\d\d \[dvinv\]   colunas 10/20$")
 
 
+class TestRegrasDasLacunas(unittest.TestCase):
+    """Regras que vieram das lacunas priorizadas em references/boas-praticas.md."""
+
+    @staticmethod
+    def step(i, **kw):
+        s = {"id": f"s{i}", "name": f"step {i}", "handler_kind": "plugintype", "type": "Contoso.Plugins.AccountPre",
+             "message": "Update", "entity": "account", "stage": "PreOperation", "mode": "Síncrono",
+             "enabled": True, "filtering": "name"}
+        s.update(kw)
+        return s
+
+    @staticmethod
+    def ids(d):
+        return {f["id"]: f for f in findings_mod.compute(d)}
+
+    def test_plugins(self):
+        st = [self.step(1), self.step(2, filtering="NAME "),  # duplicado (mesmo filtering, outra grafia)
+              self.step(3, filtering="telephone1"),            # outro filtering: não é duplicado
+              self.step(4, message="RetrieveMultiple", entity="annotation", filtering=None),
+              self.step(5, stage="PostOperation (legado)", message="Create", filtering=None),
+              self.step(6, enabled=False)]
+        asms = [{"id": "a1", "name": "Contoso.Plugins", "solutions": ["ContosoCore", "ContosoHotfix"]},
+                {"id": "a2", "name": "Contoso.Outro", "solutions": ["ContosoCore", "Default"]}]
+        f = self.ids({"plugins": {"steps": st, "assemblies": asms}})
+        self.assertEqual(f["PLG-05"]["metric"], 1)
+        self.assertEqual({r[1] for r in f["PLG-05"]["refs"]}, {"s1", "s2"})
+        self.assertEqual(f["PLG-06"]["metric"], 2)
+        self.assertEqual(f["PLG-07"]["evidence"], ["Contoso.Plugins: ContosoCore, ContosoHotfix"])
+
+    def test_js_no_codigo(self):
+        code = {"a.js": "Xrm.Page.ui.refreshRibbon(); window.top.location; window.open('x'); console.log(1);",
+                "b.js": "var x = '/_static/_common/scripts/jquery-2.1.1.min.js'; Xrm.Navigation.openAlertDialog({});",
+                "c.js": "formContext.ui.refreshRibbon ; // sem chamada\nfunction alertar(){}"}
+        wrs = [{"id": n, "name": n, "content": c, "js": {"third_party": False}} for n, c in code.items()]
+        f = self.ids({"webresources": wrs})
+        for fid in ("JS-07", "JS-08", "JS-09", "JS-10"):
+            self.assertEqual(f[fid]["evidence"], ["a.js"], fid)
+        self.assertEqual(f["JS-11"]["evidence"], ["b.js"])
+
+    def test_flows(self):
+        from dvinv.collectors.processes import parse_flow
+
+        def flow(params, conditions=None, connectors=("commondataserviceforapps",)):
+            trig = {"type": "OpenApiConnectionWebhook", "inputs": {"host": {"operationId": "SubscribeWebhookTrigger"},
+                                                                    "parameters": params}}
+            if conditions:
+                trig["conditions"] = conditions
+            cd = {"properties": {"definition": {"triggers": {"t": trig}, "actions": {}},
+                                 "connectionReferences": {c: {"api": {"name": "shared_" + c}} for c in connectors}}}
+            return parse_flow(json.dumps(cd))
+
+        sem = flow({"subscriptionRequest/message": 3})
+        self.assertEqual(sem["dv_trigger"], {"message": 3, "filter": False})
+        com = flow({"subscriptionRequest/message": 4, "subscriptionRequest/filteringattributes": "name"})
+        cond = flow({"subscriptionRequest/message": 3}, conditions=[{"expression": "@x"}])
+        criar = flow({"subscriptionRequest/message": 1})
+        legado = flow({"subscriptionRequest/message": 1}, connectors=("commondataservice",))
+        procs = [dict(p, id=n, name=n, category="Cloud Flow", active=True, entity="account", managed=True)
+                 for n, p in (("sem", sem), ("com", com), ("cond", cond), ("criar", criar), ("legado", legado))]
+        f = self.ids({"processes": procs})
+        self.assertEqual(f["FLW-02"]["evidence"], ["account: sem"])
+        self.assertEqual(f["FLW-03"]["evidence"], ["legado"])
+
+    def test_patch_e_comparabilidade(self):
+        f = self.ids({"solution_history": [{"solution": "ContosoCore_Patch", "patch": True},
+                                           {"solution": "ContosoCore", "patch": False}]})
+        self.assertEqual(f["ALM-08"]["evidence"], ["ContosoCore_Patch"])
+        from dvinv import changes
+        novo = {"processes": [{"id": "1", "dv_trigger": None}]}
+        antigo = {"processes": [{"id": "1"}]}  # extração de versão do kit que não gravava o gatilho
+        self.assertTrue(changes._has_field(novo, *changes.FINDING_FIELDS_BY_ID["FLW-02"]))
+        self.assertFalse(changes._has_field(antigo, *changes.FINDING_FIELDS_BY_ID["FLW-02"]))
+
+
 class TestPromptsNoVault(unittest.TestCase):
     """O render grava os prompts do kit em .github/prompts/ sem tocar nos arquivos do time."""
 

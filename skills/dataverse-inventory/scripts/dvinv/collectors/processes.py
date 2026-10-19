@@ -67,7 +67,7 @@ def describe_action(a):
 def parse_flow(clientdata):
     info = {"trigger": None, "trigger_detail": None, "connectors": [], "tables": [], "http_hosts": [],
             "child_flows": 0, "actions": 0, "outline": [], "action_types": {}, "conditions": 0,
-            "error_handlers": 0, "max_depth": 0}
+            "error_handlers": 0, "max_depth": 0, "dv_trigger": None}
     try:
         cd = json.loads(clientdata)
     except Exception:  # noqa: BLE001
@@ -80,6 +80,12 @@ def parse_flow(clientdata):
         info["trigger"] = classify_trigger(trig)
         op = ((trig.get("inputs") or {}).get("host") or {}).get("operationId")
         info["trigger_detail"] = f"{name} ({op})" if op else name
+        if op == "SubscribeWebhookTrigger":  # Dataverse: quando uma linha é adicionada, modificada ou excluída
+            params = (trig.get("inputs") or {}).get("parameters") or {}
+            info["dv_trigger"] = {"message": params.get("subscriptionRequest/message"),
+                                  "filter": bool(params.get("subscriptionRequest/filteringattributes")
+                                                 or params.get("subscriptionRequest/filterexpression")
+                                                 or trig.get("conditions"))}
     refs = props.get("connectionReferences") or {}
     apis = set()
     info["connrefs"] = sorted({(r.get("connection") or {}).get("connectionReferenceLogicalName")

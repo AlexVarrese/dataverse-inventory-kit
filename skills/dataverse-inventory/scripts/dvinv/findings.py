@@ -10,6 +10,25 @@ from collections import Counter, defaultdict
 
 SEV_ORDER = {"crítico": 0, "alto": 1, "médio": 2, "baixo": 3, "info": 4}
 
+# Padrões de JS reprovados pelo solution checker, procurados no código baixado (vale para snapshots antigos também).
+JS_CODE_CHECKS = (
+    ("JS-07", "médio", re.compile(r"\.refreshRibbon\s*\("), "chamam refreshRibbon",
+     "Recarrega a barra de comandos. No OnLoad ou em EnableRule é regra crítica do solution checker "
+     "(web-avoid-ui-refreshribbon): confirmar onde a chamada roda."),
+    ("JS-08", "médio", re.compile(r"\bwindow\.top\b|\bwindow\.parent\b|\bparent\.Xrm\b"), "acessam window.top ou parent",
+     "Supõe a estrutura de janelas do cliente, que muda sem aviso (web-avoid-window-top, "
+     "web-do-not-make-parent-assumption). Usar formContext e Xrm.Navigation."),
+    ("JS-09", "baixo", re.compile(r"\bwindow\.open\s*\(|\bshowModalDialog\s*\("), "abrem janela ou diálogo do navegador",
+     "Preferir Xrm.Navigation.openForm/navigateTo (web-avoid-modals, web-use-navigation-api)."),
+    ("JS-10", "baixo", re.compile(r"\bconsole\.(?:log|debug)\s*\(|(?<![\w.])alert\s*\(|\bwindow\.alert\s*\(|\bdebugger\b"),
+     "têm console.log, alert ou debugger",
+     "Código de depuração fora de DEV (web-remove-console, web-remove-alert, web-remove-debug-script)."),
+    ("JS-11", "alto", re.compile(r"/_static/_common/scripts/jquery", re.I), "carregam o jQuery interno da plataforma (/_static/)",
+     "Biblioteca interna removida da plataforma: publicar a própria cópia como web resource ou eliminar o jQuery."),
+)
+# Gatilho "quando uma linha é adicionada, modificada ou excluída" (Dataverse): tipos de alteração que incluem Update.
+DV_TRIGGER_UPDATE = {"3", "4", "6", "7"}
+
 
 def _f(fid, sev, title, detail, refs=None, evidence=None, metric=None):
     return {"id": fid, "severity": sev, "title": title, "detail": detail,
@@ -127,6 +146,37 @@ def compute(d):
                       refs=[("step", s["id"]) for s in disabled],
                       evidence=[f"{s['entity']}: {s['name']}" for s in disabled], metric=len(disabled)))
 
+    groups = defaultdict(list)
+    for s in plugin_steps:
+        if s["enabled"]:
+            filt = ",".join(sorted(f.strip().lower() for f in (s.get("filtering") or "").split(",") if f.strip()))
+            groups[(s.get("type"), s["message"], s.get("entity"), s.get("stage"), s["mode"], filt)].append(s)
+    dups = [g for g in groups.values() if len(g) > 1]
+    if dups:
+        out.append(_f("PLG-05", "alto", f"{len(dups)} registro(s) de step em duplicidade",
+                      "Mesma classe, mensagem, tabela, estágio, modo e filtering, ativos: o plug-in roda mais de uma vez "
+                      "na mesma operação. Regra crítica do solution checker (meta-remove-dup-reg).",
+                      refs=[("step", s["id"]) for g in dups for s in g],
+                      evidence=[f"{g[0]['entity']}: {g[0]['message']} {g[0]['stage']} → {g[0]['type']} ×{len(g)}"
+                                for g in dups], metric=len(dups)))
+    bad_reg = [(s, "RetrieveMultiple de annotation") for s in plugin_steps if s["enabled"]
+               and s["message"] == "RetrieveMultiple" and s.get("entity") == "annotation"]
+    bad_reg += [(s, "estágio do CRM 4.0") for s in plugin_steps if s["enabled"] and s.get("stage") == "PostOperation (legado)"]
+    if bad_reg:
+        out.append(_f("PLG-06", "alto", f"{len(bad_reg)} step(s) com registro reprovado pelo solution checker",
+                      "Step em RetrieveMultiple de annotation roda em toda listagem de notas e anexos "
+                      "(meta-avoid-retrievemultiple-annotation); estágio do CRM 4.0 é legado (meta-avoid-crm4-event).",
+                      refs=[("step", s["id"]) for s, _r in bad_reg],
+                      evidence=[f"{s['entity']}: {s['name']} ({r})" for s, r in bad_reg], metric=len(bad_reg)))
+    multi = [a for a in plugins.get("assemblies") or []
+             if len([x for x in a.get("solutions") or [] if x.lower() not in ("default", "active")]) > 1]
+    if multi:
+        out.append(_f("PLG-07", "baixo", f"{len(multi)} assembly(ies) em mais de uma solução",
+                      "A definição do assembly deve ficar numa solução só: em várias, cada importação sobrepõe a outra e "
+                      "a versão que roda depende da ordem de deploy.",
+                      refs=[("assembly", a["name"]) for a in multi],
+                      evidence=[f"{a['name']}: {', '.join(a['solutions'])}" for a in multi], metric=len(multi)))
+
     # 6. Saúde de execução (trace log) --------------------------------------------------------
     health = d.get("health") or {}
     failing = [t for t in health.get("by_type") or [] if t["runs"] >= 5 and (t["error_rate"] or 0) >= 0.05]
@@ -242,6 +292,12 @@ def compute(d):
                       "Importação/upgrade que falhou deixa o ambiente diferente do esperado (componente ausente, versão "
                       "antiga) e costuma voltar como erro em produção. Ver a mensagem em 10 Histórico de Soluções.",
                       evidence=[f"{s_}: {n} falha(s)" for s_, n in por_sol.most_common(30)], metric=len(falhas)))
+    patches = sorted({h["solution"] for h in hist if h.get("patch") and h.get("solution")})
+    if patches:
+        out.append(_f("ALM-08", "baixo", f"{len(patches)} solução(ões) instalada(s) como patch",
+                      "Patches complicam o ALM (dependem da solução pai e acumulam camadas): preferir upgrade da "
+                      "solução inteira. Histórico de soluções guarda só 180 dias.",
+                      evidence=patches[:50], metric=len(patches)))
     camadas = d.get("solution_layers") or {}
     ativas = sorted(t for t, ls in camadas.items() if ls and ls[0].get("solution") == "Active" and len(ls) > 1)
     if ativas:
@@ -391,6 +447,13 @@ def compute(d):
                       refs=[("webresource", w["name"]) for w in ext],
                       evidence=[f"{w['name']}: {', '.join(w['js']['external_hosts'])}" for w in ext], metric=len(ext)))
 
+    for fid, sev, rx, title, detail in JS_CODE_CHECKS:
+        hit = [w for w in js if w.get("content") and rx.search(w["content"])]
+        if hit:
+            out.append(_f(fid, sev, f"{len(hit)} de {len(js)} web resource(s) JS {title}", detail,
+                          refs=[("webresource", w["name"]) for w in hit], evidence=[w["name"] for w in hit],
+                          metric=len(hit)))
+
     # 12. Flows ------------------------------------------------------------------------------
     no_catch = [p for p in procs if p["category"] == "Cloud Flow" and p["active"] and (p.get("actions") or 0) >= 5
                 and p.get("error_handlers") == 0]
@@ -399,6 +462,22 @@ def compute(d):
                       "Nenhuma ação configurada para rodar após Failed/TimedOut: falha fica só no histórico do flow, "
                       "sem log/notificação. Candidato — pode haver monitoramento externo.",
                       refs=[("process", p["id"]) for p in no_catch], metric=len(no_catch)))
+
+    flows = [p for p in procs if p["category"] == "Cloud Flow" and p["active"]]
+    unfiltered = [p for p in flows if isinstance(p.get("dv_trigger"), dict)
+                  and str(p["dv_trigger"].get("message")) in DV_TRIGGER_UPDATE and not p["dv_trigger"].get("filter")]
+    if unfiltered:
+        out.append(_f("FLW-02", "baixo", f"{len(unfiltered)} cloud flow(s) disparam em qualquer alteração da tabela",
+                      "Gatilho do Dataverse em alteração sem colunas de filtro, filtro de linhas nem condição de gatilho: "
+                      "roda a cada gravação e consome execuções e limites de API à toa.",
+                      refs=[("process", p["id"]) for p in unfiltered],
+                      evidence=[f"{p.get('entity') or '?'}: {p['name']}" for p in unfiltered], metric=len(unfiltered)))
+    legacy = [p for p in flows if "commondataservice" in (p.get("connectors") or [])]
+    if legacy:
+        out.append(_f("FLW-03", "médio", f"{len(legacy)} cloud flow(s) usam o conector Dataverse legado",
+                      "Conector descontinuado: migrar as ações para o conector Microsoft Dataverse.",
+                      refs=[("process", p["id"]) for p in legacy], evidence=[p["name"] for p in legacy],
+                      metric=len(legacy)))
 
     # 13. Armazenamento e auditoria -----------------------------------------------------------
     st = d.get("storage") or {}
