@@ -24,7 +24,7 @@ O time pode criar os próprios prompts na mesma pasta com outro nome; o `render`
 | Entrada | alvo e ambiente via `${input:…}` | faltou dado → o agente pergunta antes de seguir |
 | Roteiro no vault | passos numerados: `AGENT-INDEX.md` → CSVs → notas → achados | nunca ler CSVs ou a Matriz de Dependências inteiros |
 | Checklist de práticas | IDs `BP-…` da área + achados abertos do componente | tema fora do catálogo → Learn, com URL |
-| Formato da resposta | o padrão abaixo | sem seções extras |
+| Formato da resposta | o padrão abaixo | o prompt pode acrescentar colunas às tabelas, não seções |
 | Limites | somente leitura, sem segredos, decisão humana | iguais em todos os prompts |
 
 `${input:nome:exemplo}` só é interpretado pelo Copilot. Em outro agente o usuário escreve a entrada na mensagem,
