@@ -76,3 +76,4 @@ output:
 #   platform_dependencies_columns: false  # dependências por coluna custom (1 chamada por coluna — pesado)
 #   solution_layers_max: 500            # teto de tabelas no extra camadas
 #   batch_size: 20                      # leituras por pacote $batch (ribbons, privilégios, colunas…); 0 = sem $batch
+#                                       # o Learn recomenda pacotes pequenos; se o log mostrar espera por 429, use 10
