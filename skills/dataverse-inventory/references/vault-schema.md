@@ -55,8 +55,12 @@ não tem comandos de grafo). O vault traz o grafo por tipo em arquivos:
 
 Carregados automaticamente pelo Copilot (`AGENTS.md`) e pelo Claude Code (`CLAUDE.md` → `@AGENTS.md`). O
 render reescreve só o bloco entre `<!-- dvinv:inicio … -->` e `<!-- dvinv:fim -->` (≤ 30 linhas: tabela de
-ambientes com URL, `AGENT-INDEX.md`, config e snapshot, e 5 regras de consulta/execução). Os ambientes vêm do
+ambientes com URL, `AGENT-INDEX.md`, config e snapshot, e 5 regras de consulta/execução, mais a 6ª, que aponta para os prompts). Os ambientes vêm do
 frontmatter de cada `AGENT-INDEX.md` do vault. `CLAUDE.md` só é criado se não existir.
+
+`.github/prompts/`: os prompts padrão do kit (`*.prompt.md`, comandos `/nome` no Copilot) e `boas-praticas.md`,
+regravados a cada render. Cada arquivo do kit traz a marca `dvinv:prompt <nome>`; arquivo sem a marca, ou cópia com
+outro nome, é do time e não é tocado.
 
 ## Arquivos tabulares (fora das notas)
 

@@ -9,11 +9,12 @@ Modelo pronto para copiar: `prompts/_modelo.prompt.md` (o `render` não o copia 
 | Onde | O quê |
 |---|---|
 | `prompts/*.prompt.md` (kit) | fonte dos prompts padrão |
-| `.github/prompts/*.prompt.md` (repositório do vault) | cópia gravada pelo `render` no modo repositório; o Copilot oferece cada um como `/nome` no chat |
+| `.github/prompts/*.prompt.md` (raiz do vault) | cópia gravada a cada `render`; o Copilot oferece cada um como `/nome` no chat |
 | `.github/prompts/boas-praticas.md` | cópia do catálogo, para os prompts citarem por link relativo |
 | `AGENTS.md` (bloco dvinv) | aponta para os prompts; Devin e demais agentes leem esse arquivo automaticamente |
 
-O time pode criar os próprios prompts na mesma pasta com outro nome; o `render` só reescreve os do kit.
+O time pode criar os próprios prompts na mesma pasta com outro nome; o `render` só regrava e remove os arquivos com a
+marca `dvinv:prompt <nome do próprio arquivo>`.
 
 ## Estrutura do prompt
 

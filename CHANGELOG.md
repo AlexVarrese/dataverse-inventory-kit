@@ -5,6 +5,14 @@
 Inventário de **100% dos componentes** e camada de consulta para agentes de IA (impacto de evolutivas e
 rastreamento de problemas sem ler o vault inteiro). Construído sobre a 0.5.0 (ainda sem tag).
 
+Prompts e boas práticas
+- `references/boas-praticas.md`: 54 práticas do Microsoft Learn com a evidência no vault, o achado que as cobre,
+  as regras correspondentes do solution checker e 14 lacunas priorizadas.
+- `references/padrao-prompts.md` e `prompts/`: padrão de prompt e de resposta e cinco prompts — `/impacto-evolutiva`,
+  `/diagnostico-erro`, `/revisao-performance`, `/melhorias-arquitetura`, `/planejar-evolucao`.
+- O render grava os prompts e o catálogo em `.github/prompts/` do vault (o Copilot oferece cada um como `/nome`) e
+  cita os comandos no `AGENTS.md` e no README. Arquivos do time na mesma pasta não são tocados.
+
 Removido
 - Cache SQLite (`--sqlite`, `output.sqlite`, `inventario.sqlite`) e a planilha `Matriz de Dependências.xlsx`
   (`output.xlsx`): as consultas (`buscar`, `onde-usa`, `impacto`, `depende`) usam só o vault (`Componentes.csv` +

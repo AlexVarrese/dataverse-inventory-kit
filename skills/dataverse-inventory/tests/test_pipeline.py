@@ -948,6 +948,8 @@ def main():
         assert agt.count(BEGIN) == 1 and agt.count(END) == 1 and "CONTOSO-PRD" in agt and "AGENT-INDEX.md" in agt, agt
         assert "inventory.yaml" in agt and "https://contoso.crm.dynamics.com" in agt, agt
         assert len(agt.split(BEGIN)[1].splitlines()) <= 30, "bloco lido em toda sessão: manter curto"
+        assert "`/impacto-evolutiva`" in agt and (cfg.vault_root / ".github" / "prompts" / "impacto-evolutiva.prompt.md").exists()
+        assert not (cfg.vault_root / ".github" / "prompts" / "_modelo.prompt.md").exists()
         ag.write_text("# Projeto Contoso\n\nRegra do time: não citar o cliente.\n\n" + agt + "\nRodapé do time.\n")
         cl.write_text("# Claude\nInstruções próprias.\n")
 

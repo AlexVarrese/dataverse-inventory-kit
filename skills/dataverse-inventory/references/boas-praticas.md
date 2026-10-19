@@ -6,7 +6,7 @@ Agentes: **cite o link da prática e a nota do vault** em toda recomendação; p
 recomendação genérica e deve ser dita assim.
 
 Legenda da coluna Achado:
-- `ID` — já existe regra automática (ver `findings.md`);
+- `ID` — já existe regra automática (ocorrências em `Achados/` da pasta do ambiente);
 - **lacuna (dado coletado)** — o vault já tem o dado; falta só a regra (candidata a novo achado);
 - **lacuna (coletar)** — o kit ainda não coleta o dado; o agente só pode recomendar verificar.
 

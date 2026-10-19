@@ -140,6 +140,9 @@ python3 tests/test_regressao_p0.py    # unittest
 - Vault como repositório de conhecimento por unidade de negócio: nome e local vêm de `output.vault_root` e
   `output.repo: true` (blocos gerenciados em README/.gitignore/.gitattributes). Nada disso é fixo no código.
 - Segredo detectado não bloqueia a entrega: é redigido e vira achado; só a parte que não der para limpar sai.
+- Prompts padrão: fonte em `prompts/` (+ `references/boas-praticas.md`), copiados para `.github/prompts/` do vault
+  a cada render. Só arquivo com a marca `dvinv:prompt <nome do próprio arquivo>` é regravado ou removido; `_modelo`
+  não é copiado. Padrão de prompt e de resposta em `references/padrao-prompts.md`.
 
 ## Ideias avaliadas, ainda não feitas
 
@@ -149,5 +152,6 @@ python3 tests/test_regressao_p0.py    # unittest
 - Agrupar ocorrências do mesmo segredo no `SEC-01` (id por execução, sem relação com o valor).
 - Histórico de execução de cloud flows (lacuna real para diagnóstico de erro).
 - Visão consolidada entre unidades de negócio (juntar `Componentes.csv` de vários vaults).
-- Roteiros no `AGENTS.md` gerado: code review, triagem de incidente, racionalização (o que remover/reaproveitar).
+- Prompts de code review e de racionalização (o que remover ou reaproveitar), no padrão de `prompts/`.
+- Regras novas para as lacunas priorizadas em `references/boas-praticas.md`.
 - Lista `pular:` no yaml para coletores leves (só se houver necessidade real).

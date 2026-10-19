@@ -826,5 +826,53 @@ class TestLogDeExecucao(unittest.TestCase):
         self.assertRegex(linhas[1], r"^\d\d:\d\d:\d\d \[dvinv\]   colunas 10/20$")
 
 
+class TestPromptsNoVault(unittest.TestCase):
+    """O render grava os prompts do kit em .github/prompts/ sem tocar nos arquivos do time."""
+
+    def setUp(self):
+        from dvinv.render import agents
+        self.agents = agents
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        env = self.tmp / "Dataverse" / "HML"
+        env.mkdir(parents=True)
+        (env / "AGENT-INDEX.md").write_text("---\nambiente: HML\nurl: https://contoso.crm.dynamics.com\n---\n# x\n")
+        self.d = self.tmp / ".github" / "prompts"
+
+    def test_grava_prompts_catalogo_e_cita_no_agents(self):
+        self.agents.update_root(self.tmp, repo=True)
+        nomes = sorted(p.name for p in self.d.iterdir())
+        self.assertIn("impacto-evolutiva.prompt.md", nomes)
+        self.assertIn("boas-praticas.md", nomes)
+        self.assertNotIn("_modelo.prompt.md", nomes)
+        txt = (self.d / "impacto-evolutiva.prompt.md").read_text()
+        self.assertTrue(txt.startswith("---\nname: impacto-evolutiva\n"), "frontmatter na primeira linha (Copilot)")
+        self.assertIn("<!-- dvinv:prompt impacto-evolutiva.prompt.md ", txt)
+        agt = (self.tmp / "AGENTS.md").read_text()
+        self.assertIn("`/impacto-evolutiva`", agt)
+        self.assertLessEqual(len(agt.split(self.agents.BEGIN)[1].splitlines()), 30)
+        self.assertIn(".github/prompts/", (self.tmp / "README.md").read_text())
+
+    def test_idempotente(self):
+        self.agents.update_root(self.tmp)
+        p = self.d / "diagnostico-erro.prompt.md"
+        antes = p.stat().st_mtime_ns
+        self.agents.update_root(self.tmp)
+        self.assertEqual(p.stat().st_mtime_ns, antes, "sem mudança no kit, o arquivo não é regravado")
+
+    def test_arquivos_do_time_ficam(self):
+        self.d.mkdir(parents=True)
+        (self.d / "impacto-evolutiva.prompt.md").write_text("# versão do time\n")
+        self.agents.update_root(self.tmp)
+        kit = (self.d / "diagnostico-erro.prompt.md").read_text()
+        (self.d / "diagnostico-nosso.prompt.md").write_text(kit + "\nAjuste do time.\n")  # cópia com outro nome
+        (self.d / "antigo.prompt.md").write_text("---\nname: antigo\n---\n<!-- dvinv:prompt antigo.prompt.md — x -->\n")
+        w = self.agents.update_root(self.tmp)
+        self.assertEqual((self.d / "impacto-evolutiva.prompt.md").read_text(), "# versão do time\n")
+        self.assertTrue(any("impacto-evolutiva.prompt.md" in x and "não sobrescrito" in x for x in w), w)
+        self.assertIn("Ajuste do time.", (self.d / "diagnostico-nosso.prompt.md").read_text())
+        self.assertFalse((self.d / "antigo.prompt.md").exists(), "prompt que saiu do kit é removido")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
