@@ -1,5 +1,7 @@
 # Achados automáticos
 
+Cada regra ligada à prática do Microsoft Learn que ela verifica: `boas-praticas.md`, seção *Achados → prática*.
+
 Fonte: `scripts/dvinv/findings.py`, recalculados a cada `render` a partir do snapshot `_raw/<run_id>/`
 e gravados em `_derived/<run_id>/findings.json` (fora do snapshot). Todo achado traz a métrica e a evidência. **Achados são candidatos**: valide
 antes de afirmar.
@@ -27,6 +29,8 @@ antes de afirmar.
 | ALM-02 | médio | referência de conexão sem conexão vinculada | — |
 | ALM-03 | baixo | Custom API sem plugin de implementação | pode ser só uma mensagem para steps/flows |
 | ALM-04 | baixo | processo não gerenciado fora de qualquer solução | customização direta no ambiente, não migra por ALM |
+| ALM-06 | médio | operação de solução com falha nos últimos 90 dias (extra `historico`) | ler a mensagem em `10 Histórico de Soluções`; o Power Platform apaga o histórico após 180 dias |
+| ALM-07 | médio | tabela com customização não gerenciada (camada `Active`) por cima das gerenciadas (extra `camadas`) | em DEV é normal; em TEST/PRD levar o ajuste para a solução e remover a camada |
 
 | SEG-03 | baixo | equipe proprietária (não padrão da BU) sem nenhum papel | pode ser equipe usada só para compartilhamento — confirmar |
 | SEG-04 | alto | usuário de aplicação ativo com System Administrator (direto ou via equipe) | exige extra `usuarios`; aplicar menor privilégio |

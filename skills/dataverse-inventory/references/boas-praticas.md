@@ -49,7 +49,7 @@ Fontes: [Client scripting best practices](https://learn.microsoft.com/power-apps
 | BP-JS-10 | Remover dependências de bibliotecas removidas da plataforma (ex. jQuery 2.1.1 de `/_static/`, XrmServiceToolkit) | código do web resource | JS-05 (XrmServiceToolkit); jQuery lacuna (dado coletado) |
 | BP-JS-11 | Não usar `eval()` nem equivalentes | análise de JS | JS-02 |
 | BP-JS-12 | Sem `alert()` e sem script de depuração fora de DEV | código do web resource | lacuna (dado coletado) |
-| BP-FRM-01 | **Aba padrão** leve: subgrids, quick views e timeline nas abas secundárias | XML do formulário | lacuna (coletar: contagem por aba) |
+| BP-FRM-01 | **Aba padrão** leve: subgrids, quick views e timeline nas abas secundárias | `formxml` (já lido pelo coletor `forms`) | lacuna (ampliar o parser) |
 | BP-FRM-02 | Poucos controles por formulário; só os campos necessários | nota do formulário: `campos` | lacuna (dado coletado: contagem) |
 | BP-FRM-03 | Trocar controles descontinuados (editable grid, controles legados) pelos atuais | XML do formulário (controles) | lacuna (coletar) |
 | BP-UI-01 | Remover web resources e PCF sem uso | `Bases/Web Resources` (sem uso), PCF | UI-03, PCF-02 |
@@ -64,9 +64,9 @@ Fontes: [Coding guidelines](https://learn.microsoft.com/power-automate/guidance/
 | ID | Prática | Onde ver no vault | Achado |
 |---|---|---|---|
 | BP-FLW-01 | Tratamento de erro: escopos Try/Catch, *Run after* em falha, `Terminate`, log e notificação | nota do flow: estrutura e tratamento de erro | FLW-01 |
-| BP-FLW-02 | **Condição de gatilho** / filtro OData e colunas de filtro no gatilho do Dataverse, para rodar só quando necessário | nota do flow: gatilho | lacuna (coletar: parâmetros do gatilho) |
-| BP-FLW-03 | Controle de concorrência só quando necessário (é irreversível), de preferência num child flow | definição do flow | lacuna (coletar) |
-| BP-FLW-04 | Política de retry **exponencial** em ações sujeitas a falha transitória | definição do flow | lacuna (coletar) |
+| BP-FLW-02 | **Condição de gatilho** / filtro OData e colunas de filtro no gatilho do Dataverse, para rodar só quando necessário | `clientdata` do flow (parâmetros e `conditions` do gatilho) | lacuna (dado coletado) |
+| BP-FLW-03 | Controle de concorrência só quando necessário (é irreversível), de preferência num child flow | `clientdata` do flow (`runtimeConfiguration`) | lacuna (dado coletado) |
+| BP-FLW-04 | Política de retry **exponencial** em ações sujeitas a falha transitória | `clientdata` do flow (`retryPolicy`) | lacuna (dado coletado) |
 | BP-FLW-05 | Usar o conector **Microsoft Dataverse** atual (o "legado" está descontinuado) | nota do flow: `conectores` | lacuna (dado coletado) |
 | BP-FLW-06 | Dono ativo / conta de serviço; conexões vinculadas | flow: `proprietario_desativado`; `03 Integrações` | PRC-02, ALM-02 |
 | BP-FLW-07 | Remover flows desligados que não serão reativados | flow: `ativo` | PRC-05 |
@@ -92,7 +92,7 @@ Fonte: [Solution layers](https://learn.microsoft.com/power-platform/alm/solution
 |---|---|---|---|
 | BP-ALM-01 | Fora de DEV, só **soluções gerenciadas**: customização não gerenciada (camada *Active*) por cima do deploy | extra `camadas` | ALM-07 |
 | BP-ALM-02 | Customização sempre **dentro de solução** | processos e componentes não gerenciados fora de solução | ALM-04 |
-| BP-ALM-03 | Evitar **patches** de solução (preferir upgrade) | soluções | lacuna (coletar: patch) |
+| BP-ALM-03 | Evitar **patches** de solução (preferir upgrade) | extra `historico` (`patch` por operação) | lacuna (dado coletado) |
 | BP-ALM-04 | Solução declara o que exige: sem dependências ausentes | `Dependências ausentes.csv` | DEP-01 |
 | BP-ALM-05 | Variáveis de ambiente com valor; referências de conexão vinculadas | `03 Integrações` | ALM-01, ALM-02 |
 | BP-ALM-06 | Configuração por **variável de ambiente**, não URL fixa em código ou site map | análise de JS, site maps | JS-06, NAV-01 |
@@ -119,6 +119,95 @@ Fonte: [Important changes (deprecations)](https://learn.microsoft.com/power-plat
 | BP-DEP-02 | Workflows clássicos e diálogos: migrar para flows quando possível | processos | PRC-04 |
 | BP-DEP-03 | Conector Dataverse legado → conector Microsoft Dataverse | flow: `conectores` | lacuna (dado coletado) |
 | BP-DEP-04 | Controles e designers clássicos descontinuados (editable grid, controles legados) | XML do formulário | lacuna (coletar) |
+
+## Achados → prática
+
+Cada regra automática do kit e a prática que ela verifica. **CoE** = regra de governança do kit, sem página
+específica no Learn (o link dá o contexto).
+
+| Achado | Prática | Learn |
+|---|---|---|
+| SEC-01 | BP-SEG-04 | [variáveis de ambiente (Secret/Key Vault)][env] |
+| UI-01, UI-02 | BP-UI-02 | CoE · [dependências][dep] |
+| UI-03, PCF-02 | BP-UI-01 | [remover customização sem uso][cli] |
+| PLG-01 | BP-PLG-01 | [plug-ins][plg] |
+| PLG-02 | BP-PLG-02, BP-PLG-11 | [plug-ins][plg] |
+| PLG-03 | BP-PLG-05 | [remover desativados][cli] |
+| PLG-04 | BP-PLG-09 | [trace][trc] |
+| OPS-01 | trace só com `Exception`; `All` apenas para depurar (ocupa armazenamento; registros duram 24 h) | [trace][trc] |
+| OPS-02, AUD-01 | auditoria ligada, retenção definida pela política | [auditoria][aud] |
+| STO-01 | reduzir armazenamento de arquivos (anexos de e-mail) | [liberar armazenamento][sto] |
+| PRC-01 | até 10 BPFs ativos por tabela; ordem e papel definem o padrão | [BPF][bpf] |
+| PRC-02 | BP-FLW-06 | [referências de conexão][cref] |
+| PRC-03 | BP-DAT-02 (síncrono pesa no usuário) | [workflows → flows][wf] |
+| PRC-04 | BP-DEP-02 | [workflows → flows][wf] |
+| PRC-05 | BP-FLW-07 | [remover desativados][cli] |
+| FLW-01 | BP-FLW-01 | [tratamento de erro][err] |
+| SEG-01, SEG-05 | BP-SEG-01 | [segurança][sec] |
+| SEG-02, SEG-03 | BP-SEG-03 | [segurança][sec] |
+| SEG-04 | BP-SEG-02 | [segurança][sec] |
+| ALM-01 | BP-ALM-05 | [variáveis de ambiente][env] |
+| ALM-02 | BP-ALM-05 | [referências de conexão][cref] |
+| ALM-03 | Custom API sem plug-in só como business event | [Custom API][capi] |
+| ALM-04 | BP-ALM-02 | [camadas][lay] |
+| ALM-06 | investigar operação de solução com falha (histórico some após 180 dias) | [histórico de soluções][hist] |
+| ALM-07 | BP-ALM-01 | [camadas][lay] |
+| DEP-01 | BP-ALM-04 | [dependências][dep] |
+| DEP-02 | indicador de impacto (não é problema) | [dependências][dep] |
+| DEP-03 | BP-ALM-05 (componente sem uso) | CoE · [variáveis de ambiente][env] |
+| PCF-01 | domínio externo torna o controle premium | [external-service-usage][pcf] |
+| FLD-01 a FLD-04 | BP-DAT-03 | CoE · [dependências][dep] |
+| JS-01 | BP-JS-01, BP-DEP-01 | [client scripting][cli] · [descontinuações][dpc] |
+| JS-02 | BP-JS-11 | [solution checker][chk] (`web-avoid-eval`) |
+| JS-03 | BP-JS-03 | [descontinuações][dpc] |
+| JS-04 | BP-JS-02 | [client scripting][cli] |
+| JS-05 | BP-JS-10 | [descontinuações][dpc] |
+| JS-06, NAV-01 | BP-ALM-06 | [variáveis de ambiente][env] · checker `web-use-relative-uri` |
+| REPO-01 a REPO-04 | controle de versão como fonte da verdade | [controle de versão][scm] |
+| SLA-01 | SLA com item; um SLA ativo por tabela | CoE · [SLAs][sla] |
+
+## Lacunas priorizadas
+
+Práticas sem achado, em ordem de execução: primeiro as que o checker classifica como crítico ou alto e cujo dado o
+kit **já coleta** (só falta a regra); por último as que exigem coleta nova.
+
+| # | Lacuna | Prática | Dado | Por quê |
+|---|---|---|---|---|
+| 1 | step duplicado (mesma classe, mensagem, tabela, estágio) | BP-PLG-03 | coletado | checker crítico |
+| 2 | `refreshRibbon` em `OnLoad`/`EnableRule` | BP-JS-07 | coletado | checker crítico |
+| 3 | step em RetrieveMultiple de `annotation` / estágio CRM 4.0 | BP-PLG-11 | coletado | checker alto |
+| 4 | `window.top`, `window.open`, diálogos modais | BP-JS-04, BP-JS-06 | coletado | checker alto |
+| 5 | gatilho Dataverse sem colunas de filtro nem condição | BP-FLW-02 | coletado (`clientdata`) | execuções desnecessárias e limites de API |
+| 6 | conector Dataverse legado | BP-FLW-05 | coletado | descontinuado |
+| 7 | jQuery de `/_static/`, `console`, `alert`, script de depuração | BP-JS-05, BP-JS-10, BP-JS-12 | coletado | checker médio; quebra em atualização |
+| 8 | assembly em mais de uma solução | BP-PLG-04 | coletado | camadas conflitantes no deploy |
+| 9 | papel custom com privilégio de organização amplo | BP-SEG-01 | coletado (matriz) | menor privilégio |
+| 10 | concorrência e retry nos flows | BP-FLW-03, BP-FLW-04 | coletado (`clientdata`) | confiabilidade |
+| 11 | solução instalada como patch | BP-ALM-03 | extra `historico` | ALM |
+| 12 | biblioteca carregada no `OnLoad` sem handler de `OnLoad` | BP-JS-08 | coletado | tempo de abertura do formulário |
+| 13 | aba padrão com subgrid, quick view ou timeline | BP-FRM-01 | ampliar parser do `formxml` | tempo de abertura do formulário |
+| 14 | código de plug-in (ExecuteMultiple, paralelismo, estado, KeepAlive, colunas) | BP-PLG-06 a BP-PLG-10 | só com `repos:`/`binarios` | resolver com o solution checker |
+
+[plg]: https://learn.microsoft.com/power-apps/developer/data-platform/best-practices/business-logic/
+[cli]: https://learn.microsoft.com/power-apps/developer/model-driven-apps/best-practices/business-logic/
+[trc]: https://learn.microsoft.com/power-apps/developer/data-platform/logging-tracing
+[aud]: https://learn.microsoft.com/power-platform/admin/manage-dataverse-auditing
+[sto]: https://learn.microsoft.com/power-platform/admin/free-storage-space
+[bpf]: https://learn.microsoft.com/power-automate/business-process-flows-overview
+[cref]: https://learn.microsoft.com/power-apps/maker/data-platform/create-connection-reference
+[wf]: https://learn.microsoft.com/power-automate/replace-workflows-with-flows
+[err]: https://learn.microsoft.com/power-automate/guidance/coding-guidelines/error-handling
+[sec]: https://learn.microsoft.com/power-apps/developer/data-platform/security-concepts
+[env]: https://learn.microsoft.com/power-apps/maker/data-platform/environmentvariables
+[capi]: https://learn.microsoft.com/power-apps/developer/data-platform/custom-api
+[lay]: https://learn.microsoft.com/power-platform/alm/solution-layers-alm
+[hist]: https://learn.microsoft.com/power-apps/maker/data-platform/solution-history
+[dep]: https://learn.microsoft.com/power-platform/alm/removing-dependencies
+[pcf]: https://learn.microsoft.com/power-apps/developer/component-framework/manifest-schema-reference/external-service-usage
+[dpc]: https://learn.microsoft.com/power-platform/important-changes-coming
+[chk]: https://learn.microsoft.com/power-apps/maker/data-platform/use-powerapps-checker
+[scm]: https://learn.microsoft.com/power-platform/alm/use-source-control-solution-files
+[sla]: https://learn.microsoft.com/dynamics365/customer-service/administer/define-service-level-agreements
 
 ## Solution checker × inventário
 
