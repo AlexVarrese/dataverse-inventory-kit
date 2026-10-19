@@ -109,6 +109,16 @@ def write_prompts(root, files, warnings):
             path.unlink()  # prompt removido ou renomeado no kit
 
 
+def prompts_status(root):
+    """[(arquivo, do kit?)] em <raiz>/.github/prompts — para o resumo do render e do comando `prompts`."""
+    d = Path(root) / ".github" / "prompts"
+    out = []
+    for p in sorted(d.glob("*.md")) if d.is_dir() else []:
+        m = PROMPT_MARK_RE.search(p.read_text(encoding="utf-8", errors="replace"))
+        out.append((p.name, bool(m and m.group(1) == p.name)))
+    return out
+
+
 def commands(files):
     return [f"`/{n[:-len('.prompt.md')]}`" for n, _ in files if n.endswith(".prompt.md")]
 
@@ -227,14 +237,22 @@ def update_root(vault_root, repo=False):
     .gitignore e .gitattributes (só os blocos dvinv). Devolve avisos para o usuário."""
     root = Path(vault_root)
     envs = environments(root)
-    if not envs:
-        return []
     prompts = kit_prompts()
+    warnings = []
+    if not prompts:
+        warnings.append(f"prompts do kit não encontrados em {KIT_DIR / 'prompts'} — esta cópia da skill está "
+                        "desatualizada ou incompleta; reinstale a versão atual (a pasta prompts/ vem junto)")
+    if not envs:  # sem AGENT-INDEX.md não há bloco do AGENTS.md, mas os prompts ainda servem
+        if prompts and root.is_dir():
+            try:
+                write_prompts(root, prompts, warnings)
+            except PermissionError as e:
+                warnings.append(f"não foi possível gravar {getattr(e, 'filename', '') or '.github/prompts'}")
+        return warnings
     blk = block(envs, prompts)
     hits = secrets.scan(blk)
     if hits:
         raise secrets.SecretLeakError("AGENTS.md (bloco dvinv)", [(str(root / "AGENTS.md"), h) for h in hits])
-    warnings = []
     agents = root / "AGENTS.md"
     try:
         return _update_files(root, envs, blk, agents, repo, warnings, prompts)

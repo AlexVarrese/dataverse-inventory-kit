@@ -947,6 +947,26 @@ class TestPromptsNoVault(unittest.TestCase):
         self.assertIn("Ajuste do time.", (self.d / "diagnostico-nosso.prompt.md").read_text())
         self.assertFalse((self.d / "antigo.prompt.md").exists(), "prompt que saiu do kit é removido")
 
+    def test_sem_agent_index_ainda_grava_e_comando_prompts(self):
+        (self.tmp / "Dataverse" / "HML" / "AGENT-INDEX.md").unlink()
+        self.agents.update_root(self.tmp)
+        self.assertTrue((self.d / "impacto-evolutiva.prompt.md").exists(), "prompts não dependem do AGENT-INDEX")
+        from dvinv import cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(cli.main(["prompts", "--vault", str(self.tmp)]), 0)
+        self.assertIn("prompts do Copilot: 5 em", out.getvalue())
+        self.assertIn("skill em uso:", out.getvalue())
+
+    def test_avisa_quando_a_skill_nao_tem_prompts(self):
+        orig = self.agents.KIT_DIR
+        self.agents.KIT_DIR = self.tmp / "skill-antiga"
+        try:
+            w = self.agents.update_root(self.tmp)
+        finally:
+            self.agents.KIT_DIR = orig
+        self.assertTrue(any("prompts do kit não encontrados" in x for x in w), w)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

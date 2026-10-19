@@ -17,6 +17,9 @@ Prompts e boas práticas
   `window.open`, depuração, jQuery de `/_static/`), FLW-02 (gatilho sem filtro), FLW-03 (conector Dataverse legado) e
   ALM-08 (patch). As de JS leem o código já baixado; FLW-02 precisa de nova extração e, até lá, aparece como não
   comparável na nota de mudanças.
+- `dvinv prompts --vault <raiz>` grava ou atualiza os prompts sem render. O render, o `check` e esse comando mostram
+  quantos prompts estão no vault e qual cópia da skill está em uso; skill sem a pasta `prompts/` gera aviso, e os
+  prompts são gravados mesmo quando o vault não tem `AGENT-INDEX.md`.
 
 Removido
 - Cache SQLite (`--sqlite`, `output.sqlite`, `inventario.sqlite`) e a planilha `Matriz de Dependências.xlsx`

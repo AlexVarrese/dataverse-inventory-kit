@@ -92,6 +92,10 @@ vault, e o `AGENTS.md` cita os comandos. Não precisa extrair de novo para receb
 | `/melhorias-arquitetura` | planejamento: melhorias priorizadas por risco e esforço |
 | `/planejar-evolucao` | requisito novo: o que reaproveitar antes de construir |
 
+Para gravar ou atualizar só os prompts, sem render: `dvinv prompts --vault <raiz do vault>`. O render e esse comando
+mostram quantos prompts estão em `.github/prompts/` e qual cópia da skill está em uso (`skill em uso:`); se aparecer
+um caminho antigo, é essa cópia que precisa ser atualizada.
+
 No Copilot (VS Code), abra a pasta raiz do vault e digite o comando no Chat em modo Agent. Em outros agentes, peça
 para seguir o arquivo. Toda resposta segue [`references/padrao-prompts.md`](references/padrao-prompts.md). Prompt do
 time: copie `prompts/_modelo.prompt.md` para `.github/prompts/` com outro nome; o render não mexe nele.

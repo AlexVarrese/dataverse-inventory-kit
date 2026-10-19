@@ -12,6 +12,8 @@ do repositório do vault com --vault <pasta>, sem inventory.yaml nem credenciais
   onde-usa <alvo>      quem depende diretamente do alvo (ex. account.contoso_campo, account, nome de JS)
   impacto <alvo>       cadeia de quem depende do alvo (--profundidade, padrão 2)
   depende <alvo>       do que o alvo depende (--profundidade, padrão 1)
+  prompts              grava ou atualiza os prompts do Copilot em <raiz do vault>/.github/prompts sem render
+                       (--vault <raiz do vault> ou -c inventory.yaml) e mostra qual cópia da skill está em uso
 
 Perfis: --profile metadata_only desliga e trava toda coleta que lê conteúdo ou registros.
 """
@@ -131,6 +133,8 @@ def cmd_check(cfg):
     who = c.get("WhoAmI()")
     ver = c.get("RetrieveVersion()").get("Version")
     print(f"OK — {cfg.url} versão {ver}, usuário {who.get('UserId')}")
+    from .render.agents import KIT_DIR
+    print(f"[dvinv] skill em uso: {KIT_DIR}")
 
 
 def cmd_escopo(cfg):
@@ -199,6 +203,7 @@ def cmd_render(cfg, snapshot=None):
     print(f"[dvinv] derivados: {v.derived_dir}")
     print(f"[dvinv] abrir: {cfg.vault_dir / '00 Índice.md'}")
     print(f"[dvinv] instruções para agentes: {cfg.vault_root / 'AGENTS.md'} (bloco dvinv) · CLAUDE.md")
+    print_prompts(cfg.vault_root)
     if getattr(v, "pruned", None):
         print(f"[dvinv] {len(v.pruned)} nota(s)/arquivo(s) de extrações anteriores removidos (sem curadoria)")
     if getattr(v, "orphans_kept", None):
@@ -211,10 +216,20 @@ def cmd_render(cfg, snapshot=None):
         print(f"[dvinv] aviso: {w}")
 
 
+def print_prompts(root):
+    """Resumo dos prompts do Copilot no vault e de qual cópia da skill os gerou."""
+    from .render import agents
+    st = agents.prompts_status(root)
+    kit = [n for n, mine in st if mine and n.endswith(".prompt.md")]
+    print(f"[dvinv] prompts do Copilot: {len(kit)} em {Path(root) / '.github' / 'prompts'}"
+          + (f" ({', '.join('/' + n[:-len('.prompt.md')] for n in kit)})" if kit else ""))
+    print(f"[dvinv] skill em uso: {agents.KIT_DIR}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="dvinv", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["check", "escopo", "extract", "render", "all", "diff", "collectors", "snapshots",
-                                        "buscar", "onde-usa", "impacto", "depende"])
+                                        "buscar", "onde-usa", "impacto", "depende", "prompts"])
     ap.add_argument("termo", nargs="?", help="buscar/onde-usa/impacto/depende: componente (nome, tabela.coluna, chave ou GUID)")
     ap.add_argument("-c", "--config", default="inventory.yaml")
     ap.add_argument("--only", help="lista de coletores separada por vírgula (ver 'collectors')")
@@ -230,7 +245,8 @@ def main(argv=None):
     ap.add_argument("--completar", metavar="SNAPSHOT",
                     help="extract/all: completa um snapshot anterior (run_id, pasta ou 'ultimo') — roda o --only (ou, "
                          "sem --only, só o que falhou/faltou) e herda os demais coletores, declarando a origem")
-    ap.add_argument("--vault", help="consultas: pasta do ambiente no vault (ex. vault/Dataverse/PRD); dispensa -c")
+    ap.add_argument("--vault", help="consultas: pasta do ambiente no vault (ex. vault/Dataverse/PRD); prompts: raiz do "
+                    "vault; dispensa -c")
     args = ap.parse_args(argv)
 
     if args.command == "collectors":
@@ -254,6 +270,19 @@ def main(argv=None):
     if args.no_snapshot:
         print("[dvinv] --no-snapshot é obsoleto: cada extração já é um snapshot próprio (opção ignorada)",
               file=sys.stderr)
+
+    if args.command == "prompts":
+        from .render import agents
+        root = Path(args.vault) if args.vault else config_mod.load(args.config).vault_root
+        if (root / "AGENT-INDEX.md").exists():  # recebeu a pasta do ambiente: sobe até a raiz do vault
+            up = [p for p in root.parents if (p / "AGENTS.md").exists() or (p / ".obsidian").is_dir() or (p / ".git").exists()]
+            root = up[0] if up else root.parent.parent
+        if not root.is_dir():
+            sys.exit(f"pasta do vault não encontrada: {root}")
+        for w in agents.update_root(root):
+            print(f"[dvinv] aviso: {w}")
+        print_prompts(root)
+        return 0
 
     if args.command in ("buscar", "onde-usa", "impacto", "depende"):
         if not args.termo:
