@@ -26,6 +26,7 @@ REGISTRY = [
     ("solutions", environment.collect_solutions),
     ("catalog", catalog.collect_catalog),        # 100% dos componentes (todas as soluções), com tipo e nome
     ("tables", tables.collect_tables),
+    ("table_activity", usage.collect_table_activity),  # depois de tables: última atividade (resíduo × em uso)
     ("virtual_tables", tables.collect_virtual_tables),  # depois de tables: usa ctx.scope.tables
     ("relationships", tables.collect_relationships),
     ("mappings", customization.collect_mappings),          # mapeamentos campo a campo entre tabelas do escopo
@@ -60,7 +61,7 @@ REGISTRY = [
 DEPENDS = {
     "forms": ["webresources"], "ribbons": ["webresources"], "relationships": [],
     "pcf": ["forms"], "users": ["security"], "virtual_tables": [], "sitemaps": ["apps"], "slas": [], "commands": ["webresources", "apps"],
-    "mappings": [], "solution_layers": [], "solution_history": [],
+    "mappings": [], "solution_layers": [], "solution_history": [], "table_activity": ["tables"],
     "repos": ["webresources", "plugins"],
     "processes": ["alm", "customapis"],
     "field_usage": ["webresources", "forms", "views", "plugins", "processes", "repos"],
@@ -121,6 +122,7 @@ FLAGS_BY_COLLECTOR = {
     "forms": ("form_events", "field_usage"), "views": ("field_usage",), "ribbons": ("ribbons",),
     "plugins": ("plugin_binaries",), "processes": ("flow_definitions", "process_definitions"),
     "security": ("role_privileges", "team_members"), "users": ("users",), "field_usage": ("field_usage",),
+    "table_activity": ("table_activity",),
     "platform_dependencies": ("platform_dependencies", "platform_dependencies_columns"), "storage": ("storage",),
     "health": ("plugin_trace",), "solution_layers": ("solution_layers",),
     "solution_history": ("solution_history", "solution_history_max"),

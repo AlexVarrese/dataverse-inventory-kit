@@ -26,6 +26,7 @@ skills/dataverse-inventory/
     secrets.py    detecção e redação de segredos (ver "Segredos")
     dependencies.py  grafo componente × componente, chaves canônicas
     findings.py   achados automáticos (IDs em references/findings.md)
+    residuos.py   uso e resíduos: última atividade, formulários fora de apps, candidatos a limpeza em ondas
     resumo.py     linha "N na org · M no escopo · processado" e tabela-resumo
     consulta.py   buscar/onde-usa/impacto/depende lendo só os CSVs do vault
     render/       obsidian.py (orquestra), catalog, maps, navigation, structure, agents, bases, canvas
@@ -86,6 +87,8 @@ skills/dataverse-inventory/
 - Leituras de um item (ribbons, privilégios por papel, colunas/chaves por tabela, fórmulas, dependências por
   solução, nomes do catálogo por tipo): `get_batch`, 20 GETs por `$batch` (`deep.batch_size`, 0 desliga), pacotes
   em paralelo; recusado pelo proxy → uma chamada por item. Ganho grande com rede lenta, pequeno perto do datacenter.
+- Última atividade por tabela (`table_activity`): 2 GETs de uma linha por tabela (`$orderby … desc&$top=1`), em
+  `$batch` — segundos mesmo em ambiente grande.
 - Uso de campos: agregação FetchXML até 50 mil registros; acima disso lê os registros página a página (é o custo
   dominante). Tabelas medidas em paralelo.
 - Referência (ambiente de teste com ~121 mil componentes e 844 mil dependências): extração completa ~37 min,

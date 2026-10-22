@@ -530,6 +530,51 @@ def compute(d):
                           evidence=[f"{t['type']}: só PRD {t.get('methods_only_prd')}, só repo {t.get('methods_only_repo')}"
                                     for t in drift], metric=len(drift)))
 
+    # 14b. Uso e resíduos: atividade das tabelas e formulários fora de uso --------------------------
+    from . import residuos
+    stale = residuos.stale_tables(d)
+    if stale:
+        days = int((d.get("table_activity") or {}).get("inactive_days") or 365)
+        out.append(_f("TAB-01", "médio",
+                      f"{len(stale)} tabela(s) customizada(s) com registros e sem atividade há mais de {days} dias",
+                      "Nenhum registro criado ou alterado desde a data indicada (referência: data da extração). Indício "
+                      "forte de resíduo: funcionalidade abandonada ou carga histórica. Integrações e relatórios que só "
+                      "leem não deixam rastro aqui — confirmar com o owner antes de arquivar, migrar só os dados ou "
+                      "remover. Impacto da exclusão em `11 Candidatos a Limpeza`.",
+                      refs=[("table", t["logical"]) for t, _ in stale],
+                      evidence=[f"{t['logical']}: {t['record_count']:,} registros · última atividade {last}".replace(",", ".")
+                                for t, last in stale], metric=len(stale)))
+    empty = residuos.empty_tables(d)
+    if empty:
+        out.append(_f("TAB-02", "baixo", f"{len(empty)} tabela(s) customizada(s) sem nenhum registro",
+                      "Contagem de RetrieveTotalRecordCount (instantâneo de até 24 h): tabela criada há pouco também "
+                      "aparece aqui. Sem registro e sem dependente, é candidata a remoção; com dependentes, ver o "
+                      "impacto em `11 Candidatos a Limpeza`.",
+                      refs=[("table", t["logical"]) for t in empty], evidence=[t["logical"] for t in empty],
+                      metric=len(empty)))
+    rec_forms = residuos.record_forms(d)
+    inactive_forms = [f for f in rec_forms if not f.get("active")]
+    if inactive_forms:
+        out.append(_f("FRM-02", "baixo", f"{len(inactive_forms)} formulário(s) inativo(s)",
+                      "Formulário desativado não aparece para ninguém, mas segura as colunas que contém (a coluna não "
+                      "pode ser excluída enquanto estiver nele). Candidato a remoção na limpeza, depois de confirmar "
+                      "que não é reserva de uma mudança em andamento.",
+                      refs=[("table", f["entity"]) for f in inactive_forms],
+                      evidence=[f"{f['entity']} / {f['name']}" + (" (gerenciado)" if f.get("managed") else "")
+                                for f in inactive_forms], metric=len(inactive_forms)))
+    fa = residuos.form_apps(d)
+    if fa is not None:
+        outside = [f for f in rec_forms if f.get("active") and not fa.get(f["id"].lower())]
+        if outside:
+            out.append(_f("FRM-01", "baixo", f"{len(outside)} formulário(s) ativo(s) fora de qualquer app model-driven",
+                          "Nenhum app model-driven do ambiente oferece este formulário (o app não inclui a tabela, ou "
+                          "escolhe outros formulários dela). Sinal indireto de falta de uso: o formulário ainda pode "
+                          "abrir por URL, por link de outro sistema ou num portal. O uso real (quem abre) exige "
+                          "telemetria, como o Application Insights — não medido pelo kit.",
+                          refs=[("table", f["entity"]) for f in outside],
+                          evidence=[f"{f['entity']} / {f['name']}" + (" (gerenciado)" if f.get("managed") else "")
+                                    for f in outside], metric=len(outside)))
+
     # 15. Dependências ---------------------------------------------------------------------
     from . import dependencies as deps_mod
     g = deps_mod.build(d)

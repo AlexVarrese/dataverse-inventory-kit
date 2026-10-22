@@ -302,8 +302,8 @@ anteriores é ignorada.
 
 **Perfil `metadata_only`** (`profile: metadata_only` no YAML ou `--profile metadata_only`): desliga e trava
 — mesmo que o núcleo, um extra ou `deep.*: true` peça — tudo que lê conteúdo ou registros: `webresource_content`,
-`flow_definitions`, `process_definitions`, `plugin_binaries`, `field_usage`, `storage`, `plugin_trace`,
-`team_members` e `users`. Continuam permitidos metadados de customização (`form_events`, `ribbons`,
+`flow_definitions`, `process_definitions`, `plugin_binaries`, `field_usage`, `table_activity` (data do registro
+mais recente de cada tabela), `storage`, `plugin_trace`, `team_members` e `users`. Continuam permitidos metadados de customização (`form_events`, `ribbons`,
 `role_privileges`, `platform_dependencies`) e `record_counts`: é uma contagem agregada por tabela
 (`RetrieveTotalRecordCount`), que não lê nenhum registro — desligue com `deep.record_counts: false` se
 nem o volume puder ser coletado. O perfil aparece no manifesto e em `01 Ambiente.md`. Observação: o

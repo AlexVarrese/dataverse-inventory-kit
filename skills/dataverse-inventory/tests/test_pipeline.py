@@ -101,12 +101,14 @@ ENTITIES = [
      "PrimaryIdAttribute": "accountid",
      "Attributes": [attr("name", False), attr("contoso_tier", True, False, "Picklist"), attr("contoso_legacy", True, False),
                     attr("contoso_revenue", True, False, "Money"), attr("contoso_weird", True, False),
-                    attr("msdyn_gdproptout", True, False)]},  # coluna de app da Microsoft (custom p/ o Dataverse)
+                    attr("msdyn_gdproptout", True, False), attr("createdon", False, typ="DateTime"),
+                    attr("modifiedon", False, typ="DateTime")]},  # coluna de app da Microsoft (custom p/ o Dataverse)
     {"MetadataId": G(2), "LogicalName": "contoso_project", "SchemaName": "contoso_Project", "EntitySetName": "contoso_projects",
      "IsCustomEntity": True, "IsManaged": False, "OwnershipType": "UserOwned", "ObjectTypeCode": 10001,
      "PrimaryIdAttribute": "contoso_projectid",
      "DisplayName": {"UserLocalizedLabel": {"Label": "Projeto"}}, "Attributes": [attr("contoso_name", True, False), attr("contoso_accountid", True, False, "Lookup"),
-                                                                           attr("contoso_score", True, False, "Decimal", source=1)]},
+                                                                           attr("contoso_score", True, False, "Decimal", source=1),
+                                                                           attr("createdon", False, typ="DateTime"), attr("modifiedon", False, typ="DateTime")]},
     {"MetadataId": G(4), "LogicalName": "contoso_virtual", "SchemaName": "contoso_Virtual", "EntitySetName": "contoso_virtuals",
      "IsCustomEntity": True, "IsManaged": False, "TableType": "Virtual", "Attributes": [attr("contoso_vname", True, False)],
      "DataProviderId": G(200), "DataSourceId": G(202), "ExternalName": "Projects", "ExternalCollectionName": "projects"},
@@ -140,6 +142,10 @@ CALC_XAML = ('<Activity><mxswa:GetEntityProperty Attribute="contoso_name" Entity
 
 def route(path):
     p = urllib.parse.unquote(path)
+    # --- última atividade por tabela: contoso_project parada desde 2020 (resíduo), account ativa ---
+    m = re.match(r"(\w+)\?\$select=(createdon|modifiedon)&\$orderby=\2 desc&\$top=1$", p)
+    if m:
+        return [{m.group(2): "2020-03-01T10:00:00Z" if m.group(1) == "contoso_projects" else "2026-10-20T08:00:00Z"}]
     # --- coluna calculada (definição só no tipo derivado), comandos, mapeamentos, histórico e camadas ---
     if "Attributes(LogicalName='contoso_score')/Microsoft.Dynamics.CRM.DecimalAttributeMetadata" in p:
         return {"FormulaDefinition": CALC_XAML}
@@ -358,11 +364,18 @@ def route(path):
                 {"webresourceid": G(42), "name": "msdyn_/x.js", "webresourcetype": 3, "ismanaged": True}]
     m = re.match(r"systemforms\((.+?)\)", p)
     if m:
-        return {"formxml": FORMXML}
+        return {"formxml": "<form></form>" if m.group(1) in (G(62), G(63)) else FORMXML}
     if p.startswith("systemforms"):
         return [{"formid": G(60), "name": "Conta Principal", "type": 2, "type" + FV: "Main", "objecttypecode": "account",
                  "formactivationstate": 1, "ismanaged": False},
-                {"formid": G(61), "name": "Contato", "type": 2, "objecttypecode": "contact", "formactivationstate": 1, "ismanaged": True}]
+                {"formid": G(61), "name": "Contato", "type": 2, "objecttypecode": "contact", "formactivationstate": 1, "ismanaged": True},
+                # contoso_project: nenhum app inclui a tabela (FRM-01) e um formulário desativado (FRM-02)
+                {"formid": G(62), "name": "Projeto", "type": 2, "objecttypecode": "contoso_project", "formactivationstate": 1,
+                 "ismanaged": False},
+                {"formid": G(63), "name": "Projeto (antigo)", "type": 2, "objecttypecode": "contoso_project",
+                 "formactivationstate": 0, "ismanaged": False},
+                {"formid": G(64), "name": "Painel Contoso", "type": 0, "objecttypecode": "none", "formactivationstate": 1,
+                 "ismanaged": False}]
     if p.startswith("savedqueries"):
         return [{"savedqueryid": G(70), "name": "Projetos ativos", "returnedtypecode": "contoso_project", "querytype": 0,
                  "querytype" + FV: "Main", "isdefault": True, "statecode": 0, "ismanaged": False}]
@@ -884,10 +897,40 @@ def main():
         assert sum(1 for f in fnd.values() if f["id"] == "DEP-01") == 1
         assert not any("$webresource:" in e for f in fnd.values() for e in f.get("evidence") or []), "prefixo não removido"
         expected = {"PCF-01", "PCF-02", "SEG-03", "SEG-04", "DEP-01", "DEP-03", "FLW-01", "FLD-01", "FLD-03", "JS-03", "JS-06", "STO-01", "AUD-01", "REPO-01", "REPO-02", "REPO-03", "SEC-01", "UI-01", "UI-02", "UI-03", "PLG-01", "PLG-02", "PLG-03", "PLG-04", "OPS-01", "OPS-02",
-                    "PRC-01", "PRC-02", "PRC-03", "SEG-02", "ALM-01", "ALM-02", "ALM-03"}
+                    "PRC-01", "PRC-02", "PRC-03", "SEG-02", "ALM-01", "ALM-02", "ALM-03", "TAB-01", "FRM-01", "FRM-02"}
         assert expected <= set(fnd), f"faltam achados: {expected - set(fnd)}"
         assert fnd["SEC-01"]["metric"] == 3, fnd["SEC-01"]  # JS (sig=) + flow (code=) + config do step
         md = check_vault(cfg.vault_dir, cfg.vault_root)
+        # uso e resíduos: atividade das tabelas, formulários fora de apps, candidatos a limpeza
+        act = json.loads((snap / "table_activity.json").read_text())
+        assert act["tables"]["contoso_project"] == {"last_created": "2020-03-01", "last_modified": "2020-03-01"}, act
+        assert "contoso_virtual" not in act["tables"], "tabela virtual não é consultada"
+        assert fnd["TAB-01"]["evidence"] == ["contoso_project: 2.000 registros · última atividade 2020-03-01"], fnd["TAB-01"]
+        assert fnd["FRM-01"]["evidence"] == ["contoso_project / Projeto"], fnd["FRM-01"]
+        assert fnd["FRM-02"]["evidence"] == ["contoso_project / Projeto (antigo)"], fnd["FRM-02"]
+        limpeza = (cfg.vault_dir / "11 Candidatos a Limpeza.md").read_text()
+        assert "não autorização de exclusão" in limpeza and "## Não verificado" in limpeza
+        linhas = (cfg.vault_dir / "Candidatos a limpeza.csv").read_text(encoding="utf-8-sig").splitlines()
+        proj = next(x.split(";") for x in linhas if ";table:contoso_project;" in x)
+        assert proj[0] == "2" and proj[5] == "TAB-01", proj  # formulários e coluna da tabela saem antes (onda 1)
+        assert "última atividade **2020-03-01**" in (cfg.vault_dir / "Tabelas" / "contoso_project.md").read_text()
+        # matriz de uso dos campos: quem usa cada coluna e o que roda quando ela muda
+        acc_note = (cfg.vault_dir / "Tabelas" / "account.md").read_text()
+        assert "## Uso dos campos" in acc_note and "## Gatilhos — o que roda quando o campo muda" in acc_note
+        assert "> - Plugin: AccountPre: Update of account" in acc_note, "step de Update sem filtering roda sempre"
+        uso = {(x.split(";")[0], x.split(";")[1]): x.split(";") for x in
+               (cfg.vault_dir / "Uso dos campos.csv").read_text(encoding="utf-8-sig").splitlines()[1:]}
+        head = (cfg.vault_dir / "Uso dos campos.csv").read_text(encoding="utf-8-sig").splitlines()[0].split(";")
+        tier = dict(zip(head, uso[("account", "contoso_tier")]))
+        assert tier["Plugins"] == "AccountPre: Update of account" and tier["Business rules"] == "Validar tier", tier
+        assert tier["JavaScript"] == "contoso_/js/account.js" and tier["Eventos onChange"] == "Conta Principal", tier
+        assert tier["BPFs"] == "Processo de Venda A | Processo de Venda B", tier
+        assert tier["onChange (JS)"] == "Conta Principal: Contoso.Account.onTierChange", tier
+        assert tier["PCF"] == "Conta Principal (controle PCF)", tier
+        mat = (cfg.vault_dir / "12 Matriz de Uso dos Campos.md").read_text()
+        assert "## Campos com mais lógica (1 de 1)" in mat and "| `contoso_tier` | 6 |" in mat, mat
+        assert "## Rodam em qualquer alteração da tabela" in mat and "AccountPre: Update of account" in mat
+        assert "12 Matriz de Uso dos Campos" in (cfg.vault_dir / "00 Índice.md").read_text()
         fu = {t["table"]: {f["logical"]: f for f in t["fields"]} for t in json.loads((snap / "field_usage.json").read_text())}
         assert fu["account"]["contoso_legacy"]["bucket"] == "candidato-seguro", fu["account"]["contoso_legacy"]
         assert fu["account"]["contoso_revenue"]["populated"] == 2 and fu["account"]["contoso_weird"]["populated"] == 0
@@ -1046,6 +1089,18 @@ def main():
         DEP_BULK_FAIL = False
         assert m2["stats"]["platform_dependencies"]["source"].startswith("RetrieveDependentComponents"), m2["stats"]
         assert m2["stats"]["platform_dependencies"]["edges"] == 2 and any("lote" in g["what"] for g in m2["gaps"])
+
+        # reprocessar um inventário pronto só com as etapas de uso e resíduos (o que se roda depois de atualizar o kit)
+        ctx7 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))
+        ctx7.client._bearer = lambda: "fake"
+        m7 = run(ctx7, ["apps", "table_activity"], base=snap)
+        for name in ("apps", "table_activity"):
+            assert m7["collectors"][name]["origem"] == "coletado nesta execução", (name, m7["collectors"][name])
+        assert m7["collectors"]["tables"]["origem"] == f"herdado de {snap.name}", m7["collectors"]["tables"]
+        paths7 = [q["path"] for q in m7["queries"]]
+        assert not [x for x in paths7 if x.startswith("EntityDefinitions")], "tabelas não deveriam ser relidas"
+        render(cfg, ctx7.snapshot_dir)
+        assert "TAB-01" in (cfg.vault_dir / "11 Candidatos a Limpeza.md").read_text()
 
         # --completar: roda só o pedido e herda o resto do snapshot base (declarado por coletor)
         ctx6 = Context(cfg, FakeClient(cfg, credential=None), Scope(cfg))

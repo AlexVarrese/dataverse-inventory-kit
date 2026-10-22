@@ -16,9 +16,11 @@ def collect_apps(ctx):
                     "description": a.get("description"), "scope_reason": reason,
                     "solutions": scope.solutions_of(a["appmoduleid"]),
                 })
-        # Componentes de cada app (tabelas, forms, views, sitemap…): base da dependência app → tabela.
+        # Componentes de cada app (tabelas, forms, views, sitemap…): base da dependência app → tabela. Lidos para
+        # TODOS os apps (inclusive gerenciados e fora do escopo): é o que diz se um formulário do escopo está
+        # disponível em algum app (`availability`, sinal indireto de uso — o Dataverse não registra aberturas).
         uniq = {a.get("appmoduleidunique"): a["appmoduleid"] for a in apps if a.get("appmoduleidunique")}
-        if out["modeldriven"]:
+        if apps:
             try:
                 comps = c.get_all("appmodulecomponents?$select=componenttype,objectid,_appmoduleidunique_value")
                 by_app = {}
@@ -29,6 +31,12 @@ def collect_apps(ctx):
                                                            "objectid": (comp.get("objectid") or "").lower()})
                 for a in out["modeldriven"]:
                     a["components"] = by_app.get(a["id"], [])
+                out["availability"] = sorted((
+                    {"id": a["appmoduleid"], "name": a.get("name"), "unique": a.get("uniquename"),
+                     "managed": a.get("ismanaged"),
+                     "tables": sorted({x["objectid"] for x in by_app.get(a["appmoduleid"], []) if x["type"] == 1}),
+                     "forms": sorted({x["objectid"] for x in by_app.get(a["appmoduleid"], []) if x["type"] == 60})}
+                    for a in apps), key=lambda x: (x["unique"] or "", x["id"]))
             except Exception as e:  # noqa: BLE001
                 ctx.gap("apps", "componentes dos apps model-driven", e)
     except Exception as e:  # noqa: BLE001
@@ -65,5 +73,5 @@ def collect_apps(ctx):
     except Exception as e:  # noqa: BLE001
         ctx.gap("apps", "bots (Copilot Studio)", e)
 
-    ctx.stats["apps"] = {k: len(v) for k, v in out.items()}
+    ctx.stats["apps"] = {k: len(v) for k, v in out.items() if k != "availability"}
     ctx.data["apps"] = out

@@ -10,8 +10,8 @@ arquivos e o diff do Git mostra só mudança real): a data e o `snapshot` ficam 
 |---|---|---|
 | `indice` | `00 Índice.md` | `snapshot`, `extraido_em` |
 | `indice-agente` | `AGENT-INDEX.md` | `snapshot` — entrada para agentes: mapa, comandos do índice, arquivos que não se lê inteiros |
-| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`, `09 Catálogo de Componentes` | `url`, `versao`, `snapshot` (run_id) e `perfil` em `01 Ambiente`; `componentes`, `tipos` no `09` |
-| `tabela` | `Tabelas/` | `nome_logico`, `nome_exibicao`, `aliases`, `customizada`, `gerenciada`, `propriedade`, `tipo_tabela` (Standard/Virtual/Elastic/Activity), `registros`, `colunas_custom`, `colunas_total`, `relacionamentos`, `formularios`, `plugin_steps`, `processos`, `flows_que_tocam`, `achados`, `escopo`, `solucoes` |
+| `secao` | `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, `06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`, `09 Catálogo de Componentes`, `10 Histórico de Soluções`, `11 Candidatos a Limpeza`, `12 Matriz de Uso dos Campos` | `url`, `versao`, `snapshot` (run_id) e `perfil` em `01 Ambiente`; `componentes`, `tipos` no `09` |
+| `tabela` | `Tabelas/` | `nome_logico`, `nome_exibicao`, `aliases`, `customizada`, `gerenciada`, `propriedade`, `tipo_tabela` (Standard/Virtual/Elastic/Activity), `registros`, `ultima_atividade` (data do registro criado ou alterado mais recente), `colunas_custom`, `colunas_total`, `relacionamentos`, `formularios`, `plugin_steps`, `processos`, `flows_que_tocam`, `achados`, `escopo`, `solucoes` |
 | `plugin-assembly` | `Plugins/` | `versao`, `isolamento`, `origem`, `gerenciado`, `tipos`, `steps`, `modificado` |
 | `plugin-step` | `Plugin Steps/` | `assembly` (link), `classe`, `handler`, `mensagem`, `tabela` (link), `estagio`, `modo`, `ordem`, `ativo`, `filtering`, `imagens`, `impersonando` |
 | `processo` | `Processos/<Workflows\|Business Rules\|Actions\|BPFs\|Cloud Flows\|Desktop Flows>/` | `categoria`, `tabela` (link), `ativo`, `modo`, `gatilho`, `conectores`, `hosts_http`, `proprietario`, `proprietario_desativado`, `modificado`, `criado`, `modificado_por` |
@@ -74,6 +74,8 @@ e a janela de contexto de um agente sofrem com notas de vários MB):
 | `Sem dependentes.csv` | lista completa de componentes sem dependente (só quando passa do limite da nota 08) |
 | `Dependências ausentes.csv` | RetrieveMissingDependencies por solução, com nomes do catálogo |
 | `Equipes.csv` | todas as equipes estruturais; com mais de 1.000, só as que têm papel ou grupo do Entra viram nota |
+| `Uso dos campos.csv` | uma linha por coluna usada (nativa ou custom): quantos componentes de lógica a usam e, por tipo, os nomes — formulários, eventos onChange, JavaScript, plugins, business rules, workflows, BPFs, actions, cloud flows, views, PCF, fórmulas, outros — e os gatilhos (plugins por filtering, workflows por campo do gatilho, flows por coluna de filtro, onChange; business rules prováveis). A nota da tabela traz o mesmo nas seções *Uso dos campos* e *Gatilhos* |
+| `Candidatos a limpeza.csv` | candidatos a limpeza (tabela parada ou vazia, coluna sem dados, formulário inativo ou fora de apps, JS/PCF/variável sem uso, step e flow desligados): onda de remoção, situação, chave, regra, motivo, evidência, bloqueios da plataforma e referências do inventário |
 | `Mudanças.csv` | tipo, situação (novo, removido, alterado, corrigido, nova ocorrência), componente e o que mudou, desde a extração anterior |
 
 Web resource de biblioteca de terceiros ou com mais de 150 KB não tem o código na nota (fica no

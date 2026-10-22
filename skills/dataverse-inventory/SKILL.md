@@ -116,8 +116,8 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    BUs, equipes (com papéis) e componentes PCF entram sempre; a lista nominal de usuários só com o extra
    `usuarios` (dado pessoal — confirme com o usuário antes de ligar).
    Se o cliente só autoriza leitura de metadados, use `--profile metadata_only` (ou `profile: metadata_only`
-   no YAML): conteúdo de web resources/flows/processos, binários, uso de campos, storage, plugin trace e
-   membros de equipe ficam desligados mesmo que o núcleo ou um extra peça.
+   no YAML): conteúdo de web resources/flows/processos, binários, uso de campos, última atividade das tabelas,
+   storage, plugin trace e membros de equipe ficam desligados mesmo que o núcleo ou um extra peça.
    O **catálogo** (`catalog`, ligado por padrão) lê todas as linhas de `solutioncomponent` e dá nome a
    cada tipo e componente (só id + nome, nunca conteúdo). As **dependências da plataforma**
    (`platform_dependencies`, no núcleo) vêm da tabela `dependency` lida em lote — todas as
@@ -172,6 +172,14 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
   nunca o valor, e recomende rotação.
 - Uso de campos: `candidato-seguro` significa **candidato a investigação de remoção**, nunca "pode
   remover". `inconclusivo` = amostra parcial ou fonte da matriz ausente/falha — não recomende remoção.
+- "Quem usa o campo X?" / "se eu alterar X, o que dispara?": seções *Uso dos campos* e *Gatilhos* da nota da
+  tabela, `Uso dos campos.csv` ou `dvinv onde-usa <tabela>.<coluna>`. Gatilho de business rule é provável (campos
+  citados na regra); os demais são exatos. Avise dos plugins e flows que rodam em qualquer alteração da tabela.
+- Limpeza e migração ("o que está em uso e o que é resíduo", "o que acontece se excluir"): responda a partir de
+  `11 Candidatos a Limpeza` / `Candidatos a limpeza.csv` — onda de remoção, bloqueios da plataforma e
+  referências. FRM-01 (formulário fora de apps) é sinal indireto: o kit não mede quem abre o formulário. TAB-01
+  conta a inatividade a partir da data da extração. Sempre diga o que não foi verificado (integrações, relatórios,
+  portais, outros ambientes) e que a remoção passa pelo owner e pela esteira.
 - Os números valem para o escopo configurado; deixe isso explícito. Cloud flows fora de solução não
   aparecem na Web API do Dataverse (lacuna permanente; use o Power Platform admin/PAC CLI).
 - Escrever num vault existente do cliente (com git): peça autorização, mostre o diff e não faça commit sem pedido.

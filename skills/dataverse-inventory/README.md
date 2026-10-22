@@ -26,6 +26,7 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
 | Segurança | árvore de BUs (nota por BU), papéis (deduplicados pela BU raiz) e a quem estão atribuídos, privilégios por tabela, equipes com papéis (nota por equipe) e membros\*, perfis de segurança de campo, contagem de usuários por tipo e BU; lista nominal de usuários (nome, UPN, BU, licença, papéis, equipes)\* com o extra `usuarios` |
 | Saúde | plugin trace log: execuções, erros e tempo por classe\* |
 | Uso de campos | preenchimento real por coluna, matriz de uso (forms ativos e inativos, eventos, views, processos, flows, plugins, JS, repo), candidatos a investigação de remoção e inconclusivos |
+| Uso e resíduos | última atividade por tabela (registro criado e alterado mais recentes), tabelas paradas ou vazias, formulários inativos ou fora de qualquer app model-driven, candidatos a limpeza com ondas de remoção e impacto da exclusão |
 | Qualidade de código | JS: APIs obsoletas (Xrm.Page, SOAP 2011), eval, XHR síncrono, libs legadas, hosts fixos · flows: estrutura, condições, tratamento de erro |
 | Armazenamento e auditoria\* | maiores tabelas, notas e anexos de e-mail (qtd, bytes, tipos), auditoria por tabela/ação e retenção efetiva |
 | Dependências | matriz componente × componente: quem depende de cada tabela (forms, JS, plugins, business rules, workflows, BPFs, flows, Custom APIs, apps, papéis, tabelas filhas), tipo × tipo, mais dependidos, externos, órfãos; dependências registradas pela plataforma e ausentes por solução; exportação em CSV |
@@ -51,9 +52,12 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
     08 Matriz de Dependências.md   impacto por tabela, tipo × tipo, mais dependidos, órfãos, externos
     09 Catálogo de Componentes.md  100% dos componentes das soluções, por tipo
     10 Histórico de Soluções.md    importações e falhas (extra historico)
+    11 Candidatos a Limpeza.md     resíduos com onda de remoção, bloqueios da plataforma e referências
+    12 Matriz de Uso dos Campos.md campos com mais lógica, o que roda em qualquer alteração, gatilhos por campo
     Componentes.csv       um componente por linha (chave, tipo, nome, GUID, escopo, nota)
     Dependências.csv      uma linha por relação "A depende de B" — abre no Excel
-    Dependências ausentes.csv  Sem dependentes.csv  Equipes.csv
+    Dependências ausentes.csv  Sem dependentes.csv  Equipes.csv  Candidatos a limpeza.csv
+    Uso dos campos.csv    campo × formulários, eventos, JS, plugins, business rules, workflows, BPFs, flows + gatilhos
     Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/  Componentes PCF/
     Custom APIs/  Apps/  Site Maps/  SLAs/  Comandos/  Soluções/  Papéis/  Business Units/  Equipes/
     Usuários/ (extra usuarios)  Achados/  Comparações/
@@ -189,6 +193,24 @@ registros (código, definições, uso de campos, extras de dados), mesmo que o n
 | Rodar só algumas etapas | `... extract -c inventory.yaml --only webresources,forms --completar ultimo` |
 | Consultar impacto (sem config, em qualquer clone do vault) | `... onde-usa account.campo --vault Dataverse/<AMB>` · `impacto` · `depende` · `buscar` |
 | Comparar ambientes/datas | `... diff -c inventory.yaml --a <snapshot> --b <snapshot>` |
+
+**Quem usa cada campo e o que dispara quando ele muda:** a nota de cada tabela tem a seção **Uso dos campos**
+(formulários e views em quantidade; eventos onChange, JavaScript, plugins, business rules, workflows, BPFs, actions
+e cloud flows pelo nome) e a seção **Gatilhos** (o que roda ao alterar o campo: steps de Update pelos filtering
+attributes, workflows pelos campos do gatilho, flows pelas colunas de filtro, onChange do formulário — exatos;
+business rules pelos campos citados — provável), com o aviso dos plugins e flows que rodam em qualquer alteração da
+tabela. O panorama do ambiente (campos com mais lógica, o que roda em qualquer alteração, gatilhos por campo) fica
+em `12 Matriz de Uso dos Campos`. Tudo junto, um campo por linha, em `Uso dos campos.csv`; um campo só: `dvinv onde-usa <tabela>.<coluna>`.
+
+**Limpeza e migração (o que está em uso e o que é resíduo):** a nota `11 Candidatos a Limpeza` e o
+`Candidatos a limpeza.csv` reúnem tabelas sem atividade há mais de `deep.inactive_days` dias (padrão 365) ou vazias,
+colunas sem dados, formulários inativos ou fora de qualquer app, JS/PCF/variáveis sem uso, steps e flows desligados.
+Cada item traz a **onda** (quem usa sai antes de quem é usado), os **bloqueios** que a plataforma registra para a
+exclusão e as **referências** que o kit achou (JS, flows, plugins, processos, apps). São candidatos para investigação:
+integrações externas, relatórios, portais e uso de formulário por URL não aparecem no Dataverse. Para acrescentar a
+um inventário extraído com versão anterior do kit: `extract -c inventory.yaml --only apps,table_activity,processes
+--completar ultimo` e depois `render` (`processes` traz as colunas de filtro do gatilho dos flows; a matriz de uso
+dos campos sai do próprio render).
 
 **Semana seguinte (versionamento):** rode o mesmo `all`. Cada execução vira um snapshot novo (os anteriores ficam
 em `_raw/`) e o vault é regenerado no lugar, preservando o que o time escreveu e o status dos achados:

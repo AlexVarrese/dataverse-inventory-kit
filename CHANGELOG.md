@@ -5,6 +5,31 @@
 Inventário de **100% dos componentes** e camada de consulta para agentes de IA (impacto de evolutivas e
 rastreamento de problemas sem ler o vault inteiro). Construído sobre a 0.5.0 (ainda sem tag).
 
+Uso e resíduos (preparação de migração e limpeza)
+- Etapa nova `table_activity` (núcleo, `deep.table_activity`): data do último registro criado e do último alterado
+  em cada tabela do escopo — duas leituras de uma linha por tabela, só a coluna de data, em `$batch`. Bloqueada no
+  perfil `metadata_only`. A nota da tabela mostra a última atividade (`ultima_atividade` no frontmatter).
+- `apps` passa a guardar, para **todos** os apps model-driven (inclusive gerenciados), as tabelas e os formulários
+  que cada um oferece (`availability`); `forms` grava o código do tipo (`type_code`).
+- Achados novos: TAB-01 (tabela custom com registros e sem atividade há mais de `deep.inactive_days`, padrão 365,
+  contados da data da extração), TAB-02 (tabela custom vazia), FRM-01 (formulário ativo fora de qualquer app
+  model-driven — sinal indireto; o uso real exige telemetria) e FRM-02 (formulário inativo). Snapshot antigo, sem
+  as etapas novas, deixa esses achados como "não comparado" na nota de mudanças.
+- Nota `11 Candidatos a Limpeza` e `Candidatos a limpeza.csv`: tabelas paradas ou vazias, colunas sem dados,
+  formulários inativos ou fora de apps, JS/PCF/variáveis sem uso, steps e flows desligados, cada um com a **onda**
+  de remoção (quem usa sai antes de quem é usado), a situação, os bloqueios registrados pela plataforma e as
+  referências encontradas pelo kit, mais o que não foi verificado. Citada no `00 Índice` e no `AGENT-INDEX`.
+- Matriz de uso dos campos: a nota de cada tabela ganha **Uso dos campos** (quem usa cada coluna, nativa ou custom:
+  formulários e views em quantidade; eventos onChange, JS, plugins, business rules, workflows, BPFs, actions e
+  flows pelo nome) e **Gatilhos** (o que roda quando o campo muda — steps de Update por filtering attributes,
+  workflows por campo do gatilho, flows por coluna de filtro, onChange; business rules como provável — e o aviso do
+  que roda em qualquer alteração da tabela). Panorama do ambiente na nota `12 Matriz de Uso dos Campos` (resumo por tabela, campos com mais lógica, o que
+  roda em qualquer alteração, gatilhos por campo); tudo em `Uso dos campos.csv`. `processes` passa a gravar
+  `trigger_table` e `trigger_fields` do gatilho Dataverse dos flows, e workflows/actions/BPFs passam a reconhecer
+  também colunas nativas, pela referência estruturada do XAML (`Attribute=`, `DataFieldName=`).
+- Inventário extraído com versão anterior: `extract --only apps,table_activity,processes --completar ultimo` e
+  `render`.
+
 Prompts e boas práticas
 - `references/boas-praticas.md`: 54 práticas do Microsoft Learn com a evidência no vault, o achado que as cobre,
   as regras correspondentes do solution checker e 14 lacunas priorizadas.

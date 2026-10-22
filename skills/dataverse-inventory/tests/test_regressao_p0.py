@@ -756,7 +756,7 @@ class TestPerfilMetadataOnly(unittest.TestCase):
             self.assertEqual(m["profile"], "metadata_only")
             self.assertEqual(sorted(m["profile_blocked"]), sorted(config_mod.PROFILES["metadata_only"]))
             paths = [q["path"] for q in m["queries"]]
-            for bad in ("$select=content", "clientdata", "xaml", "plugintracelogs?", "annotations", "audits",
+            for bad in ("$select=content", "clientdata", "xaml", "plugintracelogs?", "annotations", "audits", "&$orderby=createdon desc",
                         "teammemberships", "fetchXml", "systemuserrolescollection", "systemusers?$select=systemuserid,fullname"):
                 self.assertFalse([p for p in paths if bad in p], f"perfil metadata_only leu {bad}")
             self.assertFalse((ctx.snapshot_dir / "field_usage.json").exists())
@@ -966,6 +966,135 @@ class TestPromptsNoVault(unittest.TestCase):
         finally:
             self.agents.KIT_DIR = orig
         self.assertTrue(any("prompts do kit não encontrados" in x for x in w), w)
+
+
+class TestUsoEResiduos(unittest.TestCase):
+    """Atividade das tabelas, formulários fora de apps e candidatos a limpeza (preparação de migração)."""
+
+    @staticmethod
+    def base(**kw):
+        d = {"manifest": {"extracted_at": "2026-10-22T10:00:00Z"},
+             "tables": [{"logical": "contoso_old", "id": "t1", "custom": True, "record_count": 500},
+                        {"logical": "contoso_live", "id": "t2", "custom": True, "record_count": 10},
+                        {"logical": "contoso_empty", "id": "t3", "custom": True, "record_count": 0},
+                        {"logical": "account", "id": "t4", "custom": False, "record_count": 9000}],
+             "table_activity": {"inactive_days": 365, "tables": {
+                 "contoso_old": {"last_created": "2024-01-10", "last_modified": "2025-06-30"},
+                 "contoso_live": {"last_created": "2026-10-01"},
+                 "account": {"last_modified": "2019-01-01"}}}}  # nativa: nunca vira resíduo
+        d.update(kw)
+        return d
+
+    def test_atividade_usa_a_data_da_extracao_e_so_tabela_custom(self):
+        from dvinv import residuos
+        d = self.base()
+        self.assertEqual([(t["logical"], last) for t, last in residuos.stale_tables(d)], [("contoso_old", "2025-06-30")])
+        d["table_activity"]["inactive_days"] = 600  # 2025-06-30 fica dentro da janela
+        self.assertEqual(residuos.stale_tables(d), [])
+        d = self.base(manifest={})  # sem data de referência: não conclui
+        self.assertEqual(residuos.stale_tables(d), [])
+        f = {x["id"]: x for x in findings_mod.compute(self.base())}
+        self.assertEqual(f["TAB-01"]["evidence"], ["contoso_old: 500 registros · última atividade 2025-06-30"])
+        self.assertEqual(f["TAB-02"]["evidence"], ["contoso_empty"])
+
+    def test_formulario_por_app_respeita_selecao_de_formularios(self):
+        from dvinv import residuos
+        forms = [{"id": "F1", "name": "Principal", "entity": "contoso_live", "type_code": 2, "active": True},
+                 {"id": "F2", "name": "Antigo", "entity": "contoso_live", "type_code": 2, "active": True},
+                 {"id": "F3", "name": "Old", "entity": "contoso_old", "type_code": 2, "active": True},
+                 {"id": "F4", "name": "Desativado", "entity": "contoso_old", "type_code": 7, "active": False},
+                 {"id": "F5", "name": "Painel", "entity": "contoso_old", "type_code": 0, "active": True}]
+        apps = {"modeldriven": [], "availability": [
+            {"id": "a1", "name": "Vendas", "tables": ["t2"], "forms": ["f1"]},  # escolhe só F1 em contoso_live
+            {"id": "a2", "name": "Backoffice", "tables": ["t1"], "forms": []}]}  # todos os forms de contoso_old
+        d = self.base(forms=forms, apps=apps)
+        fa = residuos.form_apps(d)
+        self.assertEqual(fa["f1"], ["Vendas"])
+        self.assertEqual(fa["f2"], [])
+        self.assertEqual(fa["f3"], ["Backoffice"])
+        self.assertNotIn("f5", fa, "painel não é formulário de registro")
+        f = {x["id"]: x for x in findings_mod.compute(d)}
+        self.assertEqual(f["FRM-01"]["evidence"], ["contoso_live / Antigo"])
+        self.assertEqual(f["FRM-02"]["evidence"], ["contoso_old / Desativado"])
+        d.pop("apps")  # disponibilidade não coletada (snapshot antigo): sem FRM-01, FRM-02 continua
+        f = {x["id"]: x for x in findings_mod.compute(d)}
+        self.assertNotIn("FRM-01", f)
+        self.assertIn("FRM-02", f)
+
+    def test_candidatos_em_ondas_e_situacao(self):
+        from dvinv import dependencies as deps_mod, residuos
+        g = deps_mod.Graph()
+        tbl, form = g.node("table", "contoso_old"), g.node("form", "F4", "contoso_old / Desativado", sub="contoso_old")
+        view = g.node("view", "V1", "contoso_old / Todos", sub="contoso_old")
+        flow = g.node("process", "P1", "Sync antigo", sub="flow")
+        g.edge(form, tbl, "formulário de")                  # candidato que usa candidato → onda anterior
+        g.edge(view, tbl, "view de", source="plataforma")    # não candidato registrado pela plataforma → bloqueia
+        wr = g.node("webresource", "contoso_/js/x.js")
+        g.edge(flow, wr, "chama")                           # referência inferida → revisar
+        forms = [{"id": "F4", "name": "Desativado", "entity": "contoso_old", "type_code": 7, "active": False}]
+        fnd = [{"id": "UI-03", "refs": [("webresource", "contoso_/js/x.js")]}]
+        rows = {r["key"]: r for r in residuos.candidates(self.base(forms=forms), g, fnd)}
+        self.assertEqual(rows["form:F4"]["wave"], 1)
+        self.assertEqual(rows["table:contoso_old"]["wave"], 2)
+        self.assertEqual(rows["table:contoso_old"]["status"], "bloqueado pela plataforma")
+        self.assertEqual(rows["table:contoso_old"]["hard"], ["contoso_old / Todos (view, view de)"])
+        self.assertEqual(rows["webresource:contoso_/js/x.js"]["status"], "revisar referências")
+        self.assertEqual(rows["table:contoso_empty"]["status"], "sem dependente no inventário")
+        fu = [{"table": "contoso_live", "fields": [{"logical": "contoso_x", "bucket": "sem-dados-na-ui",
+                                                    "forms": ["Principal"], "views": []}]}]
+        rows = {r["key"]: r for r in residuos.candidates(self.base(field_usage=fu), deps_mod.Graph(), [])}
+        self.assertEqual(rows["column:contoso_live.contoso_x"]["status"], "ajustar formulário/view antes")
+
+    def test_gatilhos_por_campo(self):
+        from dvinv.collectors.processes import parse_flow
+        from dvinv.render import campos
+
+        def flow(params):
+            trig = {"type": "OpenApiConnectionWebhook", "inputs": {"host": {"operationId": "SubscribeWebhookTrigger"},
+                                                                    "parameters": params}}
+            return parse_flow(json.dumps({"properties": {"definition": {"triggers": {"t": trig}, "actions": {}}}}))
+
+        com = flow({"subscriptionRequest/message": 3, "subscriptionRequest/entityname": "account",
+                    "subscriptionRequest/filteringattributes": "contoso_tier, Name"})
+        self.assertEqual((com["trigger_table"], com["trigger_fields"]), ("account", ["contoso_tier", "name"]))
+        sem = flow({"subscriptionRequest/message": 4, "subscriptionRequest/entityname": "account"})
+        criar = flow({"subscriptionRequest/message": 1, "subscriptionRequest/entityname": "account"})
+        procs = [dict(com, id="f1", name="Flow filtrado", category="Cloud Flow", active=True),
+                 dict(sem, id="f2", name="Flow sem filtro", category="Cloud Flow", active=True),
+                 dict(criar, id="f3", name="Flow de criação", category="Cloud Flow", active=True),
+                 {"id": "w1", "name": "WF tier", "category": "Workflow", "active": True, "entity": "account",
+                  "on_update": "contoso_tier"},
+                 {"id": "b1", "name": "Regra tier", "category": "Business Rule", "active": True, "entity": "account",
+                  "field_refs": ["contoso_tier"]},
+                 {"id": "w2", "name": "WF desligado", "category": "Workflow", "active": False, "entity": "account",
+                  "on_update": "contoso_tier"}]
+        steps = [{"id": "s1", "name": "Step filtrado", "message": "Update", "entity": "account", "enabled": True,
+                  "filtering": "contoso_tier"},
+                 {"id": "s2", "name": "Step sem filtro", "message": "Update", "entity": "account", "enabled": True},
+                 {"id": "s3", "name": "Step de Create", "message": "Create", "entity": "account", "enabled": True}]
+        forms = [{"id": "F1", "name": "Principal", "entity": "account", "active": True,
+                  "handlers": [{"event": "onchange", "field": "contoso_tier", "function": "Contoso.onTier"},
+                               {"event": "onload", "field": None, "function": "Contoso.onLoad"}]}]
+        per, any_change = campos.triggers({"processes": procs, "plugins": {"steps": steps}, "forms": forms})
+        tier = per[("account", "contoso_tier")]
+        self.assertEqual(tier["t_plugins"], {"Step filtrado"})
+        self.assertEqual(tier["t_workflows"], {"WF tier"})
+        self.assertEqual(tier["t_flows"], {"Flow filtrado"})
+        self.assertEqual(tier["t_onchange"], {"Principal: Contoso.onTier"})
+        self.assertEqual(tier["t_rules"], {"Regra tier"})
+        self.assertEqual(per[("account", "name")]["t_flows"], {"Flow filtrado"})
+        self.assertEqual(any_change["account"], {"plugins": {"Step sem filtro"}, "flows": {"Flow sem filtro"}})
+
+    def test_campo_nativo_no_xaml_so_pela_referencia_estruturada(self):
+        from dvinv.collectors.processes import XAML_FIELD_RE
+        xaml = ('<mxswa:GetEntityProperty Attribute="estimatedvalue" Entity="[x]" EntityName="opportunity" />'
+                '<mcwb:StepDefinition DataFieldName="StatusCode" /><x:String>name description</x:String>')
+        self.assertEqual(sorted(a.lower() for a in XAML_FIELD_RE.findall(xaml)), ["estimatedvalue", "statuscode"])
+
+    def test_comparabilidade_com_snapshot_antigo(self):
+        from dvinv import changes
+        self.assertTrue(changes._has_field({"apps": {"availability": []}}, *changes.FINDING_FIELDS_BY_ID["FRM-01"]))
+        self.assertFalse(changes._has_field({"apps": {"modeldriven": []}}, *changes.FINDING_FIELDS_BY_ID["FRM-01"]))
 
 
 if __name__ == "__main__":

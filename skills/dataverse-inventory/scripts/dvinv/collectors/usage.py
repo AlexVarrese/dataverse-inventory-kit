@@ -286,3 +286,44 @@ def collect_field_usage(ctx):
                                 "safe_candidates": sum(1 for t in out for f in t["fields"] if f["bucket"] == "candidato-seguro"),
                                 "inconclusive": sum(1 for t in out for f in t["fields"] if f["bucket"] == "inconclusivo")}
     ctx.data["field_usage"] = out
+
+
+ACTIVITY_COLS = (("createdon", "last_created"), ("modifiedon", "last_modified"))
+
+
+def collect_table_activity(ctx):
+    """Última atividade de cada tabela do escopo: data do registro criado e do registro alterado mais recentes.
+
+    A contagem sozinha não separa tabela viva de resíduo (milhares de registros parados há anos). Duas leituras de
+    uma linha por tabela (`$orderby <coluna> desc&$top=1`, só a coluna de data, nenhum dado de negócio), em `$batch`.
+    Tabela virtual, sem entity set ou com contagem zero não é consultada; tabela sem a coluna fica sem a data.
+    """
+    cfg = ctx.cfg
+    if not cfg.deep.get("table_activity"):
+        return
+    from ..util import day
+    todo = []
+    for t in ctx.data.get("tables") or []:
+        if t.get("table_type") == "Virtual" or not t.get("entityset") or t.get("record_count") == 0:
+            continue
+        cols = {col["logical"] for col in t.get("columns") or []}
+        for col, _key in ACTIVITY_COLS:
+            if col in cols:
+                todo.append((t["logical"], t["entityset"], col))
+    out, failed = {}, []
+    res = ctx.client.get_batch(todo, lambda it: f"{it[1]}?$select={it[2]}&$orderby={it[2]} desc&$top=1",
+                               label="última atividade das tabelas")
+    for (ln, _es, col), data, err in res:
+        rec = out.setdefault(ln, {})
+        if err is not None:
+            failed.append((ln, getattr(err, "message", str(err))))
+            continue
+        rows = data.get("value") if isinstance(data, dict) else data
+        rec[dict(ACTIVITY_COLS)[col]] = day((rows or [{}])[0].get(col)) if rows else None
+    if failed:
+        names = sorted({n for n, _ in failed})
+        ctx.gap("table_activity", f"data do registro mais recente indisponível em {len(names)} tabela(s)",
+                f"{', '.join(names[:12])}{' …' if len(names) > 12 else ''}: {failed[0][1]}")
+    ctx.stats["table_activity"] = {"tables": sum(1 for r in out.values() if r), "failures": len({n for n, _ in failed})}
+    ctx.data["table_activity"] = {"inactive_days": int(cfg.deep.get("inactive_days") or 365),
+                                  "tables": {k: out[k] for k in sorted(out) if out[k]}}

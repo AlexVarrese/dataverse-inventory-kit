@@ -121,7 +121,8 @@ def write_agent_index(v, d, has_catalog):
          mdtable(["Pasta", "Notas", "Conteúdo"],
                  [[f"`{k}/`", n, "uma nota por componente do escopo"] for k, n in sorted(folders.items())]),
          "Notas de seção: `00 Índice`, `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, "
-         "`06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`, `10 Histórico de Soluções`"
+         "`06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`, `10 Histórico de Soluções`, "
+         "`11 Candidatos a Limpeza`, `12 Matriz de Uso dos Campos`"
          + (", `09 Catálogo de Componentes`" if has_catalog else "") + ". Filtrar por tipo: "
          "`grep -rl '^tipo: tabela' .`", "",
          "## Arquivos tabulares", "",
@@ -129,6 +130,12 @@ def write_agent_index(v, d, has_catalog):
            if has_catalog else []),
          "- `Dependências.csv`: 1 linha por aresta que toca o escopo (chave, GUID, tipo, nome e nota das duas pontas).",
          "- `Equipes.csv`: todas as equipes com BU e papéis (inclusive as que não viraram nota).",
+         "- `Uso dos campos.csv`: 1 linha por coluna usada — formulários, eventos onChange, JS, plugins, business "
+         "rules, workflows, BPFs, actions, flows, views, fórmulas — e os gatilhos (o que roda quando o campo muda). "
+         "Responde 'quem usa o campo X' e 'se eu alterar X, o que dispara' sem ler as notas.",
+         "- `Candidatos a limpeza.csv`: o que parece resíduo (tabela parada ou vazia, coluna sem dados, formulário "
+         "inativo ou fora de apps, JS/PCF/variável sem uso, step e flow desligados), com onda de remoção, bloqueios da "
+         "plataforma e referências — use para perguntas de limpeza, migração ou impacto de exclusão.",
          f"- Fora do repositório, na máquina que extraiu: snapshot `_raw/{run_id or '<run_id>'}/*.json` (código de web "
          "resources, definições de flows, todas as dependências da plataforma).", ""]
     if big:

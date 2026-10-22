@@ -251,7 +251,8 @@ def collect_forms(ctx):
             continue
         rec = {
             "id": f["formid"], "name": f.get("name"), "entity": ent,
-            "type": fv(f, "type") or str(f.get("type")), "active": f.get("formactivationstate") == 1,
+            "type": fv(f, "type") or str(f.get("type")), "type_code": f.get("type"),
+            "active": f.get("formactivationstate") == 1,
             "managed": f.get("ismanaged"), "default": f.get("isdefault"), "modified": day(f.get("publishedon")),
             "solutions": scope.solutions_of(f["formid"]), "libraries": [], "handlers": [], "fields": [],
             "pcf": [],

@@ -26,8 +26,8 @@ from .. import findings as findings_mod
 from .. import secrets
 from .. import snapshot as snapshot_mod
 from ..config import SYSTEM_SOLUTIONS
-from .. import resumo
-from . import agents, bases, canvas, catalog, maps, navigation, structure
+from .. import residuos, resumo
+from . import agents, bases, campos, canvas, catalog, maps, navigation, structure
 
 MANUAL = "%% dvinv:manual — o conteúdo abaixo desta linha é preservado nas próximas extrações %%"
 PRESERVE_PROPS = {"status", "responsavel", "decisao", "prazo", "revisado", "tags_extra"}
@@ -401,6 +401,9 @@ def _render_into(v, d):
     vtd = d.get("virtual_tables") or {}
     virtual_by_table = {x["logical"]: x for x in vtd.get("tables") or []}
     vprov = {x["id"].lower(): x for x in vtd.get("providers") or []}
+    last_act = residuos.last_activity(d)
+    fmatrix = campos.matrix(d, graph)        # uso de cada campo: quem usa e o que roda quando muda
+    _trig, any_change = campos.triggers(d)
     for t in tables:
         ln = t["logical"]
         custom_cols = [c for c in t["columns"] if c["custom"]]
@@ -408,7 +411,7 @@ def _render_into(v, d):
         props = {
             "tipo": "tabela", "nome_logico": ln, "nome_exibicao": t.get("display"), "aliases": [t["display"]] if t.get("display") else [],
             "customizada": bool(t["custom"]), "gerenciada": t.get("managed"), "propriedade": t.get("ownership"),
-            "registros": t.get("record_count"), "colunas_custom": len(custom_cols), "colunas_total": t.get("column_count"),
+            "registros": t.get("record_count"), "ultima_atividade": last_act.get(ln), "colunas_custom": len(custom_cols), "colunas_total": t.get("column_count"),
             "relacionamentos": len(rels_by_table.get(ln, [])), "formularios": len(forms_by_table.get(ln, [])),
             "plugin_steps": len(st), "processos": len(pr), "flows_que_tocam": len(fl),
             "achados": len(finding_refs.get(("table", ln), [])), "escopo": t.get("scope_reason"),
@@ -419,6 +422,7 @@ def _render_into(v, d):
         b += ["> [!abstract] Resumo",
               f"> {'Tabela customizada' if t['custom'] else 'Tabela nativa customizada'} · propriedade **{t.get('ownership')}** · "
               f"{'**' + format(t['record_count'], ',').replace(',', '.') + '** registros' if t.get('record_count') is not None else 'registros não medidos'} · "
+              f"{'última atividade **' + last_act[ln] + '** · ' if ln in last_act else ''}"
               f"**{len(custom_cols)}** colunas customizadas de {t.get('column_count')} · entity set `{t.get('entityset')}`", ""]
         vt = virtual_by_table.get(ln)
         if vt:
@@ -436,6 +440,7 @@ def _render_into(v, d):
               mdtable(["Coluna", "Nome de exibição", "Tipo", "Obrigatoriedade", "Auditoria", "Descrição"],
                       [[f"`{c['logical']}`", c.get("display"), c.get("type"), c.get("required"), c.get("audit"),
                         (c.get("description") or "")[:120]] for c in custom_cols])]
+        b += field_usage_block(v, ln, fmatrix.get(ln) or [], any_change.get(ln) or {})
         if t.get("keys"):
             b += ["## Chaves alternativas", "", mdtable(["Chave", "Colunas"], [[k["name"], ", ".join(k["columns"] or [])] for k in t["keys"]])]
         fcols = [c_ for c_ in t["columns"] if c_.get("formula")]
@@ -765,6 +770,9 @@ def _render_into(v, d):
     write_storage(v, d)
     write_repos(v, d)
     write_dependencies(v, d, graph, dsum, node_link)
+    write_cleanup(v, d, graph, fnd, node_link)
+    write_field_matrix_csv(v, d, fmatrix)
+    write_field_matrix(v, fmatrix, any_change)
     write_solution_history(v, d)
     structure.write_security(v, d)
     write_environment(v, d, manifest)
@@ -797,6 +805,7 @@ def _rename_retry(src, dst, tries=6):
                                  "anterior foi mantido.") from None
             time.sleep(min(2 ** i, 10))
 GENERATED_FILES = {"Componentes.csv", "Dependências.csv", "Dependências ausentes.csv", "Equipes.csv", "Sem dependentes.csv",
+                   "Candidatos a limpeza.csv", "Uso dos campos.csv",
                    "Matriz de Dependências.xlsx"}  # a planilha saiu na 0.6: some do vault no próximo render
 ORPHANS_NOTE = "Notas fora do inventário atual"
 
@@ -892,7 +901,9 @@ def write_field_usage(v, d):
     from ..collectors.usage import BUCKETS
     total = Counter(f["bucket"] for t in fu for f in t["fields"])
     b = ["# Uso de campos", "",
-         "Preenchimento real × onde cada coluna customizada é usada.", "",
+         "Preenchimento real × onde cada coluna customizada é usada. Quem usa cada campo (formulário, evento, JS, "
+         "plugin, business rule, workflow, BPF, flow) e o que roda quando ele muda: seção **Uso dos campos** de cada "
+         f"tabela e [[{v.folder}/Uso dos campos.csv|Uso dos campos.csv]].", "",
          "> [!warning] Nenhuma classificação afirma que remover é seguro",
          "> **Candidato a investigação de remoção** = contagem completa com zero preenchidos, nenhuma referência "
          "encontrada e todas as fontes da matriz medidas (forms, views, processos/flows, plugins, JS, repositório). "
@@ -1076,6 +1087,197 @@ def write_dependencies(v, d, g, dsum, node_link):
                       [["Origem", "Origem id", "Origem tipo", "Origem nome", "Relação", "Fonte", "Destino", "Destino id",
                         "Destino tipo", "Destino nome", "Nota origem", "Nota destino", "Origem no escopo",
                         "Destino no escopo"]] + rows)
+
+
+FIELD_MATRIX_MAX = 400
+LOGIC_CATS = ("events", "js", "plugins", "businessrule", "workflow", "bpf", "action", "flow")
+
+
+def _names(names, keep=2):
+    if not names:
+        return "—"
+    if len(names) <= keep:
+        return "; ".join(names)
+    return f"{len(names)}: " + "; ".join(names[:keep]) + " …"
+
+
+def field_usage_block(v, ln, rows, any_change):
+    """Seções `Uso dos campos` e `Gatilhos` da nota da tabela."""
+    if not rows and not any_change:
+        return []
+    labels = dict(campos.CATS)
+    b = ["## Uso dos campos", "",
+         "Quem usa cada coluna (nativa ou customizada). Formulários e views em quantidade; lógica (eventos, JS, "
+         "plugins, business rules, workflows, BPFs, actions, flows) pelo nome. Nomes completos em "
+         f"[[{v.folder}/Uso dos campos.csv|Uso dos campos.csv]]; uma coluna: `dvinv onde-usa {ln}.<coluna>`.", ""]
+    if rows:
+        shown = rows[:FIELD_MATRIX_MAX]
+        b += [mdtable(["Coluna", labels["forms"], labels["views"]] + [labels[k] for k in LOGIC_CATS] + ["Outros"],
+                      [[f"`{r['column']}`" + ("" if r["custom"] else " _(nativa)_"), len(r["forms"]) or "—",
+                        len(r["views"]) or "—"] + [_names(r[k]) for k in LOGIC_CATS] +
+                       [_names(r["pcf"] + r["formula"] + r["other"])] for r in shown])]
+        if len(rows) > len(shown):
+            b += [f"… +{len(rows) - len(shown)} colunas — lista completa no CSV.", ""]
+    trig = [r for r in rows if any(r[k] for k, _ in campos.TRIGGERS)]
+    if trig or any_change:
+        b += ["## Gatilhos — o que roda quando o campo muda", "",
+              "Exato para plugins (filtering attributes de steps de Update), workflows (campos do gatilho), cloud "
+              "flows (colunas de filtro) e onChange de formulário; **provável** para business rules (campos citados "
+              "na regra — a plataforma não expõe a lista de gatilho delas).", ""]
+        if any_change:
+            b += ["> [!warning] Rodam em qualquer alteração da tabela, seja qual for o campo",
+                  *[f"> - {'Plugin' if k == 'plugins' else 'Cloud flow'}: " + ", ".join(sorted(names))
+                    for k, names in sorted(any_change.items())], ""]
+        if trig:
+            b += [mdtable(["Coluna"] + [lbl for _, lbl in campos.TRIGGERS],
+                          [[f"`{r['column']}`"] + [_names(r[k], keep=3) for k, _ in campos.TRIGGERS]
+                           for r in trig[:FIELD_MATRIX_MAX]])]
+    return b
+
+
+def write_field_matrix_csv(v, d, fmatrix):
+    """`Uso dos campos.csv`: uma linha por coluna usada, com os nomes por tipo de componente e os gatilhos."""
+    head = (["Tabela", "Coluna", "Nome de exibição", "Customizada", "Componentes de lógica"]
+            + [lbl for _, lbl in campos.CATS] + [lbl for _, lbl in campos.TRIGGERS])
+    rows = [[ln, r["column"], r.get("display"), "sim" if r["custom"] else "não", campos.logic_count(r)]
+            + [" | ".join(r[k]) for k, _ in campos.CATS] + [" | ".join(r[k]) for k, _ in campos.TRIGGERS]
+            for ln in sorted(fmatrix) for r in fmatrix[ln]]
+    catalog.write_csv(v, "Uso dos campos.csv", [head] + rows)
+
+
+FIELD_TOP = 50
+TRIGGER_TOP = 100
+
+
+def write_field_matrix(v, fmatrix, any_change):
+    """`12 Matriz de Uso dos Campos`: panorama do ambiente — campos com mais lógica, o que roda em qualquer alteração
+    e gatilhos por campo. O detalhe fica na nota de cada tabela e em `Uso dos campos.csv`."""
+    labels = dict(campos.CATS)
+    rows = [(ln, r) for ln in sorted(fmatrix) for r in fmatrix[ln]]
+    tables = sorted(set(fmatrix) | set(any_change))
+
+    def tlink(ln):
+        return v.link("table", ln, ln, in_table=True) if ("table", ln) in v.paths else ln
+
+    b = ["# Matriz de uso dos campos", "",
+         "Quem usa cada campo — formulários, eventos onChange, JavaScript, plugins, business rules, workflows, BPFs, "
+         "actions, cloud flows, views — e o que roda quando ele muda. Responde \"se eu alterar o campo X, o que "
+         "quebra ou dispara?\" antes de uma evolutiva, e mostra onde a mudança é mais arriscada.", "",
+         "> [!info] Como ler",
+         "> **Lógica** = eventos onChange, JS, plugins, business rules, workflows, BPFs, actions e flows que usam o campo "
+         "(formulários e views ficam de fora da conta). Gatilhos **exatos**: filtering attributes de steps de Update, "
+         "campos do gatilho de workflows, colunas de filtro de flows e onChange de formulário; business rules são "
+         "**prováveis** (campos citados na regra). Ausência de uso aqui não prova que o campo está livre: integrações "
+         "externas, relatórios e código fora do `repos:` não aparecem.", "",
+         f"Detalhe por tabela: seção *Uso dos campos* de cada nota. Tudo, um campo por linha: "
+         f"[[{v.folder}/Uso dos campos.csv|Uso dos campos.csv]]. Um campo: `dvinv onde-usa <tabela>.<coluna>`.", ""]
+    if not tables:
+        b += ["_Nenhum uso de campo encontrado nesta extração._", ""]
+    else:
+        b += ["## Resumo por tabela", "",
+              mdtable(["Tabela", "Colunas usadas", "Com lógica", "Com gatilho", "Plugins em qualquer alteração",
+                       "Flows em qualquer alteração"],
+                      [[tlink(ln), len(fmatrix.get(ln, [])),
+                        sum(1 for r in fmatrix.get(ln, []) if campos.logic_count(r)),
+                        sum(1 for r in fmatrix.get(ln, []) if any(r[k] for k, _ in campos.TRIGGERS)),
+                        len((any_change.get(ln) or {}).get("plugins") or ()) or "—",
+                        len((any_change.get(ln) or {}).get("flows") or ()) or "—"] for ln in tables])]
+        hot = sorted((x for x in rows if campos.logic_count(x[1])), key=lambda x: (-campos.logic_count(x[1]), x[0],
+                                                                                   x[1]["column"]))[:FIELD_TOP]
+        if hot:
+            n_logic = sum(1 for _, r in rows if campos.logic_count(r))
+            b += [f"## Campos com mais lógica ({len(hot)} de {n_logic})", "",
+                  "Mudar tipo, tamanho, obrigatoriedade ou remover estes campos exige revisar e testar tudo o que aparece "
+                  "na linha.", "",
+                  mdtable(["Tabela", "Coluna", "Lógica"] + [labels[k] for k in LOGIC_CATS],
+                          [[tlink(ln), f"`{r['column']}`" + ("" if r["custom"] else " _(nativa)_"), campos.logic_count(r)]
+                           + [_names(r[k]) for k in LOGIC_CATS] for ln, r in hot])]
+        if any_change:
+            b += ["## Rodam em qualquer alteração da tabela", "",
+                  "Step de Update sem filtering attributes ou flow sem coluna de filtro: dispara seja qual for o campo "
+                  "alterado — custo em toda gravação e efeito colateral em qualquer evolutiva da tabela (PLG-01).", "",
+                  mdtable(["Tabela", "Plugins", "Cloud flows"],
+                          [[tlink(ln), "; ".join(sorted((any_change[ln] or {}).get("plugins") or ())) or "—",
+                            "; ".join(sorted((any_change[ln] or {}).get("flows") or ())) or "—"]
+                           for ln in sorted(any_change)])]
+        trig = sorted((x for x in rows if any(x[1][k] for k, _ in campos.TRIGGERS)),
+                      key=lambda x: (-sum(len(x[1][k]) for k, _ in campos.TRIGGERS), x[0], x[1]["column"]))
+        if trig:
+            b += [f"## Gatilhos por campo ({min(len(trig), TRIGGER_TOP)} de {len(trig)})", "",
+                  mdtable(["Tabela", "Coluna"] + [lbl for _, lbl in campos.TRIGGERS],
+                          [[tlink(ln), f"`{r['column']}`"] + [_names(r[k], keep=3) for k, _ in campos.TRIGGERS]
+                           for ln, r in trig[:TRIGGER_TOP]])]
+    v.write(f"{v.folder}/12 Matriz de Uso dos Campos",
+            {"tipo": "secao", "colunas_usadas": len(rows),
+             "colunas_com_logica": sum(1 for _, r in rows if campos.logic_count(r)), "tags": v.tags("secao")},
+            "\n".join(b))
+
+
+CLEANUP_LIST_MAX = 300
+
+
+def write_cleanup(v, d, g, fnd, node_link):
+    """`11 Candidatos a Limpeza` + `Candidatos a limpeza.csv`: o que parece resíduo e o impacto de excluir cada um."""
+    rows = residuos.candidates(d, g, fnd)
+    env = v.env
+    when = ((d.get("manifest") or {}).get("extracted_at") or "")[:10]
+    status_count = Counter((r["kind"], r["status"]) for r in rows)
+    kinds = sorted({r["kind"] for r in rows}, key=lambda k: deps_mod.KIND_LABEL.get(k, k))
+
+    def comp(r):
+        n = r["node"]
+        if n in g.nodes:
+            return node_link(n)
+        if n in v.paths:
+            return v.link(n[0], n[1], r["label"])
+        table = r["label"].split(" / ")[0] if n[0] == "form" else r["label"].split(".")[0] if n[0] == "column" else None
+        if table and ("table", table) in v.paths:  # coluna/formulário sem nó no grafo: aponta a nota da tabela
+            return f"{r['label']} ({v.link('table', table, table)})"
+        return r["label"]
+
+    b = ["# Candidatos a limpeza", "",
+         "> [!warning] Candidatos para investigação, não autorização de exclusão",
+         f"> Lista montada a partir do inventário de **{env}** extraído em **{when or '—'}**. O Dataverse não mostra "
+         "integrações externas, relatórios (Power BI), portais, uso de formulário por URL nem código fora do `repos:`. "
+         "Cada item precisa do aceite do owner antes de qualquer remoção, e a remoção segue a esteira de deploy — "
+         "nunca direto em produção.", "",
+         "## Como ler", "",
+         "- **Onda**: ordem sugerida. Um item da onda 2 é usado por um candidato da onda 1 — remova (ou ajuste) a "
+         "onda 1 primeiro.",
+         "- **Situação**: *bloqueado pela plataforma* (o Dataverse registra dependentes e impede a exclusão até "
+         "tratá-los) · *ajustar formulário/view antes* (coluna ainda exibida) · *revisar referências* (o kit achou uso "
+         "em JS, flow, plugin, processo ou app) · *sem dependente no inventário*.",
+         "- Dependente que também é candidato não bloqueia: sai numa onda anterior.", "",
+         f"Lista completa em [[{v.folder}/Candidatos a limpeza.csv|Candidatos a limpeza.csv]] (abre no Excel).", ""]
+    if not rows:
+        b += ["_Nenhum candidato encontrado com os dados desta extração._", ""]
+    else:
+        b += [f"## Resumo ({len(rows)} candidatos)", "",
+              mdtable(["Tipo"] + list(residuos.STATUS) + ["Total"],
+                      [[deps_mod.KIND_LABEL.get(k, k)] + [status_count.get((k, st), 0) for st in residuos.STATUS]
+                       + [sum(status_count.get((k, st), 0) for st in residuos.STATUS)] for k in kinds]),
+              f"## Candidatos ({min(len(rows), CLEANUP_LIST_MAX)} de {len(rows)})", "",
+              mdtable(["Onda", "Situação", "Componente", "Regra", "Motivo", "Evidência", "Bloqueios (plataforma)",
+                       "Referências (inventário)"],
+                      [[r["wave"], r["status"], comp(r), v.link("finding", r["rule"], r["rule"], in_table=True),
+                        r["reason"], r["evidence"], "; ".join(r["hard"][:4]) + (" …" if len(r["hard"]) > 4 else ""),
+                        "; ".join(r["soft"][:4]) + (" …" if len(r["soft"]) > 4 else "")]
+                       for r in rows[:CLEANUP_LIST_MAX]])]
+    b += ["## Não verificado", "",
+          "- Integrações externas, ETL, relatórios e portais que leem ou gravam os componentes.",
+          "- Uso real de formulários (quem abre): exige telemetria, como o Application Insights.",
+          f"- Outros ambientes: esta lista é de **{env}**. O que existe só em produção, ou foi alterado lá, precisa da "
+          "extração daquele ambiente (`dvinv diff` compara os dois).",
+          "- Contagem de registros: instantâneo de até 24 h; tabela criada há pouco pode aparecer como vazia.",
+          "- Código-fonte fora dos repositórios informados em `repos:`.", ""]
+    v.write(f"{v.folder}/11 Candidatos a Limpeza", {"tipo": "secao", "candidatos": len(rows),
+                                                    "tags": v.tags("secao")}, "\n".join(b))
+    catalog.write_csv(v, "Candidatos a limpeza.csv",
+                      [["Onda", "Situação", "Tipo", "Chave", "Nome", "Regra", "Motivo", "Evidência",
+                        "Bloqueios (plataforma)", "Referências (inventário)"]] +
+                      [[r["wave"], r["status"], deps_mod.KIND_LABEL.get(r["kind"], r["kind"]), r["key"], r["label"],
+                        r["rule"], r["reason"], r["evidence"], " | ".join(r["hard"]), " | ".join(r["soft"])]
+                       for r in rows])
 
 
 def write_solution_history(v, d):
@@ -1289,8 +1491,9 @@ def write_index(v, d, manifest, fnd, has_catalog=False, chg=None):
          *([f"- {v.link_path('05 Uso de Campos', 'Uso de campos')}"] if d.get("field_usage") else []),
          *([f"- {v.link_path('06 Armazenamento e Auditoria', 'Armazenamento e auditoria')}"] if d.get("storage") else []),
          *([f"- {v.link_path('07 Repositórios', 'Repositórios × ambiente')}"] if d.get("repos") else []),
-         f"- {v.link_path('08 Matriz de Dependências', 'Matriz de dependências')}"
-,
+         f"- {v.link_path('08 Matriz de Dependências', 'Matriz de dependências')}",
+         f"- {v.link_path('11 Candidatos a Limpeza', 'Candidatos a limpeza (resíduos e impacto da exclusão)')}",
+         f"- {v.link_path('12 Matriz de Uso dos Campos', 'Matriz de uso dos campos (quem usa e o que dispara)')}",
          *([f"- {v.link_path('09 Catálogo de Componentes', 'Catálogo de componentes (100%)')}"] if has_catalog else []),
          f"- {v.link_path('Mapa do Ambiente.canvas', 'Mapa do ambiente (canvas)')}",
          *([f"- {v.link_path('Mapas/00 Mapas por tipo', 'Mapas por tipo de componente (grafo por tipo)')}"]

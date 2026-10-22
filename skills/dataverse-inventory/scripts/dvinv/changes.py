@@ -97,18 +97,21 @@ FINDING_SOURCES = {"SEC": ("webresources", "processes", "plugins", "alm", "servi
                    "PRC": ("processes",), "FLW": ("processes",), "SEG": ("security",), "ALM": ("alm", "processes"),
                    "DEP": ("platform_dependencies",), "FLD": ("field_usage",), "PCF": ("pcf", "forms"),
                    "NAV": ("sitemaps",), "SLA": ("slas",), "REPO": ("repos",), "STO": ("storage",),
-                   "AUD": ("storage",)}
+                   "AUD": ("storage",), "TAB": ("tables", "table_activity"), "FRM": ("forms", "apps")}
 # Achados que dependem de uma etapa específica, além (ou no lugar) da família
 FINDING_SOURCES_BY_ID = {"ALM-06": ("solution_history",), "ALM-07": ("solution_layers",), "PLG-04": ("health",),
                          "SEG-02": ("security",), "SEG-04": ("users",), "SEG-05": ("users",), "OPS-01": ("environment",),
                          "DEP-01": ("platform_dependencies",), "UI-01": ("forms", "webresources", "ribbons"),
-                         "ALM-08": ("solution_history",)}
+                         "ALM-08": ("solution_history",), "TAB-02": ("tables",)}
 # Achados que dependem de um campo que versões antigas do kit não gravavam: (coleção, campo) presente nas duas
-FINDING_FIELDS_BY_ID = {"FLW-02": ("processes", "dv_trigger")}
+FINDING_FIELDS_BY_ID = {"FLW-02": ("processes", "dv_trigger"), "FRM-01": ("apps", "availability")}
 
 
 def _has_field(data, coll, field):
-    return any(isinstance(r, dict) and field in r for r in data.get(coll) or [])
+    c = data.get(coll)
+    if isinstance(c, dict):  # coleção que é um objeto (ex. apps): o campo é uma chave dele
+        return field in c
+    return any(isinstance(r, dict) and field in r for r in c or [])
 
 
 def _keys(x, out):

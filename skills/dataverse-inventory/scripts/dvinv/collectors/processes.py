@@ -64,6 +64,10 @@ def describe_action(a):
     return t
 
 
+# Campo citado de forma estruturada no XAML de workflow/action/BPF (Get/SetEntityProperty, passos do BPF)
+XAML_FIELD_RE = re.compile(r'\b(?:Attribute|DataFieldName)="(\w+)"')
+
+
 def parse_flow(clientdata):
     info = {"trigger": None, "trigger_detail": None, "connectors": [], "tables": [], "http_hosts": [],
             "child_flows": 0, "actions": 0, "outline": [], "action_types": {}, "conditions": 0,
@@ -86,6 +90,11 @@ def parse_flow(clientdata):
                                   "filter": bool(params.get("subscriptionRequest/filteringattributes")
                                                  or params.get("subscriptionRequest/filterexpression")
                                                  or trig.get("conditions"))}
+            # matriz de gatilhos por campo: tabela e colunas de filtro do gatilho (campos fora do dv_trigger para a
+            # nota de mudanças não acusar "alterado" em todo flow depois de atualizar o kit)
+            info["trigger_table"] = (params.get("subscriptionRequest/entityname") or "").lower() or None
+            info["trigger_fields"] = sorted({a.strip().lower() for a in str(
+                params.get("subscriptionRequest/filteringattributes") or "").split(",") if a.strip()})
     refs = props.get("connectionReferences") or {}
     apis = set()
     info["connrefs"] = sorted({(r.get("connection") or {}).get("connectionReferenceLogicalName")
@@ -150,6 +159,8 @@ def collect_processes(ctx):
         "&$filter=type eq 1 or category eq 5")
     set_to_logical = {t.get("entityset"): t["logical"] for t in ctx.data.get("tables", []) if t.get("entityset")}
     known_fields = {c["logical"] for t in ctx.data.get("tables", []) for c in t.get("columns", []) if c.get("custom")}
+    # nativas (name, statuscode…) só pela referência estruturada do XAML: o nome solto daria ruído demais
+    all_fields = {c["logical"] for t in ctx.data.get("tables", []) for c in t.get("columns", [])}
     # nomes citáveis em definições: variáveis de ambiente e Custom APIs (para a matriz de dependências)
     alm = ctx.data.get("alm") or {}
     envvar_names = {e["name"].lower(): e["name"] for e in alm.get("envvars") or []}
@@ -221,7 +232,9 @@ def collect_processes(ctx):
                 if d is None:
                     raise RuntimeError("não retornado pela API")
                 text = (d.get("xaml") or "") + (d.get("clientdata") or "")
-                rec["field_refs"] = field_refs(text, known_fields)
+                rec["field_refs"] = sorted(set(field_refs(text, known_fields))
+                                           | {a.lower() for a in XAML_FIELD_RE.findall(d.get("xaml") or "")
+                                              if a.lower() in all_fields})
                 rec["secret_hits"] = secrets.scan(text)
                 rec["envvar_refs"], rec["customapi_refs"] = named_refs(text)
             except Exception as e:  # noqa: BLE001

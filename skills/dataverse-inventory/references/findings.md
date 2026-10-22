@@ -70,6 +70,18 @@ antes de afirmar.
 | DEP-02 | info | tabela com 20+ componentes dependentes | indicador de impacto de mudança, não problema |
 | DEP-03 | baixo | variável de ambiente, referência de conexão ou Custom API sem uso encontrado no escopo | uso por integração externa, app fora do Dataverse ou flow fora de solução não é visível |
 
+## Uso e resíduos (preparação de migração e limpeza)
+
+Todos entram em `11 Candidatos a Limpeza` (com UI-03, PCF-02, DEP-03, PLG-03, PRC-05 e as colunas de FLD-01/FLD-02),
+com a onda de remoção, os bloqueios registrados pela plataforma e as referências encontradas pelo kit.
+
+| ID | Sev. | Regra | Como validar / falsos positivos |
+|---|---|---|---|
+| TAB-01 | médio | tabela customizada com registros e nenhum registro criado ou alterado há mais de `deep.inactive_days` (padrão 365) dias, contados da data da extração | carga histórica legítima (só leitura) ou integração que só lê não deixa rastro; confirmar com o owner antes de arquivar, migrar só os dados ou remover |
+| TAB-02 | baixo | tabela customizada (não virtual) com contagem zero | contagem é instantâneo de até 24 h: tabela recém-criada aparece; conferir se é estrutura de uma entrega em andamento |
+| FRM-01 | baixo | formulário de registro ativo que nenhum app model-driven do ambiente oferece (o app não inclui a tabela ou escolhe outros formulários dela) | sinal **indireto**: ainda abre por URL, link de outro sistema ou portal; uso real exige telemetria (Application Insights), não medida pelo kit |
+| FRM-02 | baixo | formulário de registro inativo | pode ser reserva de uma mudança em andamento; formulário inativo segura as colunas que contém |
+
 ## Ciclo de vida na nota do achado
 
 `status: aberto` → `confirmado` | `falso-positivo` | `resolvido`, com `responsavel` e anotações
