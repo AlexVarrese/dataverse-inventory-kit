@@ -76,5 +76,7 @@ output:
 #   platform_dependencies_columns: false  # dependências por coluna custom (1 chamada por coluna — pesado)
 #   solution_layers_max: 500            # teto de tabelas no extra camadas
 #   inactive_days: 365                  # tabela custom com registros e sem atividade há mais que isso → TAB-01
+#   table_activity_max_records: 5000000 # tabela maior não tem a última atividade consultada (0 = sem teto)
+#   table_activity: false               # desliga a etapa (ex.: VPN instável) — o resto do núcleo segue
 #   batch_size: 20                      # leituras por pacote $batch (ribbons, privilégios, colunas…); 0 = sem $batch
 #                                       # o Learn recomenda pacotes pequenos; se o log mostrar espera por 429, use 10

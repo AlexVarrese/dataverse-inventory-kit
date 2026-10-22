@@ -25,6 +25,7 @@ DEEP_DEFAULTS = {
     "field_usage": True,           # preenchimento real por campo + matriz de uso + candidatos a remoção
     "table_activity": True,        # data do último registro criado e do último alterado por tabela (2 leituras de 1 linha)
     "inactive_days": 365,          # tabela custom com registros e sem atividade há mais que isso = candidata a resíduo
+    "table_activity_max_records": 5_000_000,  # acima disso a tabela não é consultada (ordenar pode levar minutos); 0 = sem teto
     "catalog": True,               # 100% dos componentes (solutioncomponent de todas as soluções) + nome do tipo
     "catalog_names": True,         # nome de cada componente (uma leitura id+nome por tipo; só metadados)
     "catalog_max_rows_per_type": 200_000,  # teto de linhas lidas por tipo para dar nome

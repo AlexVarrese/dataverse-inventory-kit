@@ -208,6 +208,8 @@ colunas sem dados, formulários inativos ou fora de qualquer app, JS/PCF/variáv
 Cada item traz a **onda** (quem usa sai antes de quem é usado), os **bloqueios** que a plataforma registra para a
 exclusão e as **referências** que o kit achou (JS, flows, plugins, processos, apps). São candidatos para investigação:
 integrações externas, relatórios, portais e uso de formulário por URL não aparecem no Dataverse. Para acrescentar a
+Em VPN instável, a etapa de última atividade para sozinha após 3 cortes de conexão seguidos (o resto segue) e
+pode ser desligada com `deep.table_activity: false`. Para acrescentar a
 um inventário extraído com versão anterior do kit: `extract -c inventory.yaml --only apps,table_activity,processes
 --completar ultimo` e depois `render` (`processes` traz as colunas de filtro do gatilho dos flows; a matriz de uso
 dos campos sai do próprio render).

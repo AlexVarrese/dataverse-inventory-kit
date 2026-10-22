@@ -1091,6 +1091,38 @@ class TestUsoEResiduos(unittest.TestCase):
                 '<mcwb:StepDefinition DataFieldName="StatusCode" /><x:String>name description</x:String>')
         self.assertEqual(sorted(a.lower() for a in XAML_FIELD_RE.findall(xaml)), ["estimatedvalue", "statuscode"])
 
+    def test_ultima_atividade_sem_batch_com_tempo_curto_e_parada_por_falhas_seguidas(self):
+        env = Env(repos=False)
+        self.addCleanup(env.close)
+        cfg = env.cfg()
+        cli = tp.FakeClient(cfg, credential=None)
+        cli._bearer = lambda: "fake"
+        quick_seen, calls = [], []
+
+        def cortada(url, page_size=5000, quick=None):  # proxy/VPN cortando toda consulta de ordenação
+            calls.append(url)
+            quick_seen.append(quick)
+            raise DataverseError(0, url, "RemoteDisconnected após 30s")
+        cli._request = cortada
+        tables = [{"logical": f"contoso_t{i}", "entityset": f"contoso_t{i}s", "record_count": 10,
+                   "columns": [{"logical": "createdon"}, {"logical": "modifiedon"}]} for i in range(10)]
+        tables.append({"logical": "contoso_grande", "entityset": "contoso_grandes", "record_count": 9_000_000,
+                       "columns": [{"logical": "createdon"}]})
+        ctx = Context(cfg, cli, Scope(cfg))
+        ctx.data["tables"] = tables
+        antes = tp.FakeClient.batches
+        with contextlib.redirect_stdout(io.StringIO()):
+            usage_mod.collect_table_activity(ctx)
+        self.assertEqual(tp.FakeClient.batches, antes, "sem $batch")
+        self.assertTrue(quick_seen and all(q == usage_mod.ACTIVITY_TIMEOUT for q in quick_seen), quick_seen)
+        self.assertLessEqual(len(calls), usage_mod.ACTIVITY_BREAKER + usage_mod.ACTIVITY_WORKERS,
+                             "depois das falhas seguidas a etapa para de consultar")
+        self.assertFalse(any("contoso_grandes" in u for u in calls), "tabela acima do teto não é consultada")
+        gaps = " ".join(g["what"] for g in ctx.gaps)
+        self.assertIn("etapa interrompida", gaps)
+        self.assertIn("acima de 5.000.000 registros", gaps)
+        self.assertEqual(ctx.data["table_activity"]["tables"], {})
+
     def test_comparabilidade_com_snapshot_antigo(self):
         from dvinv import changes
         self.assertTrue(changes._has_field({"apps": {"availability": []}}, *changes.FINDING_FIELDS_BY_ID["FRM-01"]))

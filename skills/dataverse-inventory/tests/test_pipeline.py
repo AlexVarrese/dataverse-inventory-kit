@@ -500,7 +500,7 @@ def route(path):
 class FakeClient(Client):
     """Substitui só a camada HTTP; paginação real via @odata.nextLink (páginas de 2)."""
 
-    def _request(self, url, page_size=5000):
+    def _request(self, url, page_size=5000, quick=None):
         path = url.replace(self.base + "/", "")
         page = 0
         if "&__page=" in path:

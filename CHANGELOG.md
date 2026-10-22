@@ -7,7 +7,10 @@ rastreamento de problemas sem ler o vault inteiro). Construído sobre a 0.5.0 (a
 
 Uso e resíduos (preparação de migração e limpeza)
 - Etapa nova `table_activity` (núcleo, `deep.table_activity`): data do último registro criado e do último alterado
-  em cada tabela do escopo — duas leituras de uma linha por tabela, só a coluna de data, em `$batch`. Bloqueada no
+  em cada tabela do escopo — duas leituras de uma linha por tabela, só a coluna de data. Sem `$batch` (pacote de
+  ordenações estourava o tempo de proxy/VPN corporativo): cada leitura com 30 s e nenhuma nova tentativa, 2
+  conexões, etapa interrompida após 3 cortes de conexão seguidos (o resto da extração segue) e tabelas acima de
+  `deep.table_activity_max_records` (5 milhões) não consultadas. Bloqueada no
   perfil `metadata_only`. A nota da tabela mostra a última atividade (`ultima_atividade` no frontmatter).
 - `apps` passa a guardar, para **todos** os apps model-driven (inclusive gerenciados), as tabelas e os formulários
   que cada um oferece (`availability`); `forms` grava o código do tipo (`type_code`).

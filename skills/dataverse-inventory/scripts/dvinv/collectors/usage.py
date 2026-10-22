@@ -289,41 +289,89 @@ def collect_field_usage(ctx):
 
 
 ACTIVITY_COLS = (("createdon", "last_created"), ("modifiedon", "last_modified"))
+ACTIVITY_TIMEOUT = 30      # s por consulta: ordenar uma tabela grande pode levar minutos e o proxy/VPN corta
+ACTIVITY_WORKERS = 2       # poucas conexões simultâneas: rede corporativa instável não aguenta mais
+ACTIVITY_BREAKER = 3       # falhas de conexão seguidas → a etapa para (o resto da extração segue)
 
 
 def collect_table_activity(ctx):
     """Última atividade de cada tabela do escopo: data do registro criado e do registro alterado mais recentes.
 
-    A contagem sozinha não separa tabela viva de resíduo (milhares de registros parados há anos). Duas leituras de
-    uma linha por tabela (`$orderby <coluna> desc&$top=1`, só a coluna de data, nenhum dado de negócio), em `$batch`.
-    Tabela virtual, sem entity set ou com contagem zero não é consultada; tabela sem a coluna fica sem a data.
+    A contagem sozinha não separa tabela viva de resíduo (milhares de registros parados há anos). Uma leitura de uma
+    linha por coluna de data (`$orderby <coluna> desc&$top=1`, só a coluna, nenhum dado de negócio).
+
+    Ordenar uma tabela grande pode ser lento no serviço e, por VPN/proxy corporativo, a conexão é cortada (~2 min).
+    Por isso: sem `$batch` (um pacote de 20 ordenações estourava o tempo do proxy inteiro), tempo limite curto,
+    nenhuma nova tentativa, poucas conexões e parada da etapa após falhas de conexão seguidas. Tabela acima de
+    `deep.table_activity_max_records` não é consultada. Tabela virtual, sem entity set, com contagem zero ou sem a
+    coluna fica sem a data.
     """
-    cfg = ctx.cfg
+    import threading
+
+    from ..client import DataverseError
+    from ..util import day
+    cfg, c = ctx.cfg, ctx.client
     if not cfg.deep.get("table_activity"):
         return
-    from ..util import day
-    todo = []
+    limit = int(cfg.deep.get("table_activity_max_records") or 0)
+    todo, big = [], []
     for t in ctx.data.get("tables") or []:
         if t.get("table_type") == "Virtual" or not t.get("entityset") or t.get("record_count") == 0:
             continue
-        cols = {col["logical"] for col in t.get("columns") or []}
-        for col, _key in ACTIVITY_COLS:
-            if col in cols:
-                todo.append((t["logical"], t["entityset"], col))
-    out, failed = {}, []
-    res = ctx.client.get_batch(todo, lambda it: f"{it[1]}?$select={it[2]}&$orderby={it[2]} desc&$top=1",
-                               label="última atividade das tabelas")
-    for (ln, _es, col), data, err in res:
-        rec = out.setdefault(ln, {})
-        if err is not None:
-            failed.append((ln, getattr(err, "message", str(err))))
+        if limit and (t.get("record_count") or 0) > limit:
+            big.append(t["logical"])
             continue
-        rows = data.get("value") if isinstance(data, dict) else data
-        rec[dict(ACTIVITY_COLS)[col]] = day((rows or [{}])[0].get(col)) if rows else None
+        cols = [col for col, _ in ACTIVITY_COLS if col in {x["logical"] for x in t.get("columns") or []}]
+        if cols:
+            todo.append((t["logical"], t["entityset"], cols))
+    out, failed = {}, []
+    state = {"seguidas": 0, "parou": False}
+    lock = threading.Lock()
+
+    def one(item):
+        ln, es, cols = item
+        rec = {}
+        for col in cols:
+            if state["parou"]:
+                return rec, "etapa interrompida"
+            try:
+                data = c.get(f"{es}?$select={col}&$orderby={col} desc&$top=1", quick=ACTIVITY_TIMEOUT)
+            except DataverseError as e:
+                with lock:
+                    if e.status == 0:  # conexão cortada / tempo limite: conta para a parada da etapa
+                        state["seguidas"] += 1
+                        if state["seguidas"] >= ACTIVITY_BREAKER and not state["parou"]:
+                            state["parou"] = True
+                            print(f"[dvinv]   última atividade: {ACTIVITY_BREAKER} consultas seguidas cortadas pela "
+                                  "rede — etapa interrompida (o resto da extração segue)", flush=True)
+                return rec, f"{col}: {getattr(e, 'message', None) or e}"
+            with lock:
+                state["seguidas"] = 0
+            rows = data.get("value") if isinstance(data, dict) else data
+            rec[dict(ACTIVITY_COLS)[col]] = day((rows or [{}])[0].get(col)) if rows else None
+        return rec, None
+
+    workers = c.workers
+    c.workers = max(1, min(workers, ACTIVITY_WORKERS))
+    try:
+        res = c.parallel(one, todo, label="última atividade das tabelas")
+    finally:
+        c.workers = workers
+    for (ln, _es, _cols), r, err in res:
+        rec, why = r if err is None else ({}, str(err))
+        if rec:
+            out[ln] = rec
+        if why:
+            failed.append((ln, why))
     if failed:
         names = sorted({n for n, _ in failed})
-        ctx.gap("table_activity", f"data do registro mais recente indisponível em {len(names)} tabela(s)",
+        ctx.gap("table_activity", f"data do registro mais recente indisponível em {len(names)} tabela(s)"
+                + (" (etapa interrompida por falhas de conexão seguidas)" if state["parou"] else ""),
                 f"{', '.join(names[:12])}{' …' if len(names) > 12 else ''}: {failed[0][1]}")
-    ctx.stats["table_activity"] = {"tables": sum(1 for r in out.values() if r), "failures": len({n for n, _ in failed})}
+    if big:
+        ctx.gap("table_activity", f"{len(big)} tabela(s) acima de {limit:,} registros não consultada(s)".replace(",", "."),
+                f"{', '.join(sorted(big)[:12])}{' …' if len(big) > 12 else ''} (deep.table_activity_max_records)",
+                kind="limitação")
+    ctx.stats["table_activity"] = {"tables": len(out), "failures": len({n for n, _ in failed}), "skipped": len(big)}
     ctx.data["table_activity"] = {"inactive_days": int(cfg.deep.get("inactive_days") or 365),
-                                  "tables": {k: out[k] for k in sorted(out) if out[k]}}
+                                  "tables": {k: out[k] for k in sorted(out)}}

@@ -122,7 +122,7 @@ FLAGS_BY_COLLECTOR = {
     "forms": ("form_events", "field_usage"), "views": ("field_usage",), "ribbons": ("ribbons",),
     "plugins": ("plugin_binaries",), "processes": ("flow_definitions", "process_definitions"),
     "security": ("role_privileges", "team_members"), "users": ("users",), "field_usage": ("field_usage",),
-    "table_activity": ("table_activity",),
+    "table_activity": ("table_activity", "table_activity_max_records"),
     "platform_dependencies": ("platform_dependencies", "platform_dependencies_columns"), "storage": ("storage",),
     "health": ("plugin_trace",), "solution_layers": ("solution_layers",),
     "solution_history": ("solution_history", "solution_history_max"),

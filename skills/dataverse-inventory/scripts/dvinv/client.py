@@ -182,13 +182,17 @@ class Client:
             self._local.conn, self._local.host = c, host
         return c
 
-    def _send(self, url, method="GET", payload=None, headers=None, page_size=5000):
-        """Uma requisição com keep-alive e novas tentativas (conexão caída, 429, 502/503/504) → (status, resp, corpo)."""
+    def _send(self, url, method="GET", payload=None, headers=None, page_size=5000, retries=None, timeout=None):
+        """Uma requisição com keep-alive e novas tentativas (conexão caída, 429, 502/503/504) → (status, resp, corpo).
+
+        `timeout` + `retries` (leitura rápida, `get(quick=…)`): conexão própria com esse tempo limite e nenhuma nova
+        tentativa — para consultas que podem ser lentas no serviço e que o proxy/VPN corta; repetir só piora."""
+        max_retries = self.max_retries if retries is None else retries
         self.check_url(url)  # antes de pedir token: nada de Bearer para host desconhecido
         parts = urllib.parse.urlsplit(url)
         target = parts.path + (f"?{parts.query}" if parts.query else "")
         short = url.replace(self.base, "")
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(max_retries + 1):
             h = {
                 "Authorization": f"Bearer {self._bearer()}",
                 "Accept": "application/json",
@@ -200,7 +204,8 @@ class Client:
             }
             t0 = time.time()
             try:
-                conn = self._conn(parts.netloc, fresh=attempt > 0)
+                conn = (self._conn(parts.netloc, fresh=attempt > 0) if timeout is None else
+                        http.client.HTTPSConnection(parts.netloc, timeout=timeout, context=self._ssl))
                 if payload is None:
                     conn.request(method, target, headers=h)
                 else:
@@ -211,9 +216,12 @@ class Client:
                     body = gzip.decompress(body)
             except (http.client.HTTPException, OSError) as e:  # conexão caiu/expirou: reabre e tenta de novo
                 why = "tempo limite" if "timed out" in str(e).lower() else e.__class__.__name__
+                if timeout is not None:
+                    conn.close()
+                    raise DataverseError(0, short, f"{why} após {time.time() - t0:.0f}s") from None
                 msg = (f"[dvinv]   {why} após {time.time() - t0:.0f}s em {_short(short)} — "
-                       f"tentativa {attempt + 1}/{self.max_retries + 1}")
-                if attempt < self.max_retries:
+                       f"tentativa {attempt + 1}/{max_retries + 1}")
+                if attempt < max_retries:
                     print(msg + ", tentando de novo", flush=True)  # antes era silencioso: parecia travado
                     time.sleep(min(2 ** attempt, 30))
                     continue
@@ -222,7 +230,9 @@ class Client:
             _trace(f"{method} {_short(short)} → {resp.status} · {len(body) / 1024:,.0f} KB · {time.time() - t0:.1f}s"
                    + (f" · tentativa {attempt + 1}" if attempt else ""))
             # 429 = service protection limit; 502/503/504 = transitório
-            if resp.status in (429, 502, 503, 504) and attempt < self.max_retries:
+            if timeout is not None:
+                conn.close()
+            if resp.status in (429, 502, 503, 504) and attempt < max_retries:
                 wait = min(float(resp.getheader("Retry-After") or 2 ** attempt), 300)
                 if resp.status == 429:
                     with self._lock:
@@ -232,8 +242,9 @@ class Client:
                 continue
             return resp.status, resp, body
 
-    def _request(self, url, page_size=5000):
-        status, _resp, body = self._send(url, page_size=page_size)
+    def _request(self, url, page_size=5000, quick=None):
+        status, _resp, body = (self._send(url, page_size=page_size) if quick is None else
+                               self._send(url, page_size=page_size, retries=0, timeout=quick))
         if status == 200:
             return json.loads(body.decode("utf-8"))
         raise DataverseError(status, url.replace(self.base, ""), body.decode("utf-8", "replace"))
@@ -320,12 +331,13 @@ class Client:
             res.append((it, data, None))
         return res
 
-    def get(self, path):
-        """Uma única resposta (entidade, função ou primeira página)."""
+    def get(self, path, quick=None):
+        """Uma única resposta (entidade, função ou primeira página). `quick=<s>`: tempo limite curto, sem nova
+        tentativa (consulta que pode ser lenta no serviço; ver `_send`)."""
         t0 = time.time()
         url = self._url(path)
         try:
-            data = self._request(url)
+            data = self._request(url) if quick is None else self._request(url, quick=quick)
             self.log.append({"path": path, "status": 200, "ms": int((time.time() - t0) * 1000)})
             return data
         except DataverseError as e:

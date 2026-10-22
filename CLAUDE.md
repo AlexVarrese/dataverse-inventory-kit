@@ -87,8 +87,10 @@ skills/dataverse-inventory/
 - Leituras de um item (ribbons, privilégios por papel, colunas/chaves por tabela, fórmulas, dependências por
   solução, nomes do catálogo por tipo): `get_batch`, 20 GETs por `$batch` (`deep.batch_size`, 0 desliga), pacotes
   em paralelo; recusado pelo proxy → uma chamada por item. Ganho grande com rede lenta, pequeno perto do datacenter.
-- Última atividade por tabela (`table_activity`): 2 GETs de uma linha por tabela (`$orderby … desc&$top=1`), em
-  `$batch` — segundos mesmo em ambiente grande.
+- Última atividade por tabela (`table_activity`): 2 GETs de uma linha por tabela (`$orderby … desc&$top=1`). **Sem
+  `$batch`**: ordenar tabela grande pode levar minutos no serviço e um pacote de 20 estourava o tempo do proxy/VPN
+  (~2 min, RemoteDisconnected, VPN caindo com as novas tentativas). Cada GET com 30 s e nenhuma nova tentativa
+  (`get(quick=…)`), 2 conexões, parada da etapa após 3 cortes seguidos, teto `deep.table_activity_max_records`.
 - Uso de campos: agregação FetchXML até 50 mil registros; acima disso lê os registros página a página (é o custo
   dominante). Tabelas medidas em paralelo.
 - Referência (ambiente de teste com ~121 mil componentes e 844 mil dependências): extração completa ~37 min,
