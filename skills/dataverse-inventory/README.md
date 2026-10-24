@@ -202,6 +202,29 @@ business rules pelos campos citados — provável), com o aviso dos plugins e fl
 tabela. O panorama do ambiente (campos com mais lógica, o que roda em qualquer alteração, gatilhos por campo) fica
 em `12 Matriz de Uso dos Campos`. Tudo junto, um campo por linha, em `Uso dos campos.csv`; um campo só: `dvinv onde-usa <tabela>.<coluna>`.
 
+**Preenchimento dos campos (etapa `field_usage`) — como processa e opções:** para cada tabela do escopo, conta
+quantos registros têm valor em cada coluna customizada. É a etapa que lê dados; numa base grande é a mais demorada.
+
+| Situação da tabela | Como é medida | Resultado |
+|---|---|---|
+| Qualquer tabela, antes de tudo | uma leitura de uma linha, só a chave (`$select=<id>&$top=1`) | não respondeu (provedor virtual quebrado, plugin com erro no RetrieveMultiple) → **uma** lacuna e segue; vazia → zero exato, sem mais leituras |
+| Virtual | não é lida | preenchimento "não medido"; uma lacuna `limitação` com a lista |
+| Até 50 mil registros | agregação nativa (FetchXML `countcolumn`, 20 colunas por chamada); colunas Money e as que dão erro vão para leitura paginada | contagem exata |
+| Acima de 50 mil | amostra paginada (35 colunas por passada) até `field_usage.max_records`; cada coluna com zero na amostra ganha uma leitura de existência (`$filter=<coluna> ne null&$top=1`) | com valor → contagem e % **da amostra**; zero na amostra e nenhuma linha na existência → **zero exato** (pode ser candidato a remoção); zero na amostra e uma linha → tem dado; sem resposta → inconclusivo |
+
+| Opção | Onde | Padrão | Para quê |
+|---|---|---|---|
+| `field_usage.max_records` | yaml | `50000` | registros lidos por tabela grande. Maior = % mais fiel e extração mais lenta (o padrão era 500 mil — horas em base grande); a decisão "tem dado / zero exato" não depende dele |
+| `field_usage.tables` | yaml | vazio (todas do escopo) | medir só algumas tabelas, ex. `tables: [account, xpto_contrato]` |
+| `deep.field_usage: false` | yaml | ligado | pular a etapa: sem contagem nem classificação/candidatos a remoção; a matriz de quem usa cada campo (nota 12 e notas das tabelas) continua |
+| `profile: metadata_only` | yaml | — | não lê registro nenhum; a etapa não roda |
+| `parallel` | yaml | `4` | tabelas medidas ao mesmo tempo (2–4 em VDI/proxy) |
+| Refazer só esta etapa | linha de comando | — | `extract -c inventory.yaml --only field_usage --completar ultimo` e depois `render` (o resto vem do último snapshot; etapa de que ela depende e que lá falhou roda junto) |
+
+Tempo: o log mostra progresso a cada 30 s durante a leitura paginada. A leitura de existência espera até 60 s por
+coluna, sem nova tentativa, e para de sondar a tabela após 3 cortes seguidos. O fim da extração lista até 40
+lacunas por etapa; todas ficam no `manifest.json` do snapshot e no log.
+
 **Limpeza e migração (o que está em uso e o que é resíduo):** a nota `11 Candidatos a Limpeza` e o
 `Candidatos a limpeza.csv` reúnem tabelas sem atividade há mais de `deep.inactive_days` dias (padrão 365) ou vazias,
 colunas sem dados, formulários inativos ou fora de qualquer app, JS/PCF/variáveis sem uso, steps e flows desligados.
