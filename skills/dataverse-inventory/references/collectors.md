@@ -34,7 +34,7 @@ escopo) e depois os demais.
 | users\* | `systemusers` (nome, UPN, BU, status, modo de acesso, licença, application id), `systemuserrolescollection`, `teammemberships` | users.json | org inteira — **dado pessoal**, só com extra `usuarios` (bloqueado em `metadata_only`) |
 | health\* | `plugintracelogs` (todas e `exceptiondetails ne null`) | health.json | janela `plugin_trace_days` |
 | repos (`repos:`) | arquivos dos clones locais + `git rev-parse`/`log -1`; `ilspycmd` nas DLLs (se instalado) | repos.json, decompiled/ | web resources e classes do escopo |
-| field_usage | FetchXML `countcolumn` (≤ 50 mil registros) ou paginação `$select`; cruza forms, views (`savedqueries(id)` fetchxml/layoutxml), processos, steps, JS, repos | field_usage.json | colunas custom das tabelas do escopo ou `field_usage.tables` |
+| field_usage | sondagem `$select=<id>&$top=1` (tabela ilegível sai aqui; vazia = zero exato; virtual não é lida); FetchXML `countcolumn` (≤ 50 mil registros) ou amostra paginada `$select` + existência `$filter=<coluna> ne null&$top=1` nas colunas com zero; cruza forms, views (`savedqueries(id)` fetchxml/layoutxml), processos, steps, JS, repos | field_usage.json | colunas custom das tabelas do escopo ou `field_usage.tables` |
 | platform_dependencies | tabela `dependency` inteira (`dependencies?$select=…`, página a página — ESAB-TEST: 844 mil linhas em 3 min, sem 429); se negada, `RetrieveDependentComponents` por componente do escopo (comportamento até a 0.5). `RetrieveMissingDependencies` por solução não gerenciada/do escopo | platform_dependencies.json (compacto: nós + arestas) | org inteira no snapshot; a matriz do vault usa só as arestas cujo exigido está no escopo |
 | storage\* | `RetrieveTotalRecordCount` (todas), `annotations`/`activitymimeattachments`/`audits` com `$apply` groupby/aggregate | storage.json | org inteira |
 
@@ -73,11 +73,18 @@ plataforma, resolvendo os ids para componentes conhecidos quando possível.
 - **Equipes de acesso** (teamtype 1) são criadas por registro via access team template e podem ser milhares:
   entram só na contagem, sem nota nem nó no grafo.
 - **Secure config de steps** não é exposta pela Web API, por design. Só a unsecure é lida e varrida.
-- **Preenchimento de colunas**: agregação nativa só até ~50 mil registros. Acima disso, pagina contando
-  valores não nulos em lotes de 35 colunas (lookups via `_x_value`), até `field_usage.max_records`. Se parar
-  antes do fim, o método fica "parcial" e os números valem só para os registros lidos.
+- **Preenchimento de colunas**: primeiro uma leitura de uma linha por tabela — tabela que não responde
+  (provedor virtual quebrado, plugin com erro no RetrieveMultiple) vira uma lacuna só, sem as dezenas de chamadas
+  dos lotes divididos; tabela vazia sai com zero exato; tabela virtual não é medida (uma lacuna `limitação`).
+  Agregação nativa só até ~50 mil registros (lote que falha é dividido; coluna citada no erro vai direto para
+  paginação; após 8 lotes com erro, a tabela inteira pagina). Acima disso, pagina uma **amostra** contando valores
+  não nulos em lotes de 35 colunas (lookups via `_x_value`), até `field_usage.max_records` (padrão 50 mil; antes
+  500 mil — horas em base grande), com progresso a cada 30 s. Amostra parcial: método "parcial", e cada coluna com
+  zero na amostra ganha uma leitura de existência (`$filter=<coluna> ne null&$top=1`, 60 s, sem nova tentativa,
+  para após 3 cortes seguidos): nenhuma linha = zero exato (`zero_confirmed`), uma linha = tem dado fora da amostra
+  (`found_beyond_sample`); sem resposta = continua inconclusiva. O percentual vale só para a amostra.
 - **Classificação do uso de campos**: `candidato-seguro` (rótulo: *candidato a investigação de remoção*)
-  exige contagem completa e todas as fontes da matriz medidas — forms (formxml de todos os forms da
+  exige zero exato (contagem completa ou existência sem valor) e todas as fontes da matriz medidas — forms (formxml de todos os forms da
   tabela), views (colunas de todas as views da tabela), processos (`process_definitions` e
   `flow_definitions`), plugins, web resources (`webresource_content`) e repositório (`repos:`). Zero
   preenchido numa amostra parcial, medição que falhou ou fonte ausente/falha/parcial/desligada →

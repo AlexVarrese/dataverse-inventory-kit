@@ -102,7 +102,7 @@ class Config:
     vault_root: Path = Path("vault")
     vault_folder: str = "Dataverse"
     field_usage_tables: list = field(default_factory=list)  # vazio = todas as tabelas do escopo
-    field_usage_max_records: int = 500_000
+    field_usage_max_records: int = 50_000  # amostra por tabela grande; zero na amostra → leitura de existência
     repos: list = field(default_factory=list)               # [{"path": ..., "kind": webresources|plugins|any}]
     auth_method: str = "auto"  # auto | spn | mcp | azcli | devicecode
     devicecode_cache: bool = False  # cache persistente CRIPTOGRAFADO do device code (opt-in; nunca texto puro)
@@ -230,7 +230,7 @@ def load(path, overrides=None):
         deep=deep,
         plugin_trace_days=int(data.get("plugin_trace_days", 7)),
         field_usage_tables=[t.lower() for t in fu.get("tables", []) or []],
-        field_usage_max_records=int(fu.get("max_records", 500_000)),
+        field_usage_max_records=int(fu.get("max_records", 50_000)),
         repos=repos,
         collectors=overrides.get("collectors") or data.get("collectors") or [],
         parallel=int(data.get("parallel", 4)),

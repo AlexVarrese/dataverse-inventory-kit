@@ -1,14 +1,17 @@
 """Uso real de colunas customizadas (núcleo; deep.field_usage).
 
-1. Preenchimento: quantos registros têm valor em cada coluna. Primeiro tenta agregação nativa
-   (FetchXML countcolumn, rápida); acima do limite de ~50 mil registros da agregação, pagina os
-   registros contando valores não nulos (exato até field_usage.max_records; acima disso marca
-   'parcial' — os números passam a valer só para os registros lidos).
+1. Preenchimento: quantos registros têm valor em cada coluna. Antes, uma leitura de uma linha (só a chave):
+   tabela que não responde (provedor virtual quebrado, plugin com erro no RetrieveMultiple) falha ali uma vez
+   e sai, e tabela vazia sai com zero exato. Tabela virtual não é medida. Depois tenta agregação nativa
+   (FetchXML countcolumn, rápida); acima do limite de ~50 mil registros da agregação, pagina uma amostra
+   contando valores não nulos (até field_usage.max_records; além disso marca 'parcial' — os números valem
+   só para os registros lidos). Na amostra parcial, cada coluna com zero ganha uma leitura de existência
+   (`$filter=<coluna> ne null&$top=1`): nenhuma linha = zero exato na tabela inteira; uma linha = tem dado.
 2. Matriz de uso: para cada coluna, onde ela aparece — formulários (controle e eventos), views,
    business rules/workflows/actions/BPFs (XAML/clientdata), cloud flows, plugin steps (filtering
    attributes e imagens), JavaScript e arquivos de repositório.
 3. Classificação (bucket). `candidato-seguro` (rótulo: candidato a INVESTIGAÇÃO de remoção) só sai
-   com contagem completa (não parcial, não falhou) E todas as fontes da matriz de uso medidas
+   com zero exato (contagem completa ou existência confirmada sem valor) E todas as fontes da matriz de uso medidas
    (forms, views, processos, plugins, web resources, repositórios). Qualquer lacuna nessas fontes,
    ou zero preenchido numa amostra parcial, vira `inconclusivo` com os motivos registrados.
    Nenhuma classificação afirma que remover é seguro: integrações externas não são visíveis daqui.
@@ -21,6 +24,9 @@ SKIP_TYPES = {"Virtual", "File", "Image", "EntityName", "ManagedProperty", "Cale
 LOOKUPS = {"Lookup", "Customer", "Owner"}
 AGG_LIMIT = 50_000
 BATCH_AGG, BATCH_PAGE = 20, 35
+AGG_MAX_FAILS = 8      # lotes de agregação com erro numa tabela: além disso, a tabela inteira vai para paginação
+PROBE_TIMEOUT = 60     # s por leitura de existência: filtro sem índice em tabela grande pode demorar no serviço
+PROBE_BREAKER = 3      # leituras de existência seguidas sem resposta → para de sondar esta tabela
 
 BUCKETS = {
     "candidato-seguro": "Sem dados e sem uso encontrado (cobertura completa) — candidato a investigação de remoção; "
@@ -45,6 +51,7 @@ NO_AGG_TYPES = {"Money"}
 
 def _page_counts(ctx, t, cols):
     """Conta valores não nulos paginando os registros (exato até field_usage.max_records)."""
+    import time
     c, cfg = ctx.client, ctx.cfg
     es, pk = t["entityset"], t["primary_id"]
     counts, total, partial = {}, None, False
@@ -53,10 +60,14 @@ def _page_counts(ctx, t, cols):
         sel = ",".join([pk] + [_select_name(col) for col in batch])
         url, seen = c._url(f"{es}?$select={sel}"), 0
         local = {col["logical"]: 0 for col in batch}
+        t0, pages, state = time.time(), 0, {}
         while url and seen < cfg.field_usage_max_records:
             data = c._request(url)
             rows = data.get("value", [])
             seen += len(rows)
+            pages += 1
+            # tabela grande: antes ficava minutos sem mensagem e parecia travado
+            c._page_progress(f"{es} (colunas {i + 1}-{i + len(batch)} de {len(cols)})", seen, pages, t0, state)
             for col in batch:
                 k = _select_name(col)
                 local[col["logical"]] += sum(1 for r in rows if r.get(k) not in (None, "", []))
@@ -70,13 +81,47 @@ def _page_counts(ctx, t, cols):
     return counts, total, partial
 
 
+def _probe_presence(ctx, t, cols):
+    """Existência de valor por coluna (uma linha, só a chave) → ({coluna: True/False}, [erros]).
+
+    Para colunas com zero numa amostra parcial: False = nenhum registro com valor (zero exato), True = tem dado
+    fora da amostra. Sem resposta, a coluna fica fora do dicionário (continua inconclusiva)."""
+    from ..client import DataverseError
+    c = ctx.client
+    es, pk = t["entityset"], t["primary_id"]
+    found, errors, seguidas = {}, [], 0
+    for col in cols:
+        if seguidas >= PROBE_BREAKER:
+            errors.append(f"{len(cols) - len(found) - len(errors)} coluna(s) não sondada(s) após "
+                          f"{PROBE_BREAKER} falhas seguidas")
+            break
+        try:
+            data = c.get(f"{es}?$select={pk}&$filter={_select_name(col)} ne null&$top=1", quick=PROBE_TIMEOUT)
+        except DataverseError as e:
+            seguidas = seguidas + 1 if e.status == 0 else seguidas
+            errors.append(f"{col['logical']}: {getattr(e, 'message', None) or e}")
+            continue
+        seguidas = 0
+        found[col["logical"]] = bool(data.get("value") if isinstance(data, dict) else data)
+    return found, errors
+
+
 def measure_fill(ctx, t, cols):
+    """→ (contagens, total, método, existência {coluna: bool} das colunas com zero numa amostra parcial)."""
     c = ctx.client
     es, pk = t.get("entityset"), t.get("primary_id")
+    if t.get("table_type") == "Virtual":
+        return {}, None, "virtual", {}
     if not (es and pk):
-        return {}, None, "sem entity set"
+        return {}, None, "sem entity set", {}
+    # uma linha antes de tudo: tabela que não lê falha aqui uma vez (o erro sobe e vira lacuna), em vez de
+    # dezenas de vezes nos lotes de agregação divididos ao meio e de novo na paginação
+    first = c.get(f"{es}?$select={pk}&$top=1")
+    if not (first.get("value") if isinstance(first, dict) else first):
+        return {col["logical"]: 0 for col in cols}, 0, "tabela vazia", {}
     rc = t.get("record_count")
     counts, total, to_page = {}, None, []
+    fails = [0]
 
     def agg(batch):
         attrs = f'<attribute name="{pk}" alias="total" aggregate="count"/>' + "".join(
@@ -95,8 +140,17 @@ def measure_fill(ctx, t, cols):
         except Exception as e:  # noqa: BLE001
             if "50000" in str(e) or "0x8004e023" in str(e).lower():
                 raise  # limite de registros da agregação: a tabela inteira vai para paginação
+            fails[0] += 1
+            if fails[0] > AGG_MAX_FAILS:
+                raise RuntimeError(f"{fails[0]} lotes de agregação com erro (último: {str(e)[:200]})") from None
+            named = [col for col in batch if col["logical"] in str(e).lower()]
             if len(batch) == 1:
                 to_page.append(batch[0])
+            elif named:  # o erro cita a coluna: ela vai direto para paginação, sem dividir o lote
+                to_page.extend(named)
+                rest = [col for col in batch if col not in named]
+                if rest:
+                    agg_safe(rest)
             else:
                 agg_safe(batch[:len(batch) // 2])
                 agg_safe(batch[len(batch) // 2:])
@@ -113,17 +167,25 @@ def measure_fill(ctx, t, cols):
     else:
         to_page = list(cols)
     if not to_page:
-        return counts, total, "agregação"
+        return counts, total, "agregação", {}
     paged, ptotal, partial = _page_counts(ctx, t, to_page)
     counts.update(paged)
     total = ptotal if total is None else total
+    found = {}
     if partial:
         method = f"parcial (primeiros {ptotal:,} registros)".replace(",", ".")
+        zeros = [col for col in to_page if not paged.get(col["logical"])]
+        if zeros:
+            found, errors = _probe_presence(ctx, t, zeros)
+            method += f" + existência em {len(found)} coluna(s)"
+            if errors:
+                ctx.gap("field_usage", f"existência de valor em {t['logical']}: {len(errors)} coluna(s) sem resposta",
+                        "; ".join(errors[:3]))
     elif len(to_page) == len(cols):
         method = "paginação"
     else:
         method = f"agregação + paginação ({len(to_page)} colunas)"
-    return counts, total, method
+    return counts, total, method, found
 
 
 # Fontes da matriz de uso: coletor -> o que precisa estar ligado para a fonte valer como "medida".
@@ -183,6 +245,11 @@ def collect_field_usage(ctx):
     # contagens das tabelas em paralelo (cfg.parallel): antes, uma tabela de cada vez
     measured = {t["logical"]: (res, err) for (t, _cols), res, err in
                 ctx.client.parallel(lambda tc: measure_fill(ctx, *tc), todo, label="preenchimento dos campos")}
+    virtual = sorted(t["logical"] for t, _cols in todo if t.get("table_type") == "Virtual")
+    if virtual:
+        ctx.gap("field_usage", f"preenchimento não medido em {len(virtual)} tabela(s) virtual(is)",
+                f"{', '.join(virtual[:12])}{' …' if len(virtual) > 12 else ''} (dados vêm do provedor externo)",
+                kind="limitação")
     out = []
     for t, cols in todo:
         ln = t["logical"]
@@ -190,9 +257,9 @@ def collect_field_usage(ctx):
         res, err = measured[ln]
         if err is not None:
             ctx.gap("field_usage", f"preenchimento de {ln}", err)
-            counts, total, method = {}, None, "falhou"
+            counts, total, method, found = {}, None, "falhou", {}
         else:
-            counts, total, method = res
+            counts, total, method, found = res
         partial = str(method).startswith("parcial")
 
         # cobertura desta tabela: fontes globais + formulários/views da própria tabela lidos por inteiro
@@ -244,6 +311,7 @@ def collect_field_usage(ctx):
             fld = col["logical"]
             u = use.get(fld, {})
             pop = counts.get(fld)
+            present = found.get(fld)  # só nas colunas com zero numa amostra parcial: True/False/None (sem resposta)
             ui = bool(u.get("forms") or u.get("views") or u.get("pcf"))
             weak = bool(u.get("forms_inactive"))
             logic = bool(u.get("form_events") or u.get("processes") or u.get("plugin_steps") or u.get("javascript")
@@ -253,9 +321,9 @@ def collect_field_usage(ctx):
                 bucket = "inconclusivo" if method == "falhou" else "nao-medido"
                 if method == "falhou":
                     reasons.append("preenchimento: medição falhou")
-            elif pop > 0:  # há dado: a amostra (mesmo parcial) já prova preenchimento
+            elif pop > 0 or present:  # há dado: a amostra (mesmo parcial) ou a leitura de existência já prova
                 bucket = "em-uso" if (ui or logic) else "dados-sem-uso-conhecido"
-            elif partial:
+            elif partial and present is None:
                 bucket = "inconclusivo"
                 reasons.append(f"preenchimento: zero na amostra {method} — registros não lidos podem ter valor")
             elif logic:
@@ -272,13 +340,14 @@ def collect_field_usage(ctx):
             rows.append({
                 "logical": fld, "display": col.get("display"), "type": col.get("type"),
                 "populated": pop, "pct": round(100 * pop / total, 2) if pop is not None and total else None,
+                "found_beyond_sample": bool(present), "zero_confirmed": present is False,
                 **{k: sorted(u.get(k, [])) for k in ("forms", "forms_inactive", "form_events", "views", "pcf",
                                                      "processes", "plugin_steps", "javascript")},
                 "repo_files": repo_hits.get(fld, 0), "bucket": bucket, "inconclusive_reasons": reasons,
             })
         rows.sort(key=lambda r: (list(BUCKETS).index(r["bucket"]), r["logical"]))
         out.append({"table": ln, "total": total, "method": method, "fields": rows,
-                    "count_complete": method not in ("falhou", "sem entity set") and not partial,
+                    "count_complete": method not in ("falhou", "sem entity set", "virtual") and not partial,
                     "coverage_complete": not missing, "missing_sources": missing,
                     "forms_measured": forms_measured, "views_measured": views_measured,
                     "repos_measured": bool(repos)})

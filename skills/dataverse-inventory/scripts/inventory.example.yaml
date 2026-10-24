@@ -42,7 +42,8 @@ parallel: 4                               # chamadas simultâneas nas etapas de 
 
 field_usage:
   tables: []                      # vazio = todas as tabelas do escopo; ex.: [account, contact, contoso_project]
-  max_records: 500000             # acima disso a contagem por paginação vira "parcial"
+  max_records: 50000              # amostra lida em tabela grande (> 50 mil); acima disso a contagem vira "parcial" e
+                                  # cada coluna com zero na amostra ganha uma leitura de existência (zero exato ou tem dado)
 
 # Clones locais dos repositórios de código do cliente (opcional). Nada é clonado nem alterado:
 # só leitura de arquivos + `git rev-parse`/`git log -1`.

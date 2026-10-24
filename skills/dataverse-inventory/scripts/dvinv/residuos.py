@@ -124,7 +124,7 @@ def candidates(d, g, fnd):
         for col in tu.get("fields") or []:
             n = ("column", f"{tu['table']}.{col['logical']}")
             if col["bucket"] == "candidato-seguro":
-                add(n, "FLD-01", "coluna sem dados e sem uso encontrado", "0 preenchidos (contagem completa)")
+                add(n, "FLD-01", "coluna sem dados e sem uso encontrado", "0 preenchidos (zero exato)")
             elif col["bucket"] in ("sem-dados-na-ui", "sem-dados-uso-fraco"):
                 where = [f"formulário {x}" for x in (col.get("forms") or []) + (col.get("forms_inactive") or [])]
                 where += [f"view {x}" for x in col.get("views") or []]

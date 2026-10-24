@@ -540,7 +540,9 @@ class TestP003UsoDeCampos(unittest.TestCase):
         cfg = self.env.cfg()
         cfg.field_usage_max_records = 2   # fake pagina de 2 em 2: lê só a 1ª página
 
-        def late_fill(p):  # nulo nos primeiros registros, preenchido depois
+        def late_fill(p):  # nulo nos primeiros registros, preenchido depois; leitura de existência sem resposta
+            if "$filter=_contoso_accountid_value ne null" in p:
+                raise DataverseError(0, p, "tempo limite após 60s")
             if p.startswith("contoso_projects?$select="):
                 return [{"contoso_projectid": G(500 + i), "contoso_name": f"P{i}",
                          "_contoso_accountid_value": G(1) if i >= 3 else None} for i in range(6)]
@@ -561,6 +563,66 @@ class TestP003UsoDeCampos(unittest.TestCase):
         self.assertIn("FLD-04", fnd)
         self.assertTrue(any("contoso_project.contoso_accountid" in e for e in fnd["FLD-04"]["evidence"]))
         self.assertFalse(any("contoso_accountid" in e for e in fnd.get("FLD-01", {}).get("evidence", [])))
+
+    def _amostra_com_existencia(self, existe):
+        """Amostra parcial com zero em contoso_accountid; a leitura de existência responde `existe`."""
+        cfg = self.env.cfg()
+        cfg.field_usage_max_records = 2
+        probes = []
+
+        def route(p):
+            if "$filter=_contoso_accountid_value ne null" in p:
+                probes.append(p)
+                return [{"contoso_projectid": G(505)}] if existe else []
+            if p.startswith("contoso_projects?$select="):
+                return [{"contoso_projectid": G(500 + i), "contoso_name": f"P{i}",
+                         "_contoso_accountid_value": G(1) if i >= 3 else None} for i in range(6)]
+        with patched_route(route):
+            ctx, m, _ = self.env.extract(cfg)
+        self.assertEqual(len(probes), 1, "uma leitura de existência por coluna com zero na amostra")
+        self.assertIn("$top=1", probes[0])
+        tab = next(t for t in json.loads((ctx.snapshot_dir / "field_usage.json").read_text())
+                   if t["table"] == "contoso_project")
+        self.assertIn("+ existência em", tab["method"])
+        return fu_fields(ctx.snapshot_dir)["contoso_project"]["contoso_accountid"]
+
+    def test_amostra_parcial_com_valor_fora_da_amostra_e_uso(self):
+        f = self._amostra_com_existencia(True)
+        self.assertTrue(f["found_beyond_sample"])
+        self.assertIn(f["bucket"], ("em-uso", "dados-sem-uso-conhecido"))
+
+    def test_amostra_parcial_sem_valor_na_tabela_e_zero_exato(self):
+        f = self._amostra_com_existencia(False)
+        self.assertTrue(f["zero_confirmed"])
+        self.assertEqual(f["populated"], 0)
+        self.assertFalse(any("amostra" in r for r in f["inconclusive_reasons"]), f["inconclusive_reasons"])
+        self.assertNotIn(f["bucket"], ("inconclusivo", "em-uso", "dados-sem-uso-conhecido"))
+
+    def test_tabela_virtual_vazia_e_ilegivel_sem_cascata_de_chamadas(self):
+        cfg = self.env.cfg()
+        calls = []
+
+        def route(p):
+            if p.startswith("contoso_projects?"):
+                calls.append(p)  # plugin quebrado no RetrieveMultiple: toda leitura da tabela falha
+                raise DataverseError(400, p, '{"error":{"message":"Object reference not set to an instance of an object."}}')
+            if p.startswith("accounts?$select=accountid&$top=1"):
+                return []
+        with patched_route(route):
+            ctx, m, _ = self.env.extract(cfg)
+        fu = {t["table"]: t for t in json.loads((ctx.snapshot_dir / "field_usage.json").read_text())}
+        self.assertEqual(len([p for p in calls if p == "contoso_projects?$select=contoso_projectid&$top=1"]), 1)
+        self.assertFalse([p for p in calls if "fetchXml" in p or "$filter" in p or p.startswith("contoso_projects?$select=contoso_projectid,")],
+                         "nada além da sondagem")
+        self.assertEqual(fu["contoso_project"]["method"], "falhou")
+        self.assertEqual(fu["account"]["method"], "tabela vazia")
+        self.assertTrue(fu["account"]["count_complete"])
+        self.assertTrue(all(f["populated"] == 0 for f in fu["account"]["fields"]))
+        self.assertEqual(fu["contoso_virtual"]["method"], "virtual")
+        self.assertFalse(fu["contoso_virtual"]["count_complete"])
+        self.assertFalse([q for q in m["queries"] if q["path"].startswith("contoso_virtuals?")])
+        self.assertTrue(any(g["collector"] == "field_usage" and "virtual" in g["what"] and g["kind"] == "limitação"
+                            for g in m["gaps"]))
 
     def test_forms_falhando_vira_inconclusivo(self):
         cfg = self.env.cfg()

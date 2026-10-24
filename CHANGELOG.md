@@ -5,6 +5,19 @@
 Inventário de **100% dos componentes** e camada de consulta para agentes de IA (impacto de evolutivas e
 rastreamento de problemas sem ler o vault inteiro). Construído sobre a 0.5.0 (ainda sem tag).
 
+Uso de campos em base grande (de horas para minutos)
+- Antes de medir, uma leitura de uma linha por tabela: tabela ilegível (provedor virtual quebrado, plugin com erro no
+  RetrieveMultiple) vira uma lacuna só, em vez de dezenas de chamadas — o lote de agregação que falhava era dividido
+  ao meio até cada coluna (~39 chamadas por lote de 20) e depois ainda tentava paginar. Tabela vazia sai com zero
+  exato sem agregação; tabela virtual não é lida (uma lacuna `limitação` com a lista).
+- Tabela acima de 50 mil registros: lê uma amostra (`field_usage.max_records`, padrão **50 mil**, antes 500 mil) e
+  confirma por coluna, com uma leitura de uma linha (`$filter=<coluna> ne null&$top=1`), se a coluna com zero na
+  amostra tem dado em algum registro. Zero confirmado continua elegível a *candidato a investigação de remoção*;
+  `field_usage.json` ganha `zero_confirmed` e `found_beyond_sample`.
+- Agregação: coluna citada no erro vai direto para paginação; após 8 lotes com erro a tabela inteira pagina.
+- Progresso durante a paginação (a cada 30 s) e aviso de início do render; o fim da extração lista até 40 lacunas
+  por etapa (todas continuam no manifesto e no log) — milhares de linhas faziam o fim parecer travado.
+
 Uso e resíduos (preparação de migração e limpeza)
 - Etapa nova `table_activity` (núcleo, `deep.table_activity`): data do último registro criado e do último alterado
   em cada tabela do escopo — duas leituras de uma linha por tabela, só a coluna de data. Sem `$batch` (pacote de

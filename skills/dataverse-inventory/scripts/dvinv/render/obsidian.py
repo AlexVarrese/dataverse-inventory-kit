@@ -905,7 +905,8 @@ def write_field_usage(v, d):
          "plugin, business rule, workflow, BPF, flow) e o que roda quando ele muda: seção **Uso dos campos** de cada "
          f"tabela e [[{v.folder}/Uso dos campos.csv|Uso dos campos.csv]].", "",
          "> [!warning] Nenhuma classificação afirma que remover é seguro",
-         "> **Candidato a investigação de remoção** = contagem completa com zero preenchidos, nenhuma referência "
+         "> **Candidato a investigação de remoção** = zero exato (contagem completa ou leitura de existência sem valor), "
+         "nenhuma referência "
          "encontrada e todas as fontes da matriz medidas (forms, views, processos/flows, plugins, JS, repositório). "
          "Antes de remover, confirme integrações externas (ETL, Power BI, portais, APIs) e flows fora de solução.",
          "> **Inconclusivo** = zero preenchidos numa amostra parcial, medição que falhou, ou alguma fonte da matriz "

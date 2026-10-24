@@ -23,6 +23,7 @@ import os
 import socket
 import sys
 import time
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -32,6 +33,8 @@ from .auth import build_credential
 from .client import Client
 from .collectors import REGISTRY, Context, run
 from .scope import Scope
+
+GAPS_SHOWN = 40  # lacunas por etapa listadas no fim da extração
 
 
 LOCK_STALE_S = 6 * 3600
@@ -140,7 +143,6 @@ def cmd_check(cfg):
 def cmd_escopo(cfg):
     """Pré-visualização do escopo: o que entraria na extração, sem extrair (minutos, não horas)."""
     import csv
-    from collections import Counter
     from .collectors import environment, tables
     ctx = Context(cfg, _client(cfg), Scope(cfg))
     ctx.preview = True
@@ -190,13 +192,21 @@ def cmd_extract(cfg, only=None, completar=None):
     falhou = [k for k, s in manifest["collectors"].items() if s["status"] == "falhou"]
     print(f"[dvinv] extração concluída: {len(manifest['queries'])} chamadas, {len(manifest['gaps'])} lacuna(s)"
           f"{', coletor(es) com falha: ' + ', '.join(falhou) if falhou else ''} → {ctx.snapshot_dir}")
+    # milhares de lacunas enchiam o terminal (o fim parecia travado): até GAPS_SHOWN por etapa; todas no manifesto e no log
+    shown = Counter()
     for g in manifest["gaps"]:
-        print(f"   lacuna [{g['collector']}] {g['what']}: {secrets.redact((g['error'].splitlines() or [''])[0])[:160]}")
+        shown[g["collector"]] += 1
+        if shown[g["collector"]] <= GAPS_SHOWN:
+            print(f"   lacuna [{g['collector']}] {g['what']}: {secrets.redact((g['error'].splitlines() or [''])[0])[:160]}")
+    for name, n in shown.items():
+        if n > GAPS_SHOWN:
+            print(f"   … +{n - GAPS_SHOWN} lacuna(s) em [{name}] — lista completa em {ctx.snapshot_dir / 'manifest.json'}")
     return ctx.snapshot_dir
 
 
 def cmd_render(cfg, snapshot=None):
     from .render.obsidian import render
+    print("[dvinv] render: gerando o vault e os derivados ...", flush=True)
     v = render(cfg, snapshot)
     print(f"[dvinv] snapshot: {v.snapshot}")
     print(f"[dvinv] vault: {len(v.written)} arquivo(s) em {cfg.vault_dir}")
