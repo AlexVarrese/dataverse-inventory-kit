@@ -14,6 +14,7 @@ Saídas: _derived/<run_id>/dependencies.json (render; o diff recalcula), matriz 
 """
 
 import re
+import time
 from collections import Counter, defaultdict
 
 from .util import field_refs, field_tokens
@@ -484,7 +485,15 @@ def build(d):
     if pd.get("format") == "compacto/1":
         nodes = pd.get("nodes") or []
         in_scope = set(id_index) | set(col_ids)
-        for a, b, dt in pd.get("edges") or []:
+        platform_start = time.monotonic()
+        platform_edges = pd.get("edges") or []
+        platform_total = len(platform_edges)
+        platform_added_before = len(g.edges)
+        print(f"[render] Filtrando {platform_total:,} dependências da plataforma...", flush=True)
+        for edge_ix, (a, b, dt) in enumerate(platform_edges, 1):
+            if edge_ix % 100_000 == 0:
+                print(f"[render] Dependências analisadas: {edge_ix:,}/{platform_total:,} "
+                      f"({time.monotonic() - platform_start:.1f}s)", flush=True)
             (ca, ia), (cb, ib) = nodes[a], nodes[b]
             # arestas que tocam o escopo, nos dois sentidos (quem depende do escopo e do que o escopo depende).
             # Fora: internas de metadados (coluna → tabela, "Solution Internal") e nativo → nativo.
@@ -492,6 +501,9 @@ def build(d):
                 continue
             g.edge(resolve(ia, None, ca), resolve(ib, None, cb), f"plataforma ({DEP_TYPE.get(dt, dt)})",
                    source="plataforma")
+        print(f"[render] Dependências: {platform_total:,} examinadas, "
+              f"{len(g.edges) - platform_added_before:,} novas arestas, "
+              f"{time.monotonic() - platform_start:.1f}s", flush=True)
     else:  # snapshots até a 0.5.0: lista de dicionários (RetrieveDependentComponents)
         for e in pd.get("edges") or []:
             src = resolve(e["dependent_id"], e.get("dependent_type_label"), e.get("dependent_type"))
