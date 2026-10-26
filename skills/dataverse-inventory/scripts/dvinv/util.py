@@ -66,3 +66,11 @@ def field_refs(text, known):
     if not text or not known:
         return []
     return sorted({t for t in (m.lower() for m in _TOKEN_RE.findall(text)) if t in known})
+
+
+def field_tokens(text):
+    """Tokens de um texto, normalizados uma vez para cruzar com várias tabelas.
+
+    Mantém a mesma expressão regular e normalização de field_refs().
+    """
+    return {m.lower() for m in _TOKEN_RE.findall(text)} if text else set()
