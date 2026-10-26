@@ -14,6 +14,7 @@
 import os
 import re
 import shutil
+import time
 from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
@@ -154,8 +155,11 @@ def load_raw(path, root=None):
 def render(cfg, snapshot=None):
     """Renderiza o snapshot indicado (ou o último íntegro de cfg.raw_dir). Publica vault e derivados
     só se a varredura de segredos passar; caso contrário levanta SecretLeakError e nada muda."""
+    started = time.monotonic()
     snap = snapshot_mod.resolve(snapshot or cfg.raw_dir, cfg.raw_dir)
+    print(f"[render] Carregando snapshot {snap.name}...", flush=True)
     d = snapshot_mod.load(snap)
+    print(f"[render] Snapshot validado/carregado em {time.monotonic() - started:.1f}s", flush=True)
     run_id = snapshot_mod.run_id_of(snap, d["manifest"])
     stage_root = Path(cfg.vault_root) / f".dvinv-render-{run_id}-{os.getpid()}"
     shutil.rmtree(stage_root, ignore_errors=True)
@@ -164,16 +168,23 @@ def render(cfg, snapshot=None):
     derived = snapshot_mod.DerivedStaging(cfg.derived_dir, run_id)
     try:
         if final_dir.exists():
+            copy_start = time.monotonic()
+            print("[render] Copiando vault anterior para staging...", flush=True)
             shutil.copytree(final_dir, stage_dir)  # preserva edições do analista e notas antigas
+            print(f"[render] Cópia concluída em {time.monotonic() - copy_start:.1f}s", flush=True)
         v = Vault(stage_root, cfg.vault_folder, cfg.name)
         v.snapshot, v.run_id = snap, run_id
         if getattr(cfg, "config_path", None):
             v.config_rel = os.path.relpath(cfg.config_path, Path(cfg.vault_root).resolve()).replace(os.sep, "/")
+        print("[render] Calculando grafo, achados e notas...", flush=True)
         fnd, deps_json = _render_into(v, d)
+        print(f"[render] Notas geradas: {len(v.written)} em {time.monotonic() - started:.1f}s", flush=True)
+        print("[render] Gravando derivados...", flush=True)
         derived.write_json("findings", fnd)
         derived.write_json("dependencies", deps_json)
         # nota com trecho que só casa padrão de segredo na forma final (ex. entidades HTML decodificadas): limpa no
         # lugar; se não der, a nota vira um aviso e o arquivo de dados sai — o vault é publicado mesmo assim
+        print(f"[render] Derivados gravados em {time.monotonic() - started:.1f}s; verificando segredos...", flush=True)
         unverified = list(v.written) + [p for p in derived.paths if p not in derived.verified]
         fixed, failed = secrets.sanitize_paths(unverified)
         for p in failed:
@@ -188,6 +199,7 @@ def render(cfg, snapshot=None):
         v.written = [p for p in v.written if Path(p).exists()]
         derived.paths = [p for p in derived.paths if Path(p).exists()]
         secrets.assert_clean(list(v.written) + [p for p in derived.paths if p not in derived.verified], f"render {run_id}")
+        print(f"[render] Segurança verificada em {time.monotonic() - started:.1f}s; publicando vault...", flush=True)
         # publicação: troca a pasta do vault inteira (rename) e os derivados do run
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         old = None
@@ -232,10 +244,14 @@ def render(cfg, snapshot=None):
 def _render_into(v, d):
     if not d.get("manifest"):
         raise SystemExit("Snapshot sem manifest.json — rode 'extract' antes.")
+    phase_start = time.monotonic()
     fnd = findings_mod.compute(d)
+    print(f"[render] Achados: {len(fnd)} ({time.monotonic() - phase_start:.1f}s)", flush=True)
+    phase_start = time.monotonic()
     # notas de versão: compara com o snapshot anterior do mesmo ambiente (antes de escrever qualquer nota)
     chg = changes_mod.compare(v.snapshot, d, fnd) if getattr(v, "snapshot", None) else None
 
+    print(f"[render] Comparação de snapshots: {time.monotonic() - phase_start:.1f}s", flush=True)
     tables = d.get("tables") or []
     plugins = d.get("plugins") or {"assemblies": [], "steps": []}
     procs = d.get("processes") or []
@@ -294,7 +310,10 @@ def _render_into(v, d):
             finding_refs[(kind, key)].append(f)
 
     # ---- grafo de dependências (antes das notas: cada nota mostra 'depende de' / 'usado por') ----
+    graph_start = time.monotonic()
+    print("[render] Construindo grafo (a fase com maior volume de dependências)...", flush=True)
     graph = deps_mod.build(d)
+    print(f"[render] Grafo: {len(graph.nodes):,} nós e {len(graph.edges):,} arestas em {time.monotonic() - graph_start:.1f}s", flush=True)
     v.graph = graph
     v.guid_of.update(getattr(graph, "guid_index", {}) or {})
     for s in sols:  # soluções não são nós do grafo, mas a nota leva o GUID
@@ -302,8 +321,12 @@ def _render_into(v, d):
     for n in list(v.paths):  # nós cuja chave já é o GUID (processos, steps, BUs, equipes, site maps, SLAs…)
         if n not in v.guid_of and re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", str(n[1]).lower()):
             v.guid_of[n] = str(n[1]).lower()
+    graph_start = time.monotonic()
     dsum = deps_mod.summarize(graph, d)
+    print(f"[render] Matriz de dependências: {time.monotonic() - graph_start:.1f}s", flush=True)
+    graph_start = time.monotonic()
     deps_json = deps_mod.to_json(graph, dsum)
+    print(f"[render] Exportação do grafo em memória: {time.monotonic() - graph_start:.1f}s", flush=True)
     for n in graph.nodes:
         if n in v.paths:
             v.dep_counts[v.paths[n]] = {"dependencias": dsum["fan_out"][n], "dependentes": dsum["fan_in"][n]}
@@ -404,7 +427,9 @@ def _render_into(v, d):
     last_act = residuos.last_activity(d)
     fmatrix = campos.matrix(d, graph)        # uso de cada campo: quem usa e o que roda quando muda
     _trig, any_change = campos.triggers(d)
-    for t in tables:
+    for table_ix, t in enumerate(tables, 1):
+        if table_ix == 1 or table_ix % 100 == 0:
+            print(f"[render] Notas de tabelas: {table_ix}/{len(tables)} ({len(v.written)} arquivos escritos)", flush=True)
         ln = t["logical"]
         custom_cols = [c for c in t["columns"] if c["custom"]]
         st, pr, fl = steps_by_table.get(ln, []), procs_by_table.get(ln, []), flows_touching.get(ln, [])

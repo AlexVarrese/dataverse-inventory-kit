@@ -14,9 +14,10 @@ Saídas: _derived/<run_id>/dependencies.json (render; o diff recalcula), matriz 
 """
 
 import re
+import time
 from collections import Counter, defaultdict
 
-from .util import field_refs
+from .util import field_refs, field_tokens
 
 QUOTED_RE = re.compile(r"[\"'`]([A-Za-z][A-Za-z0-9_]{2,})[\"'`]")
 
@@ -322,16 +323,32 @@ def build(d):
                 if cn:
                     g.edge(("process", p["id"]), cn, "lê/grava campo")
                     break
+    # Índice inverso montado uma única vez para JS sem vínculo conhecido a formulários.
+    # O código anterior tokenizava novamente o mesmo JS para TODAS as tabelas do escopo.
+    custom_field_tables = defaultdict(list)
+    for tbl, fields in custom_of.items():
+        for fld in fields:
+            custom_field_tables[fld].append(tbl)
+
     for w in wrs:
         content = w.get("content") or ""
         if not content:
             continue
+        # A mesma expressão de field_refs(), agora executada somente uma vez por web resource.
+        tokens = field_tokens(content)
         # JS carregado em formulários: colunas das tabelas desses formulários; sem formulário: colunas
         # custom de qualquer tabela do escopo que casem pelo nome (ambíguo por natureza — detalhe avisa)
         tabs = lib_tables.get(w["name"])
-        cands = {tb: cols_of[tb] for tb in sorted(tabs) if tb in cols_of} if tabs else custom_of
-        for tbl, known in sorted(cands.items()):
-            for fld in field_refs(content, known):
+        if tabs:
+            targets = ((tbl, sorted(tokens & cols_of[tbl])) for tbl in sorted(tabs) if tbl in cols_of)
+        else:
+            matched = defaultdict(list)
+            for fld in tokens:
+                for tbl in custom_field_tables.get(fld, ()):
+                    matched[tbl].append(fld)
+            targets = ((tbl, sorted(fields)) for tbl, fields in sorted(matched.items()))
+        for tbl, fields in targets:
+            for fld in fields:
                 cn = col(tbl, fld)
                 if cn:
                     g.edge(("webresource", w["name"]), cn, "usa campo (JS)",
@@ -468,7 +485,15 @@ def build(d):
     if pd.get("format") == "compacto/1":
         nodes = pd.get("nodes") or []
         in_scope = set(id_index) | set(col_ids)
-        for a, b, dt in pd.get("edges") or []:
+        platform_start = time.monotonic()
+        platform_edges = pd.get("edges") or []
+        platform_total = len(platform_edges)
+        platform_added_before = len(g.edges)
+        print(f"[render] Filtrando {platform_total:,} dependências da plataforma...", flush=True)
+        for edge_ix, (a, b, dt) in enumerate(platform_edges, 1):
+            if edge_ix % 100_000 == 0:
+                print(f"[render] Dependências analisadas: {edge_ix:,}/{platform_total:,} "
+                      f"({time.monotonic() - platform_start:.1f}s)", flush=True)
             (ca, ia), (cb, ib) = nodes[a], nodes[b]
             # arestas que tocam o escopo, nos dois sentidos (quem depende do escopo e do que o escopo depende).
             # Fora: internas de metadados (coluna → tabela, "Solution Internal") e nativo → nativo.
@@ -476,6 +501,9 @@ def build(d):
                 continue
             g.edge(resolve(ia, None, ca), resolve(ib, None, cb), f"plataforma ({DEP_TYPE.get(dt, dt)})",
                    source="plataforma")
+        print(f"[render] Dependências: {platform_total:,} examinadas, "
+              f"{len(g.edges) - platform_added_before:,} novas arestas, "
+              f"{time.monotonic() - platform_start:.1f}s", flush=True)
     else:  # snapshots até a 0.5.0: lista de dicionários (RetrieveDependentComponents)
         for e in pd.get("edges") or []:
             src = resolve(e["dependent_id"], e.get("dependent_type_label"), e.get("dependent_type"))
