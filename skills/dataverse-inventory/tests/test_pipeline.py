@@ -866,7 +866,9 @@ def main():
         assert [c_["custom"] for c_ in acc["columns"] if c_["logical"] == "msdyn_gdproptout"] == [False]
         assert "msdyn_" not in (ctx.snapshot_dir / "field_usage.json").read_text(), "uso de campos não mede coluna da Microsoft"
         gaps_txt = json.dumps(manifest["gaps"], ensure_ascii=False)
-        assert "contoso_virtual" not in gaps_txt, "tabela virtual não deveria ir para RetrieveTotalRecordCount"
+        # o uso de campos declara a tabela virtual como limitação; a contagem de registros não pode nem tentar
+        assert "contoso_virtual" not in json.dumps([g for g in manifest["gaps"] if g["collector"] == "tables"]), \
+            "tabela virtual não deveria ir para RetrieveTotalRecordCount"
         assert "contagem de registros indisponível em 1 tabela(s)" in gaps_txt and "outro erro: contact" in gaps_txt, gaps_txt
         assert "lote" not in gaps_txt  # lote dividido até isolar a tabela
         assert st["webresources"]["scope"] == 2

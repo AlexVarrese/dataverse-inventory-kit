@@ -143,7 +143,9 @@ def measure_fill(ctx, t, cols):
             fails[0] += 1
             if fails[0] > AGG_MAX_FAILS:
                 raise RuntimeError(f"{fails[0]} lotes de agregação com erro (último: {str(e)[:200]})") from None
-            named = [col for col in batch if col["logical"] in str(e).lower()]
+            # só a mensagem da API: str(e) traz também o caminho, e o fetchXml cita todas as colunas do lote
+            msg = str(getattr(e, "message", None) or e).lower()
+            named = [col for col in batch if col["logical"] in msg]
             if len(batch) == 1:
                 to_page.append(batch[0])
             elif named:  # o erro cita a coluna: ela vai direto para paginação, sem dividir o lote
