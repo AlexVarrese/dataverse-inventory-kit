@@ -75,7 +75,8 @@ output:
 #   webresource_max_bytes: 1000000      # acima disso: segredos verificados, conteúdo não guardado
 #   catalog_max_rows_per_type: 200000   # teto de linhas lidas por tipo no catálogo
 #   platform_dependencies_columns: false  # dependências por coluna custom (1 chamada por coluna — pesado)
-#   solution_layers_max: 500            # teto de tabelas no extra camadas
+#   solution_layers_max: 3000           # teto de componentes no extra camadas (tabelas e formulários primeiro, colunas por último)
+#   solution_layers_columns: false      # extra camadas também nas colunas nativas das tabelas do escopo (as custom já entram)
 #   inactive_days: 365                  # tabela custom com registros e sem atividade há mais que isso → TAB-01
 #   table_activity_max_records: 5000000 # tabela maior não tem a última atividade consultada (0 = sem teto)
 #   table_activity: false               # desliga a etapa (ex.: VPN instável) — o resto do núcleo segue

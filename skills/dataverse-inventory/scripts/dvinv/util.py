@@ -74,3 +74,28 @@ def field_tokens(text):
     Mantém a mesma expressão regular e normalização de field_refs().
     """
     return {m.lower() for m in _TOKEN_RE.findall(text)} if text else set()
+
+
+# Camadas de solução (extra `camadas`): rótulo de cada tipo de msdyn_componentlayer e leitura compatível com o formato
+# até a 0.6, que só tinha tabelas ({tabela: [camadas]}).
+LAYER_TYPE_LABEL = {"Entity": "Tabela", "SystemForm": "Formulário", "SavedQuery": "View", "Role": "Papel",
+                    "WebResource": "Web resource", "SdkMessageProcessingStep": "Plugin step", "Workflow": "Processo",
+                    "AppModule": "App", "SiteMap": "Site map", "OptionSet": "Option set",
+                    "EntityRelationship": "Relacionamento", "Attribute": "Coluna"}
+
+
+def layer_components(d):
+    """→ lista de componentes com camadas ({type, kind, id, name, table, key, layers}); camadas de cima para baixo."""
+    sl = d.get("solution_layers") or {}
+    if isinstance(sl.get("components"), list):
+        return sl["components"]
+    return [{"type": "Entity", "kind": "table", "id": None, "name": t, "table": t, "key": t, "layers": ls}
+            for t, ls in sorted(sl.items()) if isinstance(ls, list)]
+
+
+def active_layer(comp):
+    """→ (camada Active por cima de uma gerenciada?, propriedades alteradas nela — None quando não lidas)."""
+    ls = comp.get("layers") or []
+    if len(ls) < 2 or ls[0].get("solution") != "Active":
+        return False, None
+    return True, ls[0].get("changed")

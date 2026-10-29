@@ -33,7 +33,8 @@ antes de afirmar.
 | ALM-03 | baixo | Custom API sem plugin de implementação | pode ser só uma mensagem para steps/flows |
 | ALM-04 | baixo | processo não gerenciado fora de qualquer solução | customização direta no ambiente, não migra por ALM |
 | ALM-06 | médio | operação de solução com falha nos últimos 90 dias (extra `historico`) | ler a mensagem em `10 Histórico de Soluções`; o Power Platform apaga o histórico após 180 dias |
-| ALM-07 | médio | tabela com customização não gerenciada (camada `Active`) por cima das gerenciadas (extra `camadas`) | em DEV é normal; em TEST/PRD levar o ajuste para a solução e remover a camada |
+| ALM-07 | médio | componente gerenciado (tabela, coluna, formulário, view, papel, step, processo…) com customização não gerenciada (camada `Active`) por cima, que altera alguma propriedade (extra `camadas`); a evidência lista as propriedades | em DEV é normal; em TEST/PRD levar o ajuste para a solução e remover a camada (*Remover customizações ativas* — irreversível, conferir antes os valores em `13 Camadas de Solução`) |
+| ALM-09 | baixo | camada `Active` por cima das gerenciadas que só muda data e versão (extra `camadas`) | sobra de salvar/publicar no ambiente; remover depois de conferir |
 | ALM-08 | baixo | solução instalada como patch (extra `historico`, últimos 180 dias) | consolidar no próximo upgrade da solução pai |
 
 | SEG-03 | baixo | equipe proprietária (não padrão da BU) sem nenhum papel | pode ser equipe usada só para compartilhamento — confirmar |

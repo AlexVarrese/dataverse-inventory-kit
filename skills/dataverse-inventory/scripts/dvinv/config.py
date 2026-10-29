@@ -37,8 +37,9 @@ DEEP_DEFAULTS = {
     "storage": False,              # anexos (annotation/activitymimeattachment), auditoria, maiores tabelas
     "solution_history": False,     # importações/exportações/upgrades de soluções (msdyn_solutionhistories)
     "solution_history_max": 5000,  # importações/exportações mais recentes lidas
-    "solution_layers": False,      # camadas de solução por tabela do escopo (msdyn_componentlayers, ~3 s/tabela)
-    "solution_layers_max": 500,    # teto de tabelas para as camadas
+    "solution_layers": False,      # camadas de solução dos componentes gerenciados do escopo (msdyn_componentlayers)
+    "solution_layers_max": 3000,   # teto de componentes consultados (uma leitura por componente, em $batch)
+    "solution_layers_columns": False,  # camadas também das colunas nativas das tabelas do escopo (as custom já entram)
     "plugin_binaries": False,      # .dll dos assemblies do escopo (para decompilar com ilspycmd)
     "users": False,                # lista nominal de usuários (nome, UPN, BU, papéis, equipes) — dado pessoal
     "team_members": False,         # membros por equipe (associações usuário × equipe)

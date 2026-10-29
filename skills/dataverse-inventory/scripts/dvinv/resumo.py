@@ -24,11 +24,13 @@ LABELS = {
     "items": "itens", "active": "ativos", "buttons": "botões que chamam JS do escopo", "files": "arquivos",
     "secret_hits": "possíveis segredos", "formula_columns": "colunas calculadas/rollup/fórmula",
     "custom_fields": "campos customizados", "failures": "com falha", "skipped": "não consultadas (grandes)", "since": "desde", "javascript": "com JavaScript",
-    "active_on_top": "com camada Active por cima", "microsoft_skipped": "tabelas da Microsoft puladas",
+    "active_on_top": "com camada Active por cima", "multi_layer": "com mais de uma camada",
+    "active_changed": "Active com alteração", "active_empty": "Active sem alteração", "microsoft_skipped": "tabelas da Microsoft puladas",
     "microsoft_assemblies": "assemblies da Microsoft ignorados", "microsoft_steps": "steps da Microsoft ignorados",
 }
 # mesmo nome de métrica com sentido diferente por coletor
-LABELS_BY = {"plugins": {"types": "classes no escopo"}, "ribbons": {"scope": "tabelas consultadas"}}
+LABELS_BY = {"plugins": {"types": "classes no escopo"}, "ribbons": {"scope": "tabelas consultadas"},
+             "solution_layers": {"queried": "consultados"}}
 
 
 def num(v):

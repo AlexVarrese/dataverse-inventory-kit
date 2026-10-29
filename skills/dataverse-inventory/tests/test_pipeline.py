@@ -170,9 +170,17 @@ def route(path):
                  "msdyn_solutionversion": "1.2.0.0", "msdyn_exceptionmessage": "referência ausente: contoso_RecalcProject"},
                 {"msdyn_name": "ContosoCore", "msdyn_operation" + FV: "Import", "msdyn_result": True, "msdyn_starttime": "2026-01-01T00:00:00Z"}]
     if p.startswith("msdyn_componentlayers?"):
-        if G(1) in p:  # account: ajuste não gerenciado por cima
-            return [{"msdyn_order": 1, "msdyn_solutionname": "System"}, {"msdyn_order": 2, "msdyn_solutionname": "ContosoCore"},
-                    {"msdyn_order": 3, "msdyn_solutionname": "Active"}]
+        assert f"msdyn_componentid eq '{G(2)}'" not in p, "tabela não gerenciada tem uma camada só: não é consultada"
+        if G(1) in p:  # account: ajuste não gerenciado por cima (data e versão não contam como alteração)
+            def ch(*kv):
+                return json.dumps({"Attributes": [{"Key": k, "Value": v} for k, v in kv]})
+            assert "msdyn_changes" not in p or "msdyn_solutionname eq 'Active'" in p, "alterações só da camada Active"
+            return [r for r in [{"msdyn_order": 1, "msdyn_solutionname": "System", "msdyn_changes": ch(("name", "Account"))},
+                    {"msdyn_order": 2, "msdyn_solutionname": "ContosoCore", "msdyn_changes": ch(("isauditenabled", False))},
+                    {"msdyn_order": 3, "msdyn_solutionname": "Active", "msdyn_overwritetime": "1900-01-01T00:00:00Z",
+                     "msdyn_changes": ch(("isauditenabled", True), ("modifiedon", "2026-10-01T00:00:00Z"),
+                                         ("Description - LocalizedLabel", '{"1046":"Conta do cliente"}'))}]
+                    if "eq 'Active'" not in p or r["msdyn_solutionname"] == "Active"]  # o serviço respeita `eq`
         return [{"msdyn_order": 1, "msdyn_solutionname": "ContosoCore"}]
     # --- catálogo (100%) e dependências em lote ---
     if p.startswith("GlobalOptionSetDefinitions(Name='componenttype')"):
@@ -805,10 +813,22 @@ def check_evolucao(cfg, snap, derived):
     vd = cfg.vault_dir
     pj = (vd / "Tabelas" / "contoso_project.md").read_text()
     assert "## Colunas calculadas, rollup e fórmula" in pj and "## Mapeamentos entre tabelas" in pj, pj[:300]
-    assert "## Camadas de solução" in (vd / "Tabelas" / "account.md").read_text()
+    acc = (vd / "Tabelas" / "account.md").read_text()
+    assert "## Camadas de solução" in acc and "| 3 | Active |" in acc and "(base)" in acc, acc
+    assert "| 2 | ContosoCore | — | — | — |" in acc, acc  # alterações de camada gerenciada: só no maker portal
+    assert "### Valores na camada Active" in acc and "| `isauditenabled` | true |" in acc and "modifiedon" not in acc, acc
     assert (vd / "Comandos" / "contoso_SyncErp.md").exists() and (vd / "10 Histórico de Soluções.md").exists()
+    lay = json.loads((snap / "solution_layers.json").read_text())
+    assert lay["format"] == "componentes/2" and {x["type"] for x in lay["components"]} == {"Entity", "Attribute"}, lay
+    assert "13 Camadas de Solução" in (vd / "00 Índice.md").read_text()
+    import csv
+    rows = list(csv.reader((vd / "Camadas de solução.csv").read_text(encoding="utf-8-sig").splitlines(), delimiter=";"))
+    assert ["Tabela", "account", "account", G(1), "3", "Active", "", "", "Description - LocalizedLabel | isauditenabled",
+            'Description - LocalizedLabel={"1046":"Conta do cliente"} | isauditenabled=true'] in rows, rows[:5]
+    assert ["Tabela", "account", "account", G(1), "2", "ContosoCore", "", "", "", ""] in rows, rows[:5]
     fnd = {f["id"]: f for f in json.loads((derived / "findings.json").read_text())}
-    assert fnd["ALM-06"]["metric"] == 1 and fnd["ALM-07"]["evidence"] == ["account"], (fnd.get("ALM-06"), fnd.get("ALM-07"))
+    assert fnd["ALM-06"]["metric"] == 1, fnd.get("ALM-06")
+    assert fnd["ALM-07"]["evidence"] == ["Tabela account: Description - LocalizedLabel, isauditenabled"], fnd.get("ALM-07")
 
 
 def check_method_drift():

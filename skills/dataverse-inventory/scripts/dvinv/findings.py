@@ -298,13 +298,36 @@ def compute(d):
                       "Patches complicam o ALM (dependem da solução pai e acumulam camadas): preferir upgrade da "
                       "solução inteira. Histórico de soluções guarda só 180 dias.",
                       evidence=patches[:50], metric=len(patches)))
-    camadas = d.get("solution_layers") or {}
-    ativas = sorted(t for t, ls in camadas.items() if ls and ls[0].get("solution") == "Active" and len(ls) > 1)
-    if ativas:
-        out.append(_f("ALM-07", "médio", f"{len(ativas)} tabela(s) com customização não gerenciada por cima das gerenciadas",
+    from .util import LAYER_TYPE_LABEL, active_layer, layer_components
+    noted = {"table", "step", "process", "webresource", "role", "app", "sitemap"}  # tipos com nota própria no vault
+
+    def layer_ref(x):
+        return (x["kind"], x["key"]) if x["kind"] in noted and x.get("key") else ("table", x["table"]) if x.get("table") else None
+
+    def layer_ev(x, ch):
+        lbl = f"{LAYER_TYPE_LABEL.get(x['type'], x['type'])} {x['name']}"
+        return f"{lbl}: {', '.join(ch[:8])}{' …' if len(ch) > 8 else ''}" if ch else lbl
+
+    on_top = [(x, ch) for x in layer_components(d) for act, ch in [active_layer(x)] if act]
+    mudou = [(x, ch) for x, ch in on_top if ch is None or ch]  # None: formato antigo ou leitura falhou — conta como alterado
+    if mudou:
+        out.append(_f("ALM-07", "médio", f"{len(mudou)} componente(s) com customização não gerenciada por cima das gerenciadas",
                       "A camada `Active` (não gerenciada) vence as soluções gerenciadas: o que o deploy entrega pode não ser "
-                      "o que roda. Em TEST/PRD indica ajuste feito direto no ambiente — levar para a solução e remover a camada.",
-                      refs=[("table", t) for t in ativas], evidence=ativas[:50], metric=len(ativas)))
+                      "o que roda. Em DEV é normal; em TEST/PRD indica ajuste feito direto no ambiente. Levar o ajuste para "
+                      "a solução de origem e remover a camada (Soluções › componente › Ver camadas da solução › Remover "
+                      "customizações ativas). A remoção não tem volta e pode perder dados: conferir antes as propriedades "
+                      "alteradas (evidência abaixo e 13 Camadas de Solução).",
+                      refs=[r for r in (layer_ref(x) for x, _ in mudou) if r],
+                      evidence=[layer_ev(x, ch) for x, ch in mudou], metric=len(mudou)))
+    vazias = [x for x, ch in on_top if ch == []]
+    if vazias:
+        out.append(_f("ALM-09", "baixo", f"{len(vazias)} componente(s) com camada Active sem alteração efetiva",
+                      "Existe camada não gerenciada por cima das gerenciadas, mas ela não muda nenhuma propriedade "
+                      "(só data e versão) — costuma sobrar de um salvar/publicar feito no ambiente. Não muda o "
+                      "comportamento hoje, mas marca o componente como customizado fora do ALM e confunde a análise de "
+                      "camadas. Remover com Remover customizações ativas (irreversível) depois de conferir.",
+                      refs=[r for r in (layer_ref(x) for x in vazias) if r],
+                      evidence=[layer_ev(x, None) for x in vazias], metric=len(vazias)))
 
     # 8a. Site maps e SLAs ----------------------------------------------------------------------
     env_host = re.sub(r"^https?://([^/:]+).*$", r"\1", ((d.get("environment") or {}).get("url") or "").lower())

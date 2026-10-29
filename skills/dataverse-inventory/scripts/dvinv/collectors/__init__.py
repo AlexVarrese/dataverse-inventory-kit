@@ -30,7 +30,6 @@ REGISTRY = [
     ("virtual_tables", tables.collect_virtual_tables),  # depois de tables: usa ctx.scope.tables
     ("relationships", tables.collect_relationships),
     ("mappings", customization.collect_mappings),          # mapeamentos campo a campo entre tabelas do escopo
-    ("solution_layers", customization.collect_solution_layers),  # deep: camadas de solução por tabela
     ("optionsets", tables.collect_optionsets),
     ("webresources", ui.collect_webresources),
     ("forms", ui.collect_forms),
@@ -48,6 +47,7 @@ REGISTRY = [
     ("processes", processes.collect_processes),
     ("slas", navigation.collect_slas),            # depois de tables (_tables_index) e processes
     ("security", security.collect_security),
+    ("solution_layers", customization.collect_solution_layers),  # extra camadas: depois de tudo o que tem camada
     ("users", users.collect_users),              # depois de security: papéis das equipes
     ("repos", repos.collect_repos),              # depois de webresources/plugins/tables
     ("field_usage", usage.collect_field_usage),  # depois de tudo que cita campos (forms, views, processos, repos)
@@ -124,7 +124,7 @@ FLAGS_BY_COLLECTOR = {
     "security": ("role_privileges", "team_members"), "users": ("users",), "field_usage": ("field_usage",),
     "table_activity": ("table_activity", "table_activity_max_records"),
     "platform_dependencies": ("platform_dependencies", "platform_dependencies_columns"), "storage": ("storage",),
-    "health": ("plugin_trace",), "solution_layers": ("solution_layers",),
+    "health": ("plugin_trace",), "solution_layers": ("solution_layers", "solution_layers_max", "solution_layers_columns"),
     "solution_history": ("solution_history", "solution_history_max"),
 }
 ALWAYS = ("environment", "solutions")  # baratos e com efeito no escopo (pertencimento a soluções): sempre rodam

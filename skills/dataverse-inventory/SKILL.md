@@ -104,7 +104,8 @@ As skills `dv-*` podem **alterar** o ambiente; no contexto de inventário use-as
    dependências) e se está em uso (contagem de registros e **uso de campos**: preenchimento real + matriz +
    candidatos a investigação de remoção). Se cair no meio, o mesmo comando com `--completar ultimo` refaz só o que
    falhou. Diagnóstico é opt-in por **extras** (`--extras` ou `extras:` no yaml): `saude` (plugin trace),
-   `armazenamento`, `historico` (importações de soluções), `camadas`, `binarios` (DLLs), `usuarios`; para
+   `armazenamento`, `historico` (importações de soluções), `camadas` (o que foi customizado direto no ambiente, por
+   cima do deploy, em cada componente gerenciado), `binarios` (DLLs), `usuarios`; para
    acrescentar a um inventário pronto, `--extras <...> --completar ultimo`. Componentes da Microsoft (`msdyn_`,
    `mscrm_`, `adx_`…) ficam fora do escopo por padrão (`scope.exclude_microsoft`). Se o cliente tiver repositórios Git, liste os clones locais em `repos:` — o pacote compara
    web resources e classes de plugin publicados com o código, procura segredos versionados e usa o

@@ -27,6 +27,7 @@ from .. import findings as findings_mod
 from .. import secrets
 from .. import snapshot as snapshot_mod
 from ..config import SYSTEM_SOLUTIONS
+from ..util import active_layer, layer_components
 from .. import residuos, resumo
 from . import agents, bases, campos, canvas, catalog, maps, navigation, structure
 
@@ -365,8 +366,15 @@ def _render_into(v, d):
             lines.append("⚙︎ = registrada pela plataforma (tabela dependency)\n")
         return "\n".join(lines) + "\n"
 
+    layers_of = {(x["kind"], x["key"]): x for x in layer_components(d) if x.get("key")}
+    layers_by_table = defaultdict(list)  # formulários, views, colunas… da tabela com camada Active por cima
+    for x in layer_components(d):
+        if x["kind"] != "table" and x.get("table") and active_layer(x)[0]:
+            layers_by_table[x["table"]].append(x)
+
     def findings_block(kind, key):
-        return deps_block(kind, key) + _findings_only(kind, key)
+        lay = layers_block(layers_of.get((kind, key))) if kind != "table" else ""
+        return deps_block(kind, key) + lay + _findings_only(kind, key)
 
     def _findings_only(kind, key):
         fs = list({f["id"]: f for f in finding_refs.get((kind, key), [])}.values())
@@ -487,12 +495,9 @@ def _render_into(v, d):
                             f"{v.link('table', m['target'], m['target'], in_table=True)}",
                             ", ".join(f"`{f['source']}`→`{f['target']}`" for f in m["fields"] if not f["system"])[:900] or "—",
                             sum(1 for f in m["fields"] if f["system"])] for m in maps_])]
-        layers = (d.get("solution_layers") or {}).get(ln)
-        if layers:
-            b += ["## Camadas de solução", "",
-                  "Da camada de cima (vale em tempo de execução) para a de baixo. `Active` = customização não gerenciada.", "",
-                  mdtable(["Ordem", "Solução", "Publisher", "Sobrescrita em"],
-                          [[x["order"], x["solution"], x["publisher"], x["overwritten"]] for x in layers])]
+        lay = layers_block(layers_of.get(("table", ln)), layers_by_table.get(ln))
+        if lay:
+            b.append(lay)
         rr = rels_by_table.get(ln, [])
         if rr:
             def other(r):
@@ -799,6 +804,7 @@ def _render_into(v, d):
     write_field_matrix_csv(v, d, fmatrix)
     write_field_matrix(v, fmatrix, any_change)
     write_solution_history(v, d)
+    write_solution_layers(v, d)
     structure.write_security(v, d)
     write_environment(v, d, manifest)
     bases.write_all(v, fnd)
@@ -1335,6 +1341,113 @@ def write_solution_history(v, d):
                         h.get("publisher"), h.get("seconds"), h.get("error_code"), h.get("error")] for h in hist])
 
 
+def _stack(x, n=8):
+    ls = [ly["solution"] or "?" for ly in x.get("layers") or []]
+    return " › ".join(ls[:n]) + (f" › … (+{len(ls) - n})" if len(ls) > n else "")
+
+
+def _changed(ly, n=12):
+    ch = ly.get("changed")
+    if ch is None:
+        return "—"
+    return ", ".join(f"`{k}`" for k in ch[:n]) + (f" … (+{len(ch) - n})" if len(ch) > n else "") if ch else "nenhuma"
+
+
+def layers_block(x, subs=None):
+    """Seção 'Camadas de solução' da nota de um componente (+ componentes da tabela com camada Active, na tabela)."""
+    from ..util import LAYER_TYPE_LABEL
+    b = []
+    if x and x.get("layers"):
+        base = min(ly["order"] or 0 for ly in x["layers"])
+        b += ["## Camadas de solução", "",
+              "Da camada de cima (vale em tempo de execução) para a de baixo. `Active` = customização não gerenciada; "
+              "o que ela altera = aba *Atualizado* de *Ver camadas da solução* no maker portal (lá também as das "
+              "camadas gerenciadas).", "",
+              mdtable(["Ordem", "Solução", "Publisher", "Sobrescrita em", "Propriedades alteradas"],
+                      [[ly["order"], ly["solution"], ly["publisher"], ly["overwritten"] or "—",
+                        "(base)" if ly["order"] == base and len(x["layers"]) > 1 else _changed(ly)]
+                       for ly in x["layers"]])]
+        vals = x["layers"][0].get("values") if x["layers"][0].get("solution") == "Active" else None
+        if vals:
+            b += ["### Valores na camada Active", "",
+                  "Valor que a camada não gerenciada impõe hoje (truncado; código e XML de definição só no maker portal).", "",
+                  mdtable(["Propriedade", "Valor"], [[f"`{k}`", val] for k, val in vals.items()])]
+    if subs:
+        b += ["### Componentes desta tabela com camada Active", "",
+              "Customização não gerenciada por cima das gerenciadas em formulários, views, colunas e relacionamentos.", "",
+              mdtable(["Tipo", "Componente", "Camadas (de cima para baixo)", "Alterado na Active"],
+                      [[LAYER_TYPE_LABEL.get(c_["type"], c_["type"]), c_["name"], _stack(c_), _changed(c_["layers"][0])]
+                       for c_ in subs])]
+    return "\n".join(b) + "\n" if b else ""
+
+
+def write_solution_layers(v, d):
+    from ..util import LAYER_TYPE_LABEL
+    comps = layer_components(d)
+    if not comps:
+        return
+    on_top = [(x, ch) for x in comps for act, ch in [active_layer(x)] if act]
+    mudou = [(x, ch) for x, ch in on_top if ch is None or ch]
+    vazias = [x for x, ch in on_top if ch == []]
+    multi = [x for x in comps if len(x.get("layers") or []) > 1]
+    by_type = defaultdict(lambda: [0, 0, 0, 0])
+    for x in comps:
+        by_type[x["type"]][0] += 1
+        by_type[x["type"]][1] += len(x.get("layers") or []) > 1
+    for x, ch in on_top:
+        by_type[x["type"]][2 if (ch is None or ch) else 3] += 1
+
+    def nome(x):
+        if x["kind"] in ("table", "step", "process", "webresource", "role", "app", "sitemap") and x.get("key") \
+                and (x["kind"], x["key"]) in v.paths:
+            return v.link(x["kind"], x["key"], x["name"], in_table=True)
+        if x.get("table") and ("table", x["table"]) in v.paths:
+            return f"{x['name']} ({v.link('table', x['table'], x['table'], in_table=True)})"
+        return x["name"]
+
+    def tipo(x):
+        return LAYER_TYPE_LABEL.get(x["type"], x["type"])
+
+    managed_stack = [x for x in multi if sum(1 for ly in x["layers"] if ly["solution"] not in ("Active", "System")) > 1]
+    b = ["# Camadas de solução", "",
+         f"**{len(comps)}** componente(s) gerenciado(s) do escopo com camadas lidas · **{len(multi)}** com mais de uma camada · "
+         f"**{len(mudou)}** com customização não gerenciada (`Active`) por cima · **{len(vazias)}** com `Active` sem "
+         f"alteração · todas as camadas em [[{v.folder}/Camadas de solução.csv|Camadas de solução.csv]].", "",
+         "A camada de cima vale em tempo de execução. `Active` = customização não gerenciada; em TEST/PRD indica ajuste "
+         "feito direto no ambiente. Antes de remover (Ver camadas da solução › Remover customizações ativas — não tem "
+         "volta), confira as propriedades alteradas.", "",
+         "## Por tipo", "",
+         mdtable(["Tipo", "Componentes", "Com mais de uma camada", "Active com alteração", "Active sem alteração"],
+                 [[LAYER_TYPE_LABEL.get(t, t), *n] for t, n in sorted(by_type.items(), key=lambda kv: -kv[1][0])]),
+         f"## Customização não gerenciada por cima das gerenciadas ({len(mudou)})", "",
+         mdtable(["Tipo", "Componente", "Camadas (de cima para baixo)", "Alterado na Active"],
+                 [[tipo(x), nome(x), _stack(x), _changed(x["layers"][0])] for x, _ in mudou[:500]])
+         if mudou else "Nenhuma.", ""]
+    if vazias:
+        b += [f"## Camada Active sem alteração efetiva ({len(vazias)})", "",
+              "Só data e versão mudam: sobra de salvar/publicar no ambiente. Candidatas a remoção, depois de conferir.", "",
+              mdtable(["Tipo", "Componente", "Camadas (de cima para baixo)"],
+                      [[tipo(x), nome(x), _stack(x)] for x in vazias[:500]])]
+    if managed_stack:
+        b += [f"## Mais de uma solução gerenciada no mesmo componente ({len(managed_stack)})", "",
+              "Cada solução de cima sobrescreve (ou mescla com) a de baixo; desinstalar uma devolve o comportamento da "
+              "anterior. Em componentes nativos é comum (soluções da Microsoft); nos do escopo, verificar se a "
+              "sobreposição é intencional.", "",
+              mdtable(["Tipo", "Componente", "Camadas (de cima para baixo)"],
+                      [[tipo(x), nome(x), _stack(x)] for x in managed_stack[:300]])]
+    v.write(f"{v.folder}/13 Camadas de Solução", {"tipo": "secao", "componentes": len(comps), "active": len(mudou),
+                                                  "active_vazias": len(vazias), "tags": v.tags("secao")}, "\n".join(b))
+    rows = []
+    for x in comps:
+        for ly in x.get("layers") or []:
+            rows.append([tipo(x), x["name"], x.get("table"), x.get("id"), ly["order"], ly["solution"], ly["publisher"],
+                         ly["overwritten"], " | ".join(ly.get("changed") or []),
+                         " | ".join(f"{k}={val}" for k, val in (ly.get("values") or {}).items())])
+    catalog.write_csv(v, "Camadas de solução.csv", [["Tipo", "Componente", "Tabela", "GUID", "Ordem", "Solução",
+                                                     "Publisher", "Sobrescrita em", "Propriedades alteradas",
+                                                     "Valores (camada Active)"]] + rows)
+
+
 def write_environment(v, d, manifest):
     env = d.get("environment") or {}
     b = ["# Ambiente", "", mdtable(["Item", "Valor"], [
@@ -1514,6 +1627,8 @@ def write_index(v, d, manifest, fnd, has_catalog=False, chg=None):
          f"- {v.link_path('04 Segurança', 'Segurança')}",
          *([f"- {v.link_path('10 Histórico de Soluções', 'Histórico de soluções (importações e falhas)')}"]
            if d.get("solution_history") else []),
+         *([f"- {v.link_path('13 Camadas de Solução', 'Camadas de solução (customização não gerenciada por cima do deploy)')}"]
+           if layer_components(d) else []),
          *([f"- {v.link_path('05 Uso de Campos', 'Uso de campos')}"] if d.get("field_usage") else []),
          *([f"- {v.link_path('06 Armazenamento e Auditoria', 'Armazenamento e auditoria')}"] if d.get("storage") else []),
          *([f"- {v.link_path('07 Repositórios', 'Repositórios × ambiente')}"] if d.get("repos") else []),

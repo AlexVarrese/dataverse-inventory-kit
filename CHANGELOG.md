@@ -5,6 +5,33 @@
 Inventário de **100% dos componentes** e camada de consulta para agentes de IA (impacto de evolutivas e
 rastreamento de problemas sem ler o vault inteiro). Construído sobre a 0.5.0 (ainda sem tag).
 
+Camadas de solução por componente (extra `camadas`)
+- Antes só tabelas: agora todos os componentes **gerenciados** do escopo — tabelas, colunas custom (nativas com
+  `deep.solution_layers_columns`), relacionamentos, option sets, formulários, views, web resources, plugin steps,
+  processos, papéis, apps model-driven e site maps. Alteração direta em PRD num formulário, view ou coluna fica na
+  camada do próprio componente, não na da tabela: a versão anterior não via e o ALM-07 não aparecia.
+- Onde a camada de cima é `Active`, grava as propriedades que ela altera e o valor imposto (aba *Atualizado* de
+  *Ver camadas da solução*); data e versão não contam como alteração; código e XML de definição (`formxml`,
+  `fetchxml`, `content`, `clientdata`…) só pelo nome; valores redigidos e truncados.
+- Extração mais leve por componente: `$batch` (antes uma chamada por tabela), componente não gerenciado não é
+  consultado (tem uma camada só) e as alterações vêm só da camada `Active` (`eq 'Active'`) — a tabela virtual ignora
+  `ne` e `msdyn_order gt`, então pedir as de todas as camadas traria a camada de base inteira. Etapa de componente que
+  não rodou nem foi herdada vira lacuna, sem puxar a etapa junto (`--only solution_layers` continua leve).
+  `deep.solution_layers_max` passa a contar componentes (padrão 3.000; tabelas e formulários primeiro, colunas por
+  último). Nomes de tipo conferidos num ambiente real (relacionamento é `EntityRelationship`).
+- ALM-07 por componente, com as propriedades alteradas na evidência; ALM-09 novo (`Active` que só muda data e
+  versão). Snapshot antigo (só tabelas) continua legível; o ALM-07 dele não é comparado com o novo formato (não vira
+  "resolvido").
+- Vault: seção *Camadas de solução* na nota de cada componente (na tabela, também os formulários, views, colunas e
+  relacionamentos dela com camada `Active`), nota `13 Camadas de Solução` e `Camadas de solução.csv`.
+
+Correções
+- Uso de campos: a coluna "citada no erro" da agregação era procurada no texto que inclui o caminho da requisição —
+  o fetchXml cita as colunas do lote, então colunas sem erro iam para paginação (o caminho lento). Agora só a
+  mensagem da API.
+- `tests/test_pipeline.py` voltou a passar (quebrado desde a otimização do uso de campos: o assert da tabela virtual
+  pegava a lacuna nova de `field_usage`, e o item acima).
+
 Uso de campos em base grande (de horas para minutos)
 - Antes de medir, uma leitura de uma linha por tabela: tabela ilegível (provedor virtual quebrado, plugin com erro no
   RetrieveMultiple) vira uma lacuna só, em vez de dezenas de chamadas — o lote de agregação que falhava era dividido

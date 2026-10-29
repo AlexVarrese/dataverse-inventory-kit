@@ -84,7 +84,9 @@ def write_catalog(v, d):
 
 def write_agent_index(v, d, has_catalog):
     """AGENT-INDEX.md: entrada para agentes. Curto de propósito (lido inteiro em toda consulta)."""
+    from ..util import layer_components
     mdtable = _mdtable()
+    layers = bool(layer_components(d))
     folders = Counter()
     for rel in v.paths.values():
         parts = rel.split("#")[0][len(v.folder) + 1:].split("/")
@@ -123,7 +125,8 @@ def write_agent_index(v, d, has_catalog):
          "Notas de seção: `00 Índice`, `01 Ambiente`, `03 Integrações`, `04 Segurança`, `05 Uso de Campos`, "
          "`06 Armazenamento e Auditoria`, `07 Repositórios`, `08 Matriz de Dependências`, `10 Histórico de Soluções`, "
          "`11 Candidatos a Limpeza`, `12 Matriz de Uso dos Campos`"
-         + (", `09 Catálogo de Componentes`" if has_catalog else "") + ". Filtrar por tipo: "
+         + (", `09 Catálogo de Componentes`" if has_catalog else "")
+         + (", `13 Camadas de Solução`" if layers else "") + ". Filtrar por tipo: "
          "`grep -rl '^tipo: tabela' .`", "",
          "## Arquivos tabulares", "",
          *(["- `Componentes.csv`: 1 linha por componente do ambiente (100%, todas as soluções), com chave, GUID e nota."]
@@ -136,6 +139,9 @@ def write_agent_index(v, d, has_catalog):
          "- `Candidatos a limpeza.csv`: o que parece resíduo (tabela parada ou vazia, coluna sem dados, formulário "
          "inativo ou fora de apps, JS/PCF/variável sem uso, step e flow desligados), com onda de remoção, bloqueios da "
          "plataforma e referências — use para perguntas de limpeza, migração ou impacto de exclusão.",
+         *(["- `Camadas de solução.csv`: 1 linha por camada de cada componente gerenciado do escopo (solução, "
+            "publisher, propriedades alteradas e, na camada `Active`, o valor imposto) — responde 'o que foi mexido "
+            "direto neste ambiente, por cima do deploy'."] if layers else []),
          f"- Fora do repositório, na máquina que extraiu: snapshot `_raw/{run_id or '<run_id>'}/*.json` (código de web "
          "resources, definições de flows, todas as dependências da plataforma).", ""]
     if big:

@@ -156,7 +156,7 @@ específica no Learn (o link dá o contexto).
 | ALM-03 | Custom API sem plug-in só como business event | [Custom API][capi] |
 | ALM-04 | BP-ALM-02 | [camadas][lay] |
 | ALM-06 | investigar operação de solução com falha (histórico some após 180 dias) | [histórico de soluções][hist] |
-| ALM-07 | BP-ALM-01 | [camadas][lay] |
+| ALM-07, ALM-09 | BP-ALM-01 | [camadas][lay] |
 | ALM-08 | BP-ALM-03 | [camadas][lay] |
 | DEP-01 | BP-ALM-04 | [dependências][dep] |
 | DEP-02 | indicador de impacto (não é problema) | [dependências][dep] |

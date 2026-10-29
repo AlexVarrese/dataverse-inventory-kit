@@ -99,12 +99,15 @@ FINDING_SOURCES = {"SEC": ("webresources", "processes", "plugins", "alm", "servi
                    "NAV": ("sitemaps",), "SLA": ("slas",), "REPO": ("repos",), "STO": ("storage",),
                    "AUD": ("storage",), "TAB": ("tables", "table_activity"), "FRM": ("forms", "apps")}
 # Achados que dependem de uma etapa específica, além (ou no lugar) da família
-FINDING_SOURCES_BY_ID = {"ALM-06": ("solution_history",), "ALM-07": ("solution_layers",), "PLG-04": ("health",),
-                         "SEG-02": ("security",), "SEG-04": ("users",), "SEG-05": ("users",), "OPS-01": ("environment",),
+FINDING_SOURCES_BY_ID = {"ALM-06": ("solution_history",), "ALM-07": ("solution_layers",), "ALM-09": ("solution_layers",),
+                         "PLG-04": ("health",), "SEG-02": ("security",), "SEG-04": ("users",), "SEG-05": ("users",),
+                         "OPS-01": ("environment",),
                          "DEP-01": ("platform_dependencies",), "UI-01": ("forms", "webresources", "ribbons"),
                          "ALM-08": ("solution_history",), "TAB-02": ("tables",)}
 # Achados que dependem de um campo que versões antigas do kit não gravavam: (coleção, campo) presente nas duas
-FINDING_FIELDS_BY_ID = {"FLW-02": ("processes", "dv_trigger"), "FRM-01": ("apps", "availability")}
+FINDING_FIELDS_BY_ID = {"FLW-02": ("processes", "dv_trigger"), "FRM-01": ("apps", "availability"),
+                        # até a 0.6 as camadas eram só de tabelas: comparar com aquele formato inventaria "resolvidos"
+                        "ALM-07": ("solution_layers", "components"), "ALM-09": ("solution_layers", "components")}
 
 
 def _has_field(data, coll, field):

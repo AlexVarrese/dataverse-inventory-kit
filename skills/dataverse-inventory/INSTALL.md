@@ -318,7 +318,7 @@ PCF continuam no vault, e os usuários aparecem só como contagem.
 privilégios por papel, ribbons, catálogo de 100%, dependências registradas pela plataforma) e se está em uso
 (contagem de registros, **uso de campos**). Os extras são diagnóstico, opt-in por `extras:` no YAML ou
 `--extras`: `saude` (plugin trace), `armazenamento` (maiores tabelas, anexos, auditoria), `historico`
-(importações/exportações de soluções), `camadas` (camadas de solução, ~3 s por tabela), `binarios` (DLLs de
+(importações/exportações de soluções), `camadas` (camadas de solução dos componentes gerenciados do escopo e o que a camada `Active` altera), `binarios` (DLLs de
 plugin), `usuarios` (lista nominal e membros de equipe — dado pessoal). As chaves `deep:` ficam para ajuste fino
 (ver o fim do `inventory.example.yaml`); se o YAML desligar parte do núcleo, o `dvinv` avisa.
 

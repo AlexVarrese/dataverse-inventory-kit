@@ -54,10 +54,12 @@ Dataverse Web API (GET)  ──►  _raw/<run_id>/*.json + manifest  ──►  
     10 Histórico de Soluções.md    importações e falhas (extra historico)
     11 Candidatos a Limpeza.md     resíduos com onda de remoção, bloqueios da plataforma e referências
     12 Matriz de Uso dos Campos.md campos com mais lógica, o que roda em qualquer alteração, gatilhos por campo
+    13 Camadas de Solução.md       customização não gerenciada por cima do deploy, por componente (extra camadas)
     Componentes.csv       um componente por linha (chave, tipo, nome, GUID, escopo, nota)
     Dependências.csv      uma linha por relação "A depende de B" — abre no Excel
     Dependências ausentes.csv  Sem dependentes.csv  Equipes.csv  Candidatos a limpeza.csv
     Uso dos campos.csv    campo × formulários, eventos, JS, plugins, business rules, workflows, BPFs, flows + gatilhos
+    Camadas de solução.csv  uma linha por camada de cada componente gerenciado (extra camadas)
     Tabelas/  Plugins/  Plugin Steps/  Processos/<categoria>/  Web Resources/  Componentes PCF/
     Custom APIs/  Apps/  Site Maps/  SLAs/  Comandos/  Soluções/  Papéis/  Business Units/  Equipes/
     Usuários/ (extra usuarios)  Achados/  Comparações/
@@ -169,7 +171,7 @@ acrescentar a um inventário pronto sem refazer o núcleo: `all -c inventory.yam
 | `saude` | plugin trace dos últimos `plugin_trace_days` dias: execuções, erros, tempo |
 | `armazenamento` | maiores tabelas, anexos, auditoria (lê tabelas de dados) |
 | `historico` | importações/exportações/upgrades de soluções e falhas |
-| `camadas` | camadas de solução por tabela (~3 s por tabela) |
+| `camadas` | camadas de solução dos componentes **gerenciados** do escopo — tabelas, colunas custom, relacionamentos, option sets, formulários, views, web resources, plugin steps, processos, papéis, apps e site maps: a pilha de soluções de cada um e, onde há camada `Active` (não gerenciada) por cima, as propriedades que ela altera e o valor imposto (0,3–2 s por componente, em `$batch`; teto `deep.solution_layers_max`, 3.000). Achados ALM-07/ALM-09, nota `13 Camadas de Solução` |
 | `binarios` | DLLs dos plugins (para decompilar) |
 | `usuarios` | lista nominal de usuários e membros de equipe — **dado pessoal**: só com autorização do cliente |
 

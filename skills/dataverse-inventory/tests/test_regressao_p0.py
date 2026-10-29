@@ -1191,5 +1191,121 @@ class TestUsoEResiduos(unittest.TestCase):
         self.assertFalse(changes._has_field({"apps": {"modeldriven": []}}, *changes.FINDING_FIELDS_BY_ID["FRM-01"]))
 
 
+class TestCamadasDeSolucao(unittest.TestCase):
+    """Extra camadas: todos os tipos gerenciados do escopo, propriedades alteradas por camada, ALM-07/ALM-09."""
+
+    @staticmethod
+    def ch(*kv):
+        return json.dumps({"Attributes": [{"Key": k, "Value": v} for k, v in kv]})
+
+    def route(self, path):
+        import urllib.parse
+        p = urllib.parse.unquote(path.split("&__page=")[0])
+        m = re.search(r"msdyn_componentid eq '([^']+)' and msdyn_solutioncomponentname eq '(\w+)'", p)
+        if not m:
+            return tp.route(path)
+        self.asked.append((m.group(2), m.group(1)))
+        rows = self.layers(m.group(1), p)
+        if "msdyn_changes" in p:
+            self.assertIn("msdyn_solutionname eq 'Active'", p, "alterações só da camada Active")
+        return [r for r in rows if "eq 'Active'" not in p or r["msdyn_solutionname"] == "Active"]  # o serviço respeita `eq`
+
+    def layers(self, oid, p):
+        if oid == "f1":  # formulário: Active que só mudou data/versão → ALM-09
+            return [{"msdyn_order": 1, "msdyn_solutionname": "System", "msdyn_changes": self.ch(("formxml", "<form/>"))},
+                    {"msdyn_order": 2, "msdyn_solutionname": "Active",
+                     "msdyn_changes": self.ch(("modifiedon", "2026-10-01"), ("versionnumber", 7))}]
+        if oid == "v1":  # view: Active mexeu no fetchxml (só o nome vai) e na descrição (com segredo)
+            return [{"msdyn_order": 1, "msdyn_solutionname": "ContosoCore", "msdyn_changes": self.ch(("name", "Ativos"))},
+                    {"msdyn_order": 2, "msdyn_solutionname": "Active", "msdyn_changes": self.ch(
+                        ("fetchxml", "<fetch>FAKEjson0011</fetch>"), ("description", SECRET_VECTORS["JSON apiKey"]))}]
+        if oid == "r1":  # papel: duas soluções gerenciadas empilhadas, sem Active
+            return [{"msdyn_order": 1, "msdyn_solutionname": "ContosoBase", "msdyn_publishername": "Contoso"},
+                    {"msdyn_order": 2, "msdyn_solutionname": "ContosoVendas", "msdyn_publishername": "Contoso"}]
+        if oid == "s1":
+            raise DataverseError(500, p, '{"error":{"message":"falha simulada"}}')
+        return [{"msdyn_order": 1, "msdyn_solutionname": "ContosoCore"}]
+
+    def ctx(self, **deep):
+        from unittest import mock
+        env = Env(repos=False)
+        self.addCleanup(env.close)
+        cfg = env.cfg()
+        cfg.deep.update({"solution_layers": True, **deep})
+        cli = tp.FakeClient(cfg, credential=None)
+        cli._bearer = lambda: "fake"
+        self.asked = []
+        patch = mock.patch.object(tp, "route", self.route)
+        patch.start()
+        self.addCleanup(patch.stop)
+        ctx = Context(cfg, cli, Scope(cfg))
+        ctx.data.update({
+            "tables": [{"logical": "account", "id": "T1", "managed": True, "columns": [
+                {"logical": "contoso_tier", "id": "c1", "custom": True, "managed": True},
+                {"logical": "name", "id": "c2", "custom": False, "managed": True},
+                {"logical": "contoso_new", "id": "c3", "custom": True, "managed": False}]},
+                {"logical": "contoso_project", "id": "t2", "managed": False, "columns": []}],
+            "forms": [{"id": "f1", "name": "Conta", "entity": "account", "managed": True},
+                      {"id": "f2", "name": "Rascunho", "entity": "account", "managed": False}],
+            "views": [{"id": "v1", "name": "Contas ativas", "entity": "account", "managed": True}],
+            "security": {"roles": [{"id": "r1", "name": "Vendedor Contoso", "managed": True, "scope_reason": "solução"},
+                                   {"id": "r9", "name": "Fora do escopo", "managed": True}]},
+            "plugins": {"steps": [{"id": "s1", "name": "AccountPre", "entity": "account", "managed": True, "enabled": True}]},
+        })
+        return ctx
+
+    def test_tipos_alteracoes_e_achados(self):
+        from dvinv.collectors import customization
+        ctx = self.ctx(solution_layers_columns=False)  # deep_all liga a opção
+        with contextlib.redirect_stdout(io.StringIO()):
+            customization.collect_solution_layers(ctx)
+        tipos = list(dict.fromkeys(t for t, _ in self.asked))
+        self.assertEqual(tipos, ["Entity", "SystemForm", "SavedQuery", "Role", "SdkMessageProcessingStep", "Attribute"])
+        ids = {i for _, i in self.asked}
+        self.assertTrue({"t1", "f1", "v1", "r1", "s1", "c1"} <= ids, ids)  # GUID em minúsculas
+        self.assertFalse(ids & {"t2", "f2", "r9", "c2", "c3"}, "não gerenciado, fora do escopo ou coluna nativa")
+        comps = {x["id"]: x for x in ctx.data["solution_layers"]["components"]}
+        self.assertEqual(comps["f1"]["layers"][0]["changed"], [])
+        self.assertNotIn("changed", comps["f1"]["layers"][1], "camada de base não lista 'alterações'")
+        view_top = comps["v1"]["layers"][0]
+        self.assertEqual(view_top["changed"], ["description", "fetchxml"])
+        self.assertEqual(list(view_top["values"]), ["description"], "conteúdo (fetchxml) não vai para o vault")
+        self.assertNotIn("FAKEjson0011", json.dumps(ctx.data["solution_layers"]))
+        self.assertEqual(ctx.stats["solution_layers"]["failed"], 1)
+        self.assertTrue(any("AccountPre" in g["what"] for g in ctx.gaps), ctx.gaps)
+        st = ctx.stats["solution_layers"]
+        self.assertEqual((st["active_on_top"], st["active_changed"], st["active_empty"]), (2, 1, 1), st)
+
+        fnd = {f["id"]: f for f in findings_mod.compute(ctx.data)}
+        self.assertEqual(fnd["ALM-07"]["evidence"], ["View account / Contas ativas: description, fetchxml"])
+        self.assertEqual(fnd["ALM-07"]["refs"], [("table", "account")])
+        self.assertEqual(fnd["ALM-09"]["evidence"], ["Formulário account / Conta"])
+        bloco = obsidian.layers_block(comps["r1"])
+        self.assertIn("| 2 | ContosoVendas | Contoso | — | — |", bloco)
+        self.assertIn("| 1 | ContosoBase | Contoso | — | (base) |", bloco)
+        # 2ª passada só nos componentes com Active por cima: formulário e view (o papel não tem Active)
+        self.assertEqual(sorted(i for t, i in self.asked if (t, i) != ("Role", "r1")).count("f1"), 2)
+        self.assertEqual(sum(1 for _, i in self.asked if i == "r1"), 1)
+
+    def test_teto_colunas_nativas_e_formato_antigo(self):
+        from dvinv import changes
+        from dvinv.collectors import customization
+        ctx = self.ctx(solution_layers_max=3, solution_layers_columns=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            customization.collect_solution_layers(ctx)
+        self.assertEqual(ctx.stats["solution_layers"]["scope"], 7, "com a opção, a coluna nativa entra")
+        self.assertEqual(ctx.stats["solution_layers"]["queried"], 3)
+        gap = next(g for g in ctx.gaps if g["kind"] == "limitação")
+        self.assertEqual(gap["error"], "ficaram de fora componentes de: Role, SdkMessageProcessingStep, Attribute")
+        self.assertEqual(list(dict.fromkeys(t for t, _ in self.asked)), ["Entity", "SystemForm", "SavedQuery"])
+        # snapshot até a 0.6: {tabela: camadas} — continua gerando o achado, mas não é comparado com o formato novo
+        old = {"solution_layers": {"account": [{"order": 2, "solution": "Active"}, {"order": 1, "solution": "System"}]}}
+        f_old = {f["id"]: f for f in findings_mod.compute(old)}
+        self.assertEqual(f_old["ALM-07"]["evidence"], ["Tabela account"])
+        need = changes.FINDING_FIELDS_BY_ID["ALM-07"]
+        self.assertFalse(changes._has_field(old, *need))
+        self.assertTrue(changes._has_field(ctx.data, *need))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
